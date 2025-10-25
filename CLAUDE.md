@@ -165,3 +165,64 @@ Use `make encode-gcs FILE=path/to/creds.json` to generate base64-encoded GCS cre
 - **Imports**: Auto-sorted by ruff (E, F, I, N, W, UP rules enabled)
 - **Python version**: 3.11+ required
 - **Async functions**: Use `async def` with proper typing (collections.abc.AsyncGenerator, etc.)
+
+## CI/CD
+
+### GitHub Actions Workflows
+
+**CI Pipeline** (`.github/workflows/ci.yml`) - Optimized for minimal runner usage
+- Runs only on PRs to `main` (not on push to avoid duplicate runs)
+- Path filtering: only runs when relevant files change (`.py`, `pyproject.toml`, Docker files)
+- Single Python version (3.11) instead of matrix to save runner time
+- Spins up PostgreSQL and Redis services automatically
+- Executes: format check → lint → type-check (non-blocking) → tests
+- Fast-fail tests (`--maxfail=3`) to stop early on failures
+- Quiet output (`-q`) to reduce log size
+- No coverage uploads to save bandwidth
+- Aggressive caching for uv dependencies
+
+**Claude Code Review** (`.github/workflows/claude-code-review.yml`)
+- Automatically reviews PRs using Claude Code
+- Provides feedback on code quality, bugs, performance, security, and test coverage
+- Uses repository's CLAUDE.md for style guidance
+- Posts review as PR comment
+
+**Claude Interaction** (`.github/workflows/claude.yml`)
+- Triggered by `@claude` mentions in issues or PR comments
+- Allows Claude to interact with issues and PRs
+- Can read CI results to provide context-aware assistance
+
+### Dependabot Configuration
+
+**Automatic Dependency Updates** (`.github/dependabot.yml`) - Optimized for low noise
+- Runs monthly on first Monday at 09:00 (reduced from weekly to minimize CI runs)
+- Limited concurrent PRs: 5 for Python, 3 for Actions/Docker
+- Grouped updates for related packages:
+  - `fastapi`: FastAPI ecosystem (fastapi, pydantic, uvicorn, starlette)
+  - `database`: SQLAlchemy, asyncpg, alembic
+  - `browser`: Playwright, Selenium, undetected-chromedriver
+  - `cloud`: Google Cloud, Redis
+  - `monitoring`: Prometheus, structlog
+  - `testing`: pytest packages
+  - `dev-tools`: ruff, mypy
+- Also updates GitHub Actions and Docker images
+- Commit message prefixes: `deps:`, `ci:`, `docker:`
+
+### Cost Optimization Notes
+
+The CI/CD setup is optimized to minimize GitHub Actions usage:
+- **Single Python version**: Only 3.11 instead of matrix builds (saves ~50% runner time)
+- **Path filtering**: CI only runs when code/config files change (skips docs/markdown-only changes)
+- **No push triggers**: Only runs on PR creation/updates, not on main branch pushes
+- **Fast-fail tests**: Stops after 3 failures to avoid wasting time
+- **Monthly dependencies**: Dependabot runs monthly instead of weekly
+- **Grouped updates**: Multiple related packages updated in single PRs
+- **Limited concurrency**: Max 5 Python PRs, 3 Actions/Docker PRs at once
+- **No coverage uploads**: Saves bandwidth and external service dependencies
+
+### Pre-merge Checklist
+
+Before merging a PR, ensure:
+1. All CI checks pass (format, lint, type-check, tests)
+2. Claude Code Review feedback addressed (if applicable)
+3. No merge conflicts with `main`

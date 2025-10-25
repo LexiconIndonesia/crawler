@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - '.github/workflows/ci.yml'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+  # Only run on PR, not on push to main to avoid duplicate runs
+
+jobs:
+  quality-checks:
+    name: Code Quality & Tests
+    runs-on: ubuntu-latest
+    # Single Python version to save runner time
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: crawler
+          POSTGRES_PASSWORD: crawler
+          POSTGRES_DB: crawler
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Install Playwright browsers
+        run: uv run playwright install chromium --with-deps
+
+      - name: Run all quality checks
+        run: |
+          echo "Running format check..."
+          uv run ruff format --check .
+
+          echo "Running linter..."
+          uv run ruff check .
+
+          echo "Running type checker..."
+          uv run mypy . || true
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://crawler:crawler@localhost:5432/crawler
+          REDIS_URL: redis://localhost:6379/0
+          ENVIRONMENT: testing
+          LOG_LEVEL: WARNING
+        run: uv run pytest --maxfail=3 -q --tb=short

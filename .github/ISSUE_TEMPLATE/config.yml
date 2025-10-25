@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Ask a Question
+    url: https://github.com/LexiconIndonesia/crawler/discussions/new?category=q-a
+    about: Ask questions about using Lexicon Crawler
+  - name: 💡 General Discussion
+    url: https://github.com/LexiconIndonesia/crawler/discussions
+    about: Discuss ideas, show your projects, or chat with the community
+  - name: 📚 Documentation
+    url: https://github.com/LexiconIndonesia/crawler/blob/main/README.md
+    about: Read the documentation and project overview
