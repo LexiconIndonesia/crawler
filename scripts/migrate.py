@@ -104,9 +104,7 @@ async def get_applied_migrations(conn: asyncpg.Connection) -> dict[str, str]:
     Returns:
         Dict mapping version to checksum.
     """
-    rows = await conn.fetch(
-        "SELECT version, checksum FROM schema_migrations ORDER BY version"
-    )
+    rows = await conn.fetch("SELECT version, checksum FROM schema_migrations ORDER BY version")
     return {row["version"]: row["checksum"] for row in rows}
 
 
@@ -268,9 +266,7 @@ async def migrate_down(conn: asyncpg.Connection, steps: int = 1) -> None:
 
         # Clear migrations except the ones we're keeping
         if target_version:
-            await conn.execute(
-                "DELETE FROM schema_migrations WHERE version > $1", target_version
-            )
+            await conn.execute("DELETE FROM schema_migrations WHERE version > $1", target_version)
         else:
             await conn.execute("TRUNCATE schema_migrations")
 

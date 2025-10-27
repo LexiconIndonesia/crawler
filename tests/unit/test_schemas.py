@@ -7,10 +7,10 @@ from pydantic import ValidationError
 
 from crawler.schemas import (
     ContentHashCreate,
+    CrawledPageCreate,
     CrawlJobCancel,
     CrawlJobCreate,
     CrawlJobUpdate,
-    CrawledPageCreate,
     CrawlLogCreate,
     WebsiteCreate,
     WebsiteUpdate,

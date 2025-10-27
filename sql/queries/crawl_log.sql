@@ -8,58 +8,64 @@ INSERT INTO crawl_log (
     context,
     trace_id
 ) VALUES (
-    $1, $2, $3, COALESCE($4, 'INFO'), $5, $6, $7
+    sqlc.arg(job_id),
+    sqlc.arg(website_id),
+    sqlc.arg(step_name),
+    COALESCE(sqlc.arg(log_level), 'INFO')::log_level_enum,
+    sqlc.arg(message),
+    sqlc.arg(context),
+    sqlc.arg(trace_id)
 )
 RETURNING *;
 
 -- name: GetCrawlLogByID :one
 SELECT * FROM crawl_log
-WHERE id = $1;
+WHERE id = sqlc.arg(id);
 
 -- name: ListLogsByJob :many
 SELECT * FROM crawl_log
-WHERE job_id = $1
-    AND log_level = COALESCE($2, log_level)
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT $3 OFFSET $4;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CountLogsByJob :one
 SELECT COUNT(*) FROM crawl_log
-WHERE job_id = $1
-    AND log_level = COALESCE($2, log_level);
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level);
 
 -- name: ListLogsByWebsite :many
 SELECT * FROM crawl_log
-WHERE website_id = $1
-    AND log_level = COALESCE($2, log_level)
+WHERE website_id = sqlc.arg(website_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT $3 OFFSET $4;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CountLogsByWebsite :one
 SELECT COUNT(*) FROM crawl_log
-WHERE website_id = $1
-    AND log_level = COALESCE($2, log_level);
+WHERE website_id = sqlc.arg(website_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level);
 
 -- name: ListLogsByTraceID :many
 SELECT * FROM crawl_log
-WHERE trace_id = $1
+WHERE trace_id = sqlc.arg(trace_id)
 ORDER BY created_at ASC;
 
 -- name: GetLogsByTimeRange :many
 SELECT * FROM crawl_log
-WHERE job_id = $1
-    AND created_at >= $2::TIMESTAMP WITH TIME ZONE
-    AND created_at <= $3::TIMESTAMP WITH TIME ZONE
-    AND log_level = COALESCE($4, log_level)
+WHERE job_id = sqlc.arg(job_id)
+    AND created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE
+    AND created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT $5 OFFSET $6;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: GetErrorLogs :many
 SELECT * FROM crawl_log
-WHERE job_id = $1
+WHERE job_id = sqlc.arg(job_id)
     AND log_level IN ('ERROR', 'CRITICAL')
 ORDER BY created_at DESC
-LIMIT $2;
+LIMIT sqlc.arg(limit_count);
 
 -- name: DeleteOldLogs :exec
 DELETE FROM crawl_log
@@ -67,7 +73,7 @@ WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '30 days';
 
 -- name: DeleteLogsByJob :exec
 DELETE FROM crawl_log
-WHERE job_id = $1;
+WHERE job_id = sqlc.arg(job_id);
 
 -- name: GetLogStatsByJob :one
 SELECT
@@ -78,4 +84,4 @@ SELECT
     COUNT(*) FILTER (WHERE log_level = 'ERROR') as error_count,
     COUNT(*) FILTER (WHERE log_level = 'CRITICAL') as critical_count
 FROM crawl_log
-WHERE job_id = $1;
+WHERE job_id = sqlc.arg(job_id);

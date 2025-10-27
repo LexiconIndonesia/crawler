@@ -11,9 +11,7 @@ class WebsiteBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255, description="Unique website name")
     base_url: HttpUrl = Field(..., description="Base URL of the website")
-    config: dict[str, Any] = Field(
-        default_factory=dict, description="Website crawl configuration"
-    )
+    config: dict[str, Any] = Field(default_factory=dict, description="Website crawl configuration")
     status: str = Field(default="active", description="Website status")
     created_by: str | None = Field(None, max_length=255, description="User who created")
 

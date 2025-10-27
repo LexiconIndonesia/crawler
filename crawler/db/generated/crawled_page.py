@@ -46,7 +46,17 @@ INSERT INTO crawled_page (
     gcs_documents,
     crawled_at
 ) VALUES (
-    :p1, :p2, :p3, :p4, :p5, :p6, :p7, :p8, :p9, :p10, :p11
+    :p1,
+    :p2,
+    :p3,
+    :p4,
+    :p5,
+    :p6,
+    :p7,
+    :p8,
+    :p9,
+    :p10,
+    :p11
 )
 RETURNING id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at
 """
@@ -84,7 +94,7 @@ SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_con
 WHERE is_duplicate = true
     AND website_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p2 OFFSET :p3
+LIMIT :p3 OFFSET :p2
 """
 
 
@@ -124,7 +134,7 @@ LIST_PAGES_BY_JOB = """-- name: list_pages_by_job \\:many
 SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at FROM crawled_page
 WHERE job_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p2 OFFSET :p3
+LIMIT :p3 OFFSET :p2
 """
 
 
@@ -132,7 +142,7 @@ LIST_PAGES_BY_WEBSITE = """-- name: list_pages_by_website \\:many
 SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at FROM crawled_page
 WHERE website_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p2 OFFSET :p3
+LIMIT :p3 OFFSET :p2
 """
 
 
@@ -140,9 +150,9 @@ MARK_PAGE_AS_DUPLICATE = """-- name: mark_page_as_duplicate \\:one
 UPDATE crawled_page
 SET
     is_duplicate = true,
-    duplicate_of = :p2,
-    similarity_score = :p3
-WHERE id = :p1
+    duplicate_of = :p1,
+    similarity_score = :p2
+WHERE id = :p3
 RETURNING id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at
 """
 
@@ -150,12 +160,12 @@ RETURNING id, website_id, job_id, url, url_hash, content_hash, title, extracted_
 UPDATE_PAGE_CONTENT = """-- name: update_page_content \\:one
 UPDATE crawled_page
 SET
-    title = COALESCE(:p2, title),
-    extracted_content = COALESCE(:p3, extracted_content),
-    metadata = COALESCE(:p4, metadata),
-    gcs_html_path = COALESCE(:p5, gcs_html_path),
-    gcs_documents = COALESCE(:p6, gcs_documents)
-WHERE id = :p1
+    title = COALESCE(:p1, title),
+    extracted_content = COALESCE(:p2, extracted_content),
+    metadata = COALESCE(:p3, metadata),
+    gcs_html_path = COALESCE(:p4, gcs_html_path),
+    gcs_documents = COALESCE(:p5, gcs_documents)
+WHERE id = :p6
 RETURNING id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at
 """
 
@@ -243,8 +253,8 @@ class AsyncQuerier:
             created_at=row[15],
         )
 
-    async def get_duplicate_pages(self, *, website_id: uuid.UUID, limit: int, offset: int) -> AsyncIterator[models.CrawledPage]:
-        result = await self._conn.stream(sqlalchemy.text(GET_DUPLICATE_PAGES), {"p1": website_id, "p2": limit, "p3": offset})
+    async def get_duplicate_pages(self, *, website_id: uuid.UUID, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawledPage]:
+        result = await self._conn.stream(sqlalchemy.text(GET_DUPLICATE_PAGES), {"p1": website_id, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.CrawledPage(
                 id=row[0],
@@ -322,8 +332,8 @@ class AsyncQuerier:
             avg_similarity_score=row[3],
         )
 
-    async def list_pages_by_job(self, *, job_id: uuid.UUID, limit: int, offset: int) -> AsyncIterator[models.CrawledPage]:
-        result = await self._conn.stream(sqlalchemy.text(LIST_PAGES_BY_JOB), {"p1": job_id, "p2": limit, "p3": offset})
+    async def list_pages_by_job(self, *, job_id: uuid.UUID, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawledPage]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_PAGES_BY_JOB), {"p1": job_id, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.CrawledPage(
                 id=row[0],
@@ -344,8 +354,8 @@ class AsyncQuerier:
                 created_at=row[15],
             )
 
-    async def list_pages_by_website(self, *, website_id: uuid.UUID, limit: int, offset: int) -> AsyncIterator[models.CrawledPage]:
-        result = await self._conn.stream(sqlalchemy.text(LIST_PAGES_BY_WEBSITE), {"p1": website_id, "p2": limit, "p3": offset})
+    async def list_pages_by_website(self, *, website_id: uuid.UUID, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawledPage]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_PAGES_BY_WEBSITE), {"p1": website_id, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.CrawledPage(
                 id=row[0],
@@ -366,8 +376,8 @@ class AsyncQuerier:
                 created_at=row[15],
             )
 
-    async def mark_page_as_duplicate(self, *, id: uuid.UUID, duplicate_of: Optional[uuid.UUID], similarity_score: Optional[int]) -> Optional[models.CrawledPage]:
-        row = (await self._conn.execute(sqlalchemy.text(MARK_PAGE_AS_DUPLICATE), {"p1": id, "p2": duplicate_of, "p3": similarity_score})).first()
+    async def mark_page_as_duplicate(self, *, duplicate_of: Optional[uuid.UUID], similarity_score: Optional[int], id: uuid.UUID) -> Optional[models.CrawledPage]:
+        row = (await self._conn.execute(sqlalchemy.text(MARK_PAGE_AS_DUPLICATE), {"p1": duplicate_of, "p2": similarity_score, "p3": id})).first()
         if row is None:
             return None
         return models.CrawledPage(
@@ -389,14 +399,14 @@ class AsyncQuerier:
             created_at=row[15],
         )
 
-    async def update_page_content(self, *, id: uuid.UUID, title: Optional[str], extracted_content: Optional[str], metadata: Optional[Any], gcs_html_path: Optional[str], gcs_documents: Optional[Any]) -> Optional[models.CrawledPage]:
+    async def update_page_content(self, *, title: Optional[str], extracted_content: Optional[str], metadata: Optional[Any], gcs_html_path: Optional[str], gcs_documents: Optional[Any], id: uuid.UUID) -> Optional[models.CrawledPage]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_PAGE_CONTENT), {
-            "p1": id,
-            "p2": title,
-            "p3": extracted_content,
-            "p4": metadata,
-            "p5": gcs_html_path,
-            "p6": gcs_documents,
+            "p1": title,
+            "p2": extracted_content,
+            "p3": metadata,
+            "p4": gcs_html_path,
+            "p5": gcs_documents,
+            "p6": id,
         })).first()
         if row is None:
             return None

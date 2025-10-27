@@ -1,6 +1,7 @@
 """API routes."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from config import get_settings
+from crawler.cache import get_redis
 from crawler.db import get_db
 
 router = APIRouter()
@@ -27,9 +29,12 @@ async def root() -> dict[str, str]:
 
 
 @router.get("/health")
-async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str | dict[str, str]]:
+async def health(
+    db: AsyncSession = Depends(get_db),
+    redis_client: redis.Redis = Depends(get_redis),
+) -> dict[str, Any]:
     """Health check endpoint with database and Redis connectivity checks."""
-    health_status = {
+    health_status: dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.now(UTC).isoformat(),
         "checks": {},
@@ -44,20 +49,12 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str | dict[str
         health_status["checks"]["database"] = f"error: {str(e)}"
 
     # Check Redis connection
-    settings = get_settings()
-    redis_client = None
     try:
-        redis_client = redis.from_url(
-            str(settings.redis_url), encoding="utf-8", decode_responses=True
-        )
         await redis_client.ping()
         health_status["checks"]["redis"] = "connected"
     except Exception as e:
         health_status["status"] = "unhealthy"
         health_status["checks"]["redis"] = f"error: {str(e)}"
-    finally:
-        if redis_client:
-            await redis_client.close()
 
     return health_status
 

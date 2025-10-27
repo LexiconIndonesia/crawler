@@ -5,7 +5,10 @@ INSERT INTO content_hash (
     occurrence_count,
     last_seen_at
 ) VALUES (
-    $1, $2, 1, CURRENT_TIMESTAMP
+    sqlc.arg(content_hash),
+    sqlc.arg(first_seen_page_id),
+    1,
+    CURRENT_TIMESTAMP
 )
 ON CONFLICT (content_hash)
 DO UPDATE SET
@@ -15,18 +18,18 @@ RETURNING *;
 
 -- name: GetContentHash :one
 SELECT * FROM content_hash
-WHERE content_hash = $1;
+WHERE content_hash = sqlc.arg(content_hash);
 
 -- name: ListContentHashes :many
 SELECT * FROM content_hash
 ORDER BY occurrence_count DESC
-LIMIT $1 OFFSET $2;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: GetMostCommonHashes :many
 SELECT * FROM content_hash
-WHERE occurrence_count > $1
+WHERE occurrence_count > sqlc.arg(min_count)
 ORDER BY occurrence_count DESC
-LIMIT $2;
+LIMIT sqlc.arg(limit_count);
 
 -- name: GetContentHashStats :one
 SELECT

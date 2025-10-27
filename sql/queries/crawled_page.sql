@@ -12,80 +12,90 @@ INSERT INTO crawled_page (
     gcs_documents,
     crawled_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+    sqlc.arg(website_id),
+    sqlc.arg(job_id),
+    sqlc.arg(url),
+    sqlc.arg(url_hash),
+    sqlc.arg(content_hash),
+    sqlc.arg(title),
+    sqlc.arg(extracted_content),
+    sqlc.arg(metadata),
+    sqlc.arg(gcs_html_path),
+    sqlc.arg(gcs_documents),
+    sqlc.arg(crawled_at)
 )
 RETURNING *;
 
 -- name: GetCrawledPageByID :one
 SELECT * FROM crawled_page
-WHERE id = $1;
+WHERE id = sqlc.arg(id);
 
 -- name: GetPageByURLHash :one
 SELECT * FROM crawled_page
-WHERE website_id = $1 AND url_hash = $2;
+WHERE website_id = sqlc.arg(website_id) AND url_hash = sqlc.arg(url_hash);
 
 -- name: GetPageByContentHash :one
 SELECT * FROM crawled_page
-WHERE content_hash = $1
+WHERE content_hash = sqlc.arg(content_hash)
 ORDER BY crawled_at ASC
 LIMIT 1;
 
 -- name: ListPagesByJob :many
 SELECT * FROM crawled_page
-WHERE job_id = $1
+WHERE job_id = sqlc.arg(job_id)
 ORDER BY crawled_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CountPagesByJob :one
 SELECT COUNT(*) FROM crawled_page
-WHERE job_id = $1;
+WHERE job_id = sqlc.arg(job_id);
 
 -- name: ListPagesByWebsite :many
 SELECT * FROM crawled_page
-WHERE website_id = $1
+WHERE website_id = sqlc.arg(website_id)
 ORDER BY crawled_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CountPagesByWebsite :one
 SELECT COUNT(*) FROM crawled_page
-WHERE website_id = $1;
+WHERE website_id = sqlc.arg(website_id);
 
 -- name: MarkPageAsDuplicate :one
 UPDATE crawled_page
 SET
     is_duplicate = true,
-    duplicate_of = $2,
-    similarity_score = $3
-WHERE id = $1
+    duplicate_of = sqlc.arg(duplicate_of),
+    similarity_score = sqlc.arg(similarity_score)
+WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: GetDuplicatePages :many
 SELECT * FROM crawled_page
 WHERE is_duplicate = true
-    AND website_id = $1
+    AND website_id = sqlc.arg(website_id)
 ORDER BY crawled_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CountDuplicatePages :one
 SELECT COUNT(*) FROM crawled_page
 WHERE is_duplicate = true
-    AND website_id = $1;
+    AND website_id = sqlc.arg(website_id);
 
 -- name: UpdatePageContent :one
 UPDATE crawled_page
 SET
-    title = COALESCE($2, title),
-    extracted_content = COALESCE($3, extracted_content),
-    metadata = COALESCE($4, metadata),
-    gcs_html_path = COALESCE($5, gcs_html_path),
-    gcs_documents = COALESCE($6, gcs_documents)
-WHERE id = $1
+    title = COALESCE(sqlc.arg(title), title),
+    extracted_content = COALESCE(sqlc.arg(extracted_content), extracted_content),
+    metadata = COALESCE(sqlc.arg(metadata), metadata),
+    gcs_html_path = COALESCE(sqlc.arg(gcs_html_path), gcs_html_path),
+    gcs_documents = COALESCE(sqlc.arg(gcs_documents), gcs_documents)
+WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: DeleteOldPages :exec
 DELETE FROM crawled_page
 WHERE crawled_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
-    AND website_id = $1;
+    AND website_id = sqlc.arg(website_id);
 
 -- name: GetPageStats :one
 SELECT
@@ -94,4 +104,4 @@ SELECT
     COUNT(*) FILTER (WHERE is_duplicate = true) as duplicate_pages,
     AVG(similarity_score) FILTER (WHERE is_duplicate = true) as avg_similarity_score
 FROM crawled_page
-WHERE website_id = $1;
+WHERE website_id = sqlc.arg(website_id);

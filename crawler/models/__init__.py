@@ -7,9 +7,9 @@ All models are generated from SQL queries in sql/queries/*.sql.
 # Re-export sqlc-generated models for convenience
 from crawler.db.generated.models import (
     ContentHash,
+    CrawledPage,
     CrawlJob,
     CrawlLog,
-    CrawledPage,
     JobTypeEnum,
     LogLevelEnum,
     StatusEnum,

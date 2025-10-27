@@ -37,7 +37,13 @@ INSERT INTO crawl_log (
     context,
     trace_id
 ) VALUES (
-    :p1, :p2, :p3, COALESCE(:p4, 'INFO'), :p5, :p6, :p7
+    :p1,
+    :p2,
+    :p3,
+    COALESCE(:p4, 'INFO')\\:\\:log_level_enum,
+    :p5,
+    :p6,
+    :p7
 )
 RETURNING id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at
 """
@@ -99,7 +105,7 @@ WHERE job_id = :p1
     AND created_at <= :p3\\:\\:TIMESTAMP WITH TIME ZONE
     AND log_level = COALESCE(:p4, log_level)
 ORDER BY created_at DESC
-LIMIT :p5 OFFSET :p6
+LIMIT :p6 OFFSET :p5
 """
 
 
@@ -108,7 +114,7 @@ SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id,
 WHERE job_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
-LIMIT :p3 OFFSET :p4
+LIMIT :p4 OFFSET :p3
 """
 
 
@@ -124,7 +130,7 @@ SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id,
 WHERE website_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
-LIMIT :p3 OFFSET :p4
+LIMIT :p4 OFFSET :p3
 """
 
 
@@ -144,12 +150,12 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_crawl_log(self, *, job_id: uuid.UUID, website_id: uuid.UUID, step_name: Optional[str], dollar_4: Optional[Any], message: str, context: Optional[Any], trace_id: Optional[uuid.UUID]) -> Optional[models.CrawlLog]:
+    async def create_crawl_log(self, *, job_id: uuid.UUID, website_id: uuid.UUID, step_name: Optional[str], log_level: models.LogLevelEnum, message: str, context: Optional[Any], trace_id: Optional[uuid.UUID]) -> Optional[models.CrawlLog]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_CRAWL_LOG), {
             "p1": job_id,
             "p2": website_id,
             "p3": step_name,
-            "p4": dollar_4,
+            "p4": log_level,
             "p5": message,
             "p6": context,
             "p7": trace_id,
@@ -190,8 +196,8 @@ class AsyncQuerier:
             created_at=row[8],
         )
 
-    async def get_error_logs(self, *, job_id: uuid.UUID, limit: int) -> AsyncIterator[models.CrawlLog]:
-        result = await self._conn.stream(sqlalchemy.text(GET_ERROR_LOGS), {"p1": job_id, "p2": limit})
+    async def get_error_logs(self, *, job_id: uuid.UUID, limit_count: int) -> AsyncIterator[models.CrawlLog]:
+        result = await self._conn.stream(sqlalchemy.text(GET_ERROR_LOGS), {"p1": job_id, "p2": limit_count})
         async for row in result:
             yield models.CrawlLog(
                 id=row[0],
@@ -218,14 +224,14 @@ class AsyncQuerier:
             critical_count=row[5],
         )
 
-    async def get_logs_by_time_range(self, *, job_id: uuid.UUID, dollar_2: datetime.datetime, dollar_3: datetime.datetime, log_level: models.LogLevelEnum, limit: int, offset: int) -> AsyncIterator[models.CrawlLog]:
+    async def get_logs_by_time_range(self, *, job_id: uuid.UUID, start_time: datetime.datetime, end_time: datetime.datetime, log_level: models.LogLevelEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
         result = await self._conn.stream(sqlalchemy.text(GET_LOGS_BY_TIME_RANGE), {
             "p1": job_id,
-            "p2": dollar_2,
-            "p3": dollar_3,
+            "p2": start_time,
+            "p3": end_time,
             "p4": log_level,
-            "p5": limit,
-            "p6": offset,
+            "p5": offset_count,
+            "p6": limit_count,
         })
         async for row in result:
             yield models.CrawlLog(
@@ -240,12 +246,12 @@ class AsyncQuerier:
                 created_at=row[8],
             )
 
-    async def list_logs_by_job(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, limit: int, offset: int) -> AsyncIterator[models.CrawlLog]:
+    async def list_logs_by_job(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
         result = await self._conn.stream(sqlalchemy.text(LIST_LOGS_BY_JOB), {
             "p1": job_id,
             "p2": log_level,
-            "p3": limit,
-            "p4": offset,
+            "p3": offset_count,
+            "p4": limit_count,
         })
         async for row in result:
             yield models.CrawlLog(
@@ -275,12 +281,12 @@ class AsyncQuerier:
                 created_at=row[8],
             )
 
-    async def list_logs_by_website(self, *, website_id: uuid.UUID, log_level: models.LogLevelEnum, limit: int, offset: int) -> AsyncIterator[models.CrawlLog]:
+    async def list_logs_by_website(self, *, website_id: uuid.UUID, log_level: models.LogLevelEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
         result = await self._conn.stream(sqlalchemy.text(LIST_LOGS_BY_WEBSITE), {
             "p1": website_id,
             "p2": log_level,
-            "p3": limit,
-            "p4": offset,
+            "p3": offset_count,
+            "p4": limit_count,
         })
         async for row in result:
             yield models.CrawlLog(

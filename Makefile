@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks
+.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks
 
 # Default target
 .DEFAULT_GOAL := help
@@ -115,6 +115,16 @@ type-check: ## Run type checker
 
 check: format lint type-check ## Run all code quality checks
 	@echo "$(GREEN)✅ All checks passed$(NC)"
+
+pre-commit: ## Run auto-fixes and checks before commit (format + lint-fix + type-check)
+	@echo "$(BLUE)🔧 Running pre-commit checks with auto-fix...$(NC)"
+	@echo "$(BLUE)1/3 Formatting code...$(NC)"
+	@$(RUFF) format .
+	@echo "$(BLUE)2/3 Auto-fixing linting issues...$(NC)"
+	@$(RUFF) check --fix .
+	@echo "$(BLUE)3/3 Running type checker...$(NC)"
+	@$(MYPY) crawler/
+	@echo "$(GREEN)✅ Pre-commit checks complete!$(NC)"
 
 ##@ Docker
 

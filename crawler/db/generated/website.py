@@ -25,7 +25,11 @@ INSERT INTO website (
     created_by,
     status
 ) VALUES (
-    :p1, :p2, :p3, :p4, COALESCE(:p5, 'active'\\:\\:status_enum)
+    :p1,
+    :p2,
+    :p3,
+    :p4,
+    COALESCE(:p5, 'active'\\:\\:status_enum)
 )
 RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
 """
@@ -53,19 +57,19 @@ LIST_WEBSITES = """-- name: list_websites \\:many
 SELECT id, name, base_url, config, status, created_at, updated_at, created_by FROM website
 WHERE status = COALESCE(:p1, status)
 ORDER BY created_at DESC
-LIMIT :p2 OFFSET :p3
+LIMIT :p3 OFFSET :p2
 """
 
 
 UPDATE_WEBSITE = """-- name: update_website \\:one
 UPDATE website
 SET
-    name = COALESCE(:p2, name),
-    base_url = COALESCE(:p3, base_url),
-    config = COALESCE(:p4, config),
-    status = COALESCE(:p5, status),
+    name = COALESCE(:p1, name),
+    base_url = COALESCE(:p2, base_url),
+    config = COALESCE(:p3, config),
+    status = COALESCE(:p4, status),
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p1
+WHERE id = :p5
 RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
 """
 
@@ -73,9 +77,9 @@ RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
 UPDATE_WEBSITE_STATUS = """-- name: update_website_status \\:one
 UPDATE website
 SET
-    status = :p2,
+    status = :p1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p1
+WHERE id = :p2
 RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
 """
 
@@ -90,13 +94,13 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_website(self, *, name: str, base_url: str, config: Any, created_by: Optional[str], dollar_5: Optional[Any]) -> Optional[models.Website]:
+    async def create_website(self, *, name: str, base_url: str, config: Any, created_by: Optional[str], status: Optional[Any]) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_WEBSITE), {
             "p1": name,
             "p2": base_url,
             "p3": config,
             "p4": created_by,
-            "p5": dollar_5,
+            "p5": status,
         })).first()
         if row is None:
             return None
@@ -144,8 +148,8 @@ class AsyncQuerier:
             created_by=row[7],
         )
 
-    async def list_websites(self, *, status: models.StatusEnum, limit: int, offset: int) -> AsyncIterator[models.Website]:
-        result = await self._conn.stream(sqlalchemy.text(LIST_WEBSITES), {"p1": status, "p2": limit, "p3": offset})
+    async def list_websites(self, *, status: models.StatusEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.Website]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_WEBSITES), {"p1": status, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.Website(
                 id=row[0],
@@ -158,13 +162,13 @@ class AsyncQuerier:
                 created_by=row[7],
             )
 
-    async def update_website(self, *, id: uuid.UUID, name: str, base_url: str, config: Any, status: models.StatusEnum) -> Optional[models.Website]:
+    async def update_website(self, *, name: str, base_url: str, config: Any, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE), {
-            "p1": id,
-            "p2": name,
-            "p3": base_url,
-            "p4": config,
-            "p5": status,
+            "p1": name,
+            "p2": base_url,
+            "p3": config,
+            "p4": status,
+            "p5": id,
         })).first()
         if row is None:
             return None
@@ -179,8 +183,8 @@ class AsyncQuerier:
             created_by=row[7],
         )
 
-    async def update_website_status(self, *, id: uuid.UUID, status: models.StatusEnum) -> Optional[models.Website]:
-        row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE_STATUS), {"p1": id, "p2": status})).first()
+    async def update_website_status(self, *, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
+        row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE_STATUS), {"p1": status, "p2": id})).first()
         if row is None:
             return None
         return models.Website(

@@ -8,10 +8,11 @@ from datetime import UTC, datetime
 
 import pytest
 
+from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import (
     ContentHashRepository,
-    CrawlJobRepository,
     CrawledPageRepository,
+    CrawlJobRepository,
     WebsiteRepository,
 )
 
@@ -47,9 +48,7 @@ class TestWebsiteRepository:
 
     async def test_get_website_by_name(self, website_repo: WebsiteRepository) -> None:
         """Test getting website by name."""
-        await website_repo.create(
-            name="test-site-3", base_url="https://example3.com", config={}
-        )
+        await website_repo.create(name="test-site-3", base_url="https://example3.com", config={})
 
         result = await website_repo.get_by_name("test-site-3")
         assert result is not None
@@ -115,14 +114,14 @@ class TestCrawlJobRepository:
         result = await crawl_job_repo.create(
             website_id=site.id,
             seed_url="https://test.com/page1",
-            job_type="one_time",
+            job_type=JobTypeEnum.ONE_TIME,
             priority=7,
         )
         assert result is not None
         assert result.website_id == site.id
         assert result.seed_url == "https://test.com/page1"
         assert result.priority == 7
-        assert result.status == "pending"
+        assert result.status == StatusEnum.PENDING
 
     async def test_get_crawl_job_by_id(
         self, website_repo: WebsiteRepository, crawl_job_repo: CrawlJobRepository
@@ -133,9 +132,7 @@ class TestCrawlJobRepository:
         )
         assert site is not None
 
-        created = await crawl_job_repo.create(
-            website_id=site.id, seed_url="https://test.com/page2"
-        )
+        created = await crawl_job_repo.create(website_id=site.id, seed_url="https://test.com/page2")
         assert created is not None
 
         result = await crawl_job_repo.get_by_id(created.id)
@@ -151,14 +148,12 @@ class TestCrawlJobRepository:
         )
         assert site is not None
 
-        created = await crawl_job_repo.create(
-            website_id=site.id, seed_url="https://test.com/page3"
-        )
+        created = await crawl_job_repo.create(website_id=site.id, seed_url="https://test.com/page3")
         assert created is not None
 
-        result = await crawl_job_repo.update_status(created.id, status="running")
+        result = await crawl_job_repo.update_status(created.id, status=StatusEnum.RUNNING)
         assert result is not None
-        assert result.status == "running"
+        assert result.status == StatusEnum.RUNNING
         assert result.started_at is not None
 
     async def test_update_job_progress(
@@ -170,9 +165,7 @@ class TestCrawlJobRepository:
         )
         assert site is not None
 
-        created = await crawl_job_repo.create(
-            website_id=site.id, seed_url="https://test.com/page4"
-        )
+        created = await crawl_job_repo.create(website_id=site.id, seed_url="https://test.com/page4")
         assert created is not None
 
         result = await crawl_job_repo.update_progress(

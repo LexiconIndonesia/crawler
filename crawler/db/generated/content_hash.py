@@ -52,7 +52,7 @@ LIMIT :p2
 LIST_CONTENT_HASHES = """-- name: list_content_hashes \\:many
 SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at FROM content_hash
 ORDER BY occurrence_count DESC
-LIMIT :p1 OFFSET :p2
+LIMIT :p2 OFFSET :p1
 """
 
 
@@ -63,7 +63,10 @@ INSERT INTO content_hash (
     occurrence_count,
     last_seen_at
 ) VALUES (
-    :p1, :p2, 1, CURRENT_TIMESTAMP
+    :p1,
+    :p2,
+    1,
+    CURRENT_TIMESTAMP
 )
 ON CONFLICT (content_hash)
 DO UPDATE SET
@@ -103,8 +106,8 @@ class AsyncQuerier:
             max_occurrences=row[3],
         )
 
-    async def get_most_common_hashes(self, *, occurrence_count: int, limit: int) -> AsyncIterator[models.ContentHash]:
-        result = await self._conn.stream(sqlalchemy.text(GET_MOST_COMMON_HASHES), {"p1": occurrence_count, "p2": limit})
+    async def get_most_common_hashes(self, *, min_count: int, limit_count: int) -> AsyncIterator[models.ContentHash]:
+        result = await self._conn.stream(sqlalchemy.text(GET_MOST_COMMON_HASHES), {"p1": min_count, "p2": limit_count})
         async for row in result:
             yield models.ContentHash(
                 content_hash=row[0],
@@ -114,8 +117,8 @@ class AsyncQuerier:
                 created_at=row[4],
             )
 
-    async def list_content_hashes(self, *, limit: int, offset: int) -> AsyncIterator[models.ContentHash]:
-        result = await self._conn.stream(sqlalchemy.text(LIST_CONTENT_HASHES), {"p1": limit, "p2": offset})
+    async def list_content_hashes(self, *, offset_count: int, limit_count: int) -> AsyncIterator[models.ContentHash]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_CONTENT_HASHES), {"p1": offset_count, "p2": limit_count})
         async for row in result:
             yield models.ContentHash(
                 content_hash=row[0],

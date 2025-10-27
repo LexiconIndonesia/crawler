@@ -6,7 +6,7 @@ Uses sqlc for generating type-safe Python code from SQL queries.
 ## Usage
 
 ```python
-from crawler.db import get_db
+from crawler.db import get_db, StatusEnum
 from crawler.db.repositories import WebsiteRepository
 
 async with get_db() as session:
@@ -15,15 +15,17 @@ async with get_db() as session:
         website = await repo.create(
             name="example",
             base_url="https://example.com",
-            config={}
+            config={},
+            status=StatusEnum.ACTIVE
         )
 ```
 """
 
+from .generated.models import JobTypeEnum, LogLevelEnum, StatusEnum
 from .repositories import (
     ContentHashRepository,
-    CrawlJobRepository,
     CrawledPageRepository,
+    CrawlJobRepository,
     CrawlLogRepository,
     WebsiteRepository,
 )
@@ -39,4 +41,8 @@ __all__ = [
     "CrawledPageRepository",
     "ContentHashRepository",
     "CrawlLogRepository",
+    # Enum types
+    "StatusEnum",
+    "JobTypeEnum",
+    "LogLevelEnum",
 ]

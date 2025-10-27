@@ -17,10 +17,10 @@ UPDATE crawl_job
 SET
     status = 'cancelled',
     cancelled_at = CURRENT_TIMESTAMP,
-    cancelled_by = :p2,
-    cancellation_reason = :p3,
+    cancelled_by = :p1,
+    cancellation_reason = :p2,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p1
+WHERE id = :p3
 RETURNING id, website_id, job_type, seed_url, embedded_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
 
@@ -45,8 +45,15 @@ INSERT INTO crawl_job (
     metadata,
     variables
 ) VALUES (
-    :p1, COALESCE(:p2, 'one_time'\\:\\:job_type_enum), :p3, :p4, COALESCE(:p5, 5),
-    :p6, COALESCE(:p7, 3), :p8, :p9
+    :p1,
+    COALESCE(:p2, 'one_time'\\:\\:job_type_enum),
+    :p3,
+    :p4,
+    COALESCE(:p5, 5),
+    :p6,
+    COALESCE(:p7, 3),
+    :p8,
+    :p9
 )
 RETURNING id, website_id, job_type, seed_url, embedded_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
@@ -78,7 +85,7 @@ GET_JOBS_BY_WEBSITE = """-- name: get_jobs_by_website \\:many
 SELECT id, website_id, job_type, seed_url, embedded_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at FROM crawl_job
 WHERE website_id = :p1
 ORDER BY created_at DESC
-LIMIT :p2 OFFSET :p3
+LIMIT :p3 OFFSET :p2
 """
 
 
@@ -115,16 +122,16 @@ WHERE
     AND status = COALESCE(:p2, status)
     AND job_type = COALESCE(:p3, job_type)
 ORDER BY priority DESC, created_at ASC
-LIMIT :p4 OFFSET :p5
+LIMIT :p5 OFFSET :p4
 """
 
 
 UPDATE_CRAWL_JOB_PROGRESS = """-- name: update_crawl_job_progress \\:one
 UPDATE crawl_job
 SET
-    progress = :p2,
+    progress = :p1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p1
+WHERE id = :p2
 RETURNING id, website_id, job_type, seed_url, embedded_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
 
@@ -132,12 +139,12 @@ RETURNING id, website_id, job_type, seed_url, embedded_config, status, priority,
 UPDATE_CRAWL_JOB_STATUS = """-- name: update_crawl_job_status \\:one
 UPDATE crawl_job
 SET
-    status = :p2\\:\\:status_enum,
-    started_at = CASE WHEN :p2\\:\\:status_enum = 'running'\\:\\:status_enum THEN COALESCE(:p3, CURRENT_TIMESTAMP) ELSE started_at END,
-    completed_at = CASE WHEN :p2\\:\\:status_enum IN ('completed'\\:\\:status_enum, 'failed'\\:\\:status_enum, 'cancelled'\\:\\:status_enum) THEN COALESCE(:p4, CURRENT_TIMESTAMP) ELSE completed_at END,
-    error_message = :p5,
+    status = :p1\\:\\:status_enum,
+    started_at = CASE WHEN :p1\\:\\:status_enum = 'running'\\:\\:status_enum THEN COALESCE(:p2, CURRENT_TIMESTAMP) ELSE started_at END,
+    completed_at = CASE WHEN :p1\\:\\:status_enum IN ('completed'\\:\\:status_enum, 'failed'\\:\\:status_enum, 'cancelled'\\:\\:status_enum) THEN COALESCE(:p3, CURRENT_TIMESTAMP) ELSE completed_at END,
+    error_message = :p4,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p1
+WHERE id = :p5
 RETURNING id, website_id, job_type, seed_url, embedded_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
 
@@ -146,8 +153,8 @@ class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
 
-    async def cancel_crawl_job(self, *, id: uuid.UUID, cancelled_by: Optional[str], cancellation_reason: Optional[str]) -> Optional[models.CrawlJob]:
-        row = (await self._conn.execute(sqlalchemy.text(CANCEL_CRAWL_JOB), {"p1": id, "p2": cancelled_by, "p3": cancellation_reason})).first()
+    async def cancel_crawl_job(self, *, cancelled_by: Optional[str], cancellation_reason: Optional[str], id: uuid.UUID) -> Optional[models.CrawlJob]:
+        row = (await self._conn.execute(sqlalchemy.text(CANCEL_CRAWL_JOB), {"p1": cancelled_by, "p2": cancellation_reason, "p3": id})).first()
         if row is None:
             return None
         return models.CrawlJob(
@@ -180,15 +187,15 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_crawl_job(self, *, website_id: uuid.UUID, dollar_2: Optional[Any], seed_url: str, embedded_config: Optional[Any], dollar_5: Optional[Any], scheduled_at: Optional[datetime.datetime], dollar_7: Optional[Any], metadata: Optional[Any], variables: Optional[Any]) -> Optional[models.CrawlJob]:
+    async def create_crawl_job(self, *, website_id: uuid.UUID, job_type: Optional[Any], seed_url: str, embedded_config: Optional[Any], priority: Optional[Any], scheduled_at: Optional[datetime.datetime], max_retries: Optional[Any], metadata: Optional[Any], variables: Optional[Any]) -> Optional[models.CrawlJob]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_CRAWL_JOB), {
             "p1": website_id,
-            "p2": dollar_2,
+            "p2": job_type,
             "p3": seed_url,
             "p4": embedded_config,
-            "p5": dollar_5,
+            "p5": priority,
             "p6": scheduled_at,
-            "p7": dollar_7,
+            "p7": max_retries,
             "p8": metadata,
             "p9": variables,
         })).first()
@@ -249,8 +256,8 @@ class AsyncQuerier:
             updated_at=row[20],
         )
 
-    async def get_failed_jobs_for_retry(self, *, limit: int) -> AsyncIterator[models.CrawlJob]:
-        result = await self._conn.stream(sqlalchemy.text(GET_FAILED_JOBS_FOR_RETRY), {"p1": limit})
+    async def get_failed_jobs_for_retry(self, *, limit_count: int) -> AsyncIterator[models.CrawlJob]:
+        result = await self._conn.stream(sqlalchemy.text(GET_FAILED_JOBS_FOR_RETRY), {"p1": limit_count})
         async for row in result:
             yield models.CrawlJob(
                 id=row[0],
@@ -276,8 +283,8 @@ class AsyncQuerier:
                 updated_at=row[20],
             )
 
-    async def get_jobs_by_website(self, *, website_id: uuid.UUID, limit: int, offset: int) -> AsyncIterator[models.CrawlJob]:
-        result = await self._conn.stream(sqlalchemy.text(GET_JOBS_BY_WEBSITE), {"p1": website_id, "p2": limit, "p3": offset})
+    async def get_jobs_by_website(self, *, website_id: uuid.UUID, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlJob]:
+        result = await self._conn.stream(sqlalchemy.text(GET_JOBS_BY_WEBSITE), {"p1": website_id, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.CrawlJob(
                 id=row[0],
@@ -303,8 +310,8 @@ class AsyncQuerier:
                 updated_at=row[20],
             )
 
-    async def get_pending_jobs(self, *, limit: int) -> AsyncIterator[models.CrawlJob]:
-        result = await self._conn.stream(sqlalchemy.text(GET_PENDING_JOBS), {"p1": limit})
+    async def get_pending_jobs(self, *, limit_count: int) -> AsyncIterator[models.CrawlJob]:
+        result = await self._conn.stream(sqlalchemy.text(GET_PENDING_JOBS), {"p1": limit_count})
         async for row in result:
             yield models.CrawlJob(
                 id=row[0],
@@ -385,13 +392,13 @@ class AsyncQuerier:
             updated_at=row[20],
         )
 
-    async def list_crawl_jobs(self, *, website_id: uuid.UUID, status: models.StatusEnum, job_type: models.JobTypeEnum, limit: int, offset: int) -> AsyncIterator[models.CrawlJob]:
+    async def list_crawl_jobs(self, *, website_id: uuid.UUID, status: models.StatusEnum, job_type: models.JobTypeEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlJob]:
         result = await self._conn.stream(sqlalchemy.text(LIST_CRAWL_JOBS), {
             "p1": website_id,
             "p2": status,
             "p3": job_type,
-            "p4": limit,
-            "p5": offset,
+            "p4": offset_count,
+            "p5": limit_count,
         })
         async for row in result:
             yield models.CrawlJob(
@@ -418,8 +425,8 @@ class AsyncQuerier:
                 updated_at=row[20],
             )
 
-    async def update_crawl_job_progress(self, *, id: uuid.UUID, progress: Optional[Any]) -> Optional[models.CrawlJob]:
-        row = (await self._conn.execute(sqlalchemy.text(UPDATE_CRAWL_JOB_PROGRESS), {"p1": id, "p2": progress})).first()
+    async def update_crawl_job_progress(self, *, progress: Optional[Any], id: uuid.UUID) -> Optional[models.CrawlJob]:
+        row = (await self._conn.execute(sqlalchemy.text(UPDATE_CRAWL_JOB_PROGRESS), {"p1": progress, "p2": id})).first()
         if row is None:
             return None
         return models.CrawlJob(
@@ -446,13 +453,13 @@ class AsyncQuerier:
             updated_at=row[20],
         )
 
-    async def update_crawl_job_status(self, *, id: uuid.UUID, dollar_2: models.StatusEnum, started_at: Optional[datetime.datetime], completed_at: Optional[datetime.datetime], error_message: Optional[str]) -> Optional[models.CrawlJob]:
+    async def update_crawl_job_status(self, *, status: models.StatusEnum, started_at: Optional[datetime.datetime], completed_at: Optional[datetime.datetime], error_message: Optional[str], id: uuid.UUID) -> Optional[models.CrawlJob]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_CRAWL_JOB_STATUS), {
-            "p1": id,
-            "p2": dollar_2,
-            "p3": started_at,
-            "p4": completed_at,
-            "p5": error_message,
+            "p1": status,
+            "p2": started_at,
+            "p3": completed_at,
+            "p4": error_message,
+            "p5": id,
         })).first()
         if row is None:
             return None

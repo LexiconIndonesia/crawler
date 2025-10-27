@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class CrawledPageBase(BaseModel):
@@ -27,9 +27,7 @@ class CrawledPageBase(BaseModel):
     )
     is_duplicate: bool = Field(default=False, description="Whether page is a duplicate")
     duplicate_of: str | None = Field(None, description="UUID of original page if duplicate")
-    similarity_score: int | None = Field(
-        None, ge=0, le=100, description="Content similarity score"
-    )
+    similarity_score: int | None = Field(None, ge=0, le=100, description="Content similarity score")
     crawled_at: datetime = Field(..., description="When page was crawled")
 
 

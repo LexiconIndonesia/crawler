@@ -6,17 +6,20 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import redis.asyncio as redis
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from config import get_settings
 from crawler.db.repositories import (
     ContentHashRepository,
-    CrawlJobRepository,
     CrawledPageRepository,
+    CrawlJobRepository,
     CrawlLogRepository,
     WebsiteRepository,
 )
+from main import create_app
 
 settings = get_settings()
 
@@ -168,3 +171,36 @@ async def content_hash_repo(db_connection: AsyncConnection) -> ContentHashReposi
 async def crawl_log_repo(db_connection: AsyncConnection) -> CrawlLogRepository:
     """Create crawl log repository fixture."""
     return CrawlLogRepository(db_connection)
+
+
+@pytest_asyncio.fixture
+async def redis_client() -> AsyncGenerator[redis.Redis, None]:
+    """Create a Redis client for testing.
+
+    This fixture provides a Redis client without reusing the global pool
+    to avoid event loop issues in tests.
+    """
+    client = redis.from_url(
+        str(settings.redis_url),
+        encoding="utf-8",
+        decode_responses=True,
+    )
+    try:
+        # Verify connection
+        await client.ping()
+        yield client
+    finally:
+        # Clean up connection
+        await client.aclose()
+
+
+@pytest_asyncio.fixture
+async def test_client() -> AsyncGenerator[AsyncClient, None]:
+    """Create FastAPI test client for integration tests.
+
+    This fixture provides an async HTTP client for testing API endpoints.
+    """
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client

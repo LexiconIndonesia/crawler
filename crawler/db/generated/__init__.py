@@ -8,9 +8,9 @@ DO NOT EDIT - Code is auto-generated from sql/queries/*.sql
 
 from .models import (
     ContentHash,
+    CrawledPage,
     CrawlJob,
     CrawlLog,
-    CrawledPage,
     JobTypeEnum,
     LogLevelEnum,
     StatusEnum,

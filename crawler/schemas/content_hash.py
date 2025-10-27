@@ -8,12 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class ContentHashBase(BaseModel):
     """Base content hash schema with common fields."""
 
-    content_hash: str = Field(
-        ..., min_length=64, max_length=64, description="SHA256 content hash"
-    )
-    first_seen_page_id: str | None = Field(
-        None, description="UUID of first page with this content"
-    )
+    content_hash: str = Field(..., min_length=64, max_length=64, description="SHA256 content hash")
+    first_seen_page_id: str | None = Field(None, description="UUID of first page with this content")
     occurrence_count: int = Field(default=1, ge=1, description="Number of occurrences")
     last_seen_at: datetime = Field(..., description="Last time content was seen")
 

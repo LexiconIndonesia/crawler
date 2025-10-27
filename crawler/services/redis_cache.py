@@ -9,7 +9,7 @@ Provides specialized Redis data structures for:
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
 
@@ -26,19 +26,14 @@ class URLDeduplicationCache:
     Supports TTL-based expiration for temporary deduplication windows.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize URL deduplication cache.
 
         Args:
-            redis_client: Optional Redis client. If not provided, creates new connection.
+            redis_client: Redis client from connection pool.
         """
         self.settings = get_settings()
-        if redis_client:
-            self.redis = redis_client
-        else:
-            self.redis = redis.from_url(
-                str(self.settings.redis_url), encoding="utf-8", decode_responses=True
-            )
+        self.redis = redis_client
         self.key_prefix = "url:dedup:"
 
     def _make_key(self, url_hash: str) -> str:
@@ -87,7 +82,7 @@ class URLDeduplicationCache:
             key = self._make_key(url_hash)
             value: str | None = await self.redis.get(key)
             if value:
-                return json.loads(value)
+                return cast(dict[str, Any], json.loads(value))
             return None
         except Exception as e:
             logger.error("url_dedup_get_error", url_hash=url_hash, error=str(e))
@@ -127,10 +122,6 @@ class URLDeduplicationCache:
             logger.error("url_dedup_delete_error", url_hash=url_hash, error=str(e))
             return False
 
-    async def close(self) -> None:
-        """Close Redis connection."""
-        await self.redis.close()
-
 
 class JobCancellationFlag:
     """Redis-based job cancellation flags.
@@ -139,19 +130,14 @@ class JobCancellationFlag:
     Workers can poll these flags during execution.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize job cancellation flag service.
 
         Args:
-            redis_client: Optional Redis client. If not provided, creates new connection.
+            redis_client: Redis client from connection pool.
         """
         self.settings = get_settings()
-        if redis_client:
-            self.redis = redis_client
-        else:
-            self.redis = redis.from_url(
-                str(self.settings.redis_url), encoding="utf-8", decode_responses=True
-            )
+        self.redis = redis_client
         self.key_prefix = "job:cancel:"
 
     def _make_key(self, job_id: str) -> str:
@@ -220,10 +206,6 @@ class JobCancellationFlag:
             logger.error("job_cancellation_clear_error", job_id=job_id, error=str(e))
             return False
 
-    async def close(self) -> None:
-        """Close Redis connection."""
-        await self.redis.close()
-
 
 class RateLimiter:
     """Redis-based rate limiter using sliding window.
@@ -231,19 +213,14 @@ class RateLimiter:
     Tracks request counts per website within a time window.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize rate limiter.
 
         Args:
-            redis_client: Optional Redis client. If not provided, creates new connection.
+            redis_client: Redis client from connection pool.
         """
         self.settings = get_settings()
-        if redis_client:
-            self.redis = redis_client
-        else:
-            self.redis = redis.from_url(
-                str(self.settings.redis_url), encoding="utf-8", decode_responses=True
-            )
+        self.redis = redis_client
         self.key_prefix = "ratelimit:"
 
     def _make_key(self, website_id: str) -> str:
@@ -334,10 +311,6 @@ class RateLimiter:
             logger.error("ratelimit_reset_error", website_id=website_id, error=str(e))
             return False
 
-    async def close(self) -> None:
-        """Close Redis connection."""
-        await self.redis.close()
-
 
 class BrowserPoolStatus:
     """Redis-based browser pool status tracking.
@@ -345,19 +318,14 @@ class BrowserPoolStatus:
     Stores current state of the browser pool for monitoring and coordination.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize browser pool status tracker.
 
         Args:
-            redis_client: Optional Redis client. If not provided, creates new connection.
+            redis_client: Redis client from connection pool.
         """
         self.settings = get_settings()
-        if redis_client:
-            self.redis = redis_client
-        else:
-            self.redis = redis.from_url(
-                str(self.settings.redis_url), encoding="utf-8", decode_responses=True
-            )
+        self.redis = redis_client
         self.key = "browser:pool:status"
 
     async def update_status(
@@ -407,15 +375,11 @@ class BrowserPoolStatus:
         try:
             value: str | None = await self.redis.get(self.key)
             if value:
-                return json.loads(value)
+                return cast(dict[str, Any], json.loads(value))
             return None
         except Exception as e:
             logger.error("browser_pool_status_get_error", error=str(e))
             return None
-
-    async def close(self) -> None:
-        """Close Redis connection."""
-        await self.redis.close()
 
 
 class JobProgressCache:
@@ -425,19 +389,14 @@ class JobProgressCache:
     Progress data is updated frequently and has a short TTL.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize job progress cache.
 
         Args:
-            redis_client: Optional Redis client. If not provided, creates new connection.
+            redis_client: Redis client from connection pool.
         """
         self.settings = get_settings()
-        if redis_client:
-            self.redis = redis_client
-        else:
-            self.redis = redis.from_url(
-                str(self.settings.redis_url), encoding="utf-8", decode_responses=True
-            )
+        self.redis = redis_client
         self.key_prefix = "job:progress:"
 
     def _make_key(self, job_id: str) -> str:
@@ -484,7 +443,7 @@ class JobProgressCache:
             key = self._make_key(job_id)
             value: str | None = await self.redis.get(key)
             if value:
-                return json.loads(value)
+                return cast(dict[str, Any], json.loads(value))
             return None
         except Exception as e:
             logger.error("job_progress_get_error", job_id=job_id, error=str(e))
@@ -507,7 +466,3 @@ class JobProgressCache:
         except Exception as e:
             logger.error("job_progress_delete_error", job_id=job_id, error=str(e))
             return False
-
-    async def close(self) -> None:
-        """Close Redis connection."""
-        await self.redis.close()
