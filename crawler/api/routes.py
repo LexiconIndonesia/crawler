@@ -8,6 +8,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 from starlette.responses import Response
 
+from crawler.api.generated.models import Environment
 from crawler.api.schemas import HealthResponse, RootResponse
 from crawler.core.dependencies import DBSessionDep, RedisDep, SettingsDep
 
@@ -31,7 +32,7 @@ async def root(settings: SettingsDep) -> RootResponse:
     return RootResponse(
         message=f"Welcome to {settings.app_name}",
         version=settings.app_version,
-        environment=settings.environment,
+        environment=Environment(settings.environment),
     )
 
 

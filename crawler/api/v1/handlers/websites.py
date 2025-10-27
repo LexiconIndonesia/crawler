@@ -37,8 +37,9 @@ async def create_website_handler(
     """
     logger.info("create_website_request", website_name=request.name, base_url=request.base_url)
 
-    # Validate cron schedule
-    is_valid, result = validate_and_calculate_next_run(request.schedule.cron)
+    # Validate cron schedule - use default if not provided (bi-weekly)
+    cron_schedule = request.schedule.cron or "0 0 1,15 * *"
+    is_valid, result = validate_and_calculate_next_run(cron_schedule)
     if not is_valid:
         logger.warning(
             "invalid_cron_expression",

@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from pydantic import AnyUrl
+
 from crawler.api.schemas import StatusEnum as ApiStatusEnum
 from crawler.api.v1.schemas import CreateWebsiteRequest, WebsiteResponse
 from crawler.core.logging import get_logger
@@ -78,9 +80,11 @@ class WebsiteService:
         # Create scheduled job if schedule is enabled
         scheduled_job_id = None
         if request.schedule.enabled:
+            # Use default cron schedule if not provided (bi-weekly)
+            cron_schedule = request.schedule.cron or "0 0 1,15 * *"
             scheduled_job = await self.scheduled_job_repo.create(
                 website_id=website.id,
-                cron_schedule=request.schedule.cron,
+                cron_schedule=cron_schedule,
                 next_run_time=next_run_time,
                 is_active=True,
             )
@@ -107,7 +111,7 @@ class WebsiteService:
         return WebsiteResponse(
             id=website.id,
             name=website.name,
-            base_url=website.base_url,
+            base_url=AnyUrl(website.base_url),
             config=website.config,
             status=api_status,
             cron_schedule=website.cron_schedule,

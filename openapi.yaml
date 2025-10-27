@@ -307,7 +307,7 @@ components:
         environment:
           type: string
           description: Environment name
-          enum: [development, staging, production]
+          enum: [development, staging, production, testing]
           example: "development"
 
     HealthResponse:
