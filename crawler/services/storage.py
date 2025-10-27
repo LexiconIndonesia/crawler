@@ -2,9 +2,7 @@
 
 import base64
 import json
-import tempfile
-from pathlib import Path
-from typing import Optional
+from typing import cast
 
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -29,7 +27,7 @@ class StorageService:
                 # Decode base64 credentials
                 credentials_json = base64.b64decode(
                     settings.google_application_credentials_base64
-                ).decode('utf-8')
+                ).decode("utf-8")
                 credentials_dict = json.loads(credentials_json)
 
                 # Create credentials from dict
@@ -39,8 +37,7 @@ class StorageService:
 
                 # Initialize client with credentials
                 self.client = storage.Client(
-                    credentials=credentials,
-                    project=credentials_dict.get('project_id')
+                    credentials=credentials, project=credentials_dict.get("project_id")
                 )
                 logger.info("gcs_initialized", bucket=self.bucket_name)
             except Exception as e:
@@ -53,12 +50,7 @@ class StorageService:
 
         self.bucket = self.client.bucket(self.bucket_name)
 
-    async def upload_html(
-        self,
-        url: str,
-        content: str,
-        task_id: str
-    ) -> str:
+    async def upload_html(self, url: str, content: str, task_id: str) -> str:
         """Upload raw HTML to GCS."""
         try:
             # Create blob path: tasks/{task_id}/{url_hash}.html
@@ -66,30 +58,20 @@ class StorageService:
             blob = self.bucket.blob(blob_name)
 
             # Upload content
-            blob.upload_from_string(content, content_type='text/html')
+            blob.upload_from_string(content, content_type="text/html")
 
-            logger.info(
-                "html_uploaded",
-                url=url,
-                task_id=task_id,
-                blob_name=blob_name
-            )
+            logger.info("html_uploaded", url=url, task_id=task_id, blob_name=blob_name)
 
             return blob_name
         except Exception as e:
-            logger.error(
-                "html_upload_error",
-                url=url,
-                task_id=task_id,
-                error=str(e)
-            )
+            logger.error("html_upload_error", url=url, task_id=task_id, error=str(e))
             raise
 
     async def download_html(self, blob_name: str) -> str:
         """Download HTML from GCS."""
         try:
             blob = self.bucket.blob(blob_name)
-            content = blob.download_as_text()
+            content = cast(str, blob.download_as_text())
 
             logger.info("html_downloaded", blob_name=blob_name)
             return content
@@ -109,7 +91,7 @@ class StorageService:
             logger.error("html_delete_error", blob_name=blob_name, error=str(e))
             return False
 
-    async def list_blobs(self, prefix: Optional[str] = None) -> list[str]:
+    async def list_blobs(self, prefix: str | None = None) -> list[str]:
         """List blobs with optional prefix filter."""
         try:
             blobs = self.client.list_blobs(self.bucket_name, prefix=prefix)

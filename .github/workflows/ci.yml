@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - '.github/workflows/ci.yml'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+  # Only run on PR, not on push to main to avoid duplicate runs
+
+jobs:
+  quality-checks:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Install dependencies
+        run: uv sync
+      - name: Run all quality checks
+        run: |
+          echo "Running format check..."
+          uv run ruff format --check .
+
+          echo "Running linter..."
+          uv run ruff check .
+
+          echo "Running type checker..."
+          uv run mypy . || true

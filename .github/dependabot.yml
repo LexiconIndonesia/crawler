@@ -1,0 +1,86 @@
+version: 2
+updates:
+  # Python dependencies via pip (uv compatible)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group FastAPI ecosystem updates
+      fastapi:
+        patterns:
+          - "fastapi*"
+          - "pydantic*"
+          - "uvicorn*"
+          - "starlette*"
+      # Group database-related updates
+      database:
+        patterns:
+          - "sqlalchemy*"
+          - "asyncpg*"
+          - "alembic*"
+          - "psycopg*"
+      # Group browser automation updates
+      browser:
+        patterns:
+          - "playwright*"
+          - "selenium*"
+          - "undetected-chromedriver*"
+      # Group cloud/storage updates
+      cloud:
+        patterns:
+          - "google-cloud*"
+          - "redis*"
+      # Group monitoring updates
+      monitoring:
+        patterns:
+          - "prometheus*"
+          - "structlog*"
+      # Group testing updates
+      testing:
+        patterns:
+          - "pytest*"
+      # Group linting/formatting updates
+      dev-tools:
+        patterns:
+          - "ruff*"
+          - "mypy*"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Docker updates
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "docker"
+      include: "scope"

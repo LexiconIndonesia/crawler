@@ -25,7 +25,7 @@ services:
 
   # PostgreSQL Database
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: lexicon-postgres
     environment:
       - POSTGRES_USER=crawler

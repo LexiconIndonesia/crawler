@@ -1,0 +1,170 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please fill out the form below to help us understand your request.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A clear and concise description of the feature you'd like to see
+      placeholder: I would like to be able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What is the use case?
+      placeholder: |
+        Currently, when I need to..., I have to... which is problematic because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this feature to work?
+      placeholder: |
+        I propose that we...
+
+        Example usage:
+        ```python
+        # code example
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: I've also thought about... but...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component would this feature affect?
+      options:
+        - API/FastAPI Routes
+        - Crawler Service
+        - Browser Automation (Playwright/Selenium)
+        - Database (PostgreSQL)
+        - Cache (Redis)
+        - Storage (GCS)
+        - Message Queue (NATS)
+        - Monitoring/Metrics
+        - Configuration
+        - Docker/Infrastructure
+        - Documentation
+        - Testing
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Critical (blocking my work)
+        - High (important for my use case)
+        - Medium (would be nice to have)
+        - Low (minor enhancement)
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefits
+    attributes:
+      label: Benefits
+      description: What benefits would this feature provide?
+      placeholder: |
+        - Improved performance by...
+        - Better user experience through...
+        - Reduced complexity in...
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas
+      description: If you have ideas about how to implement this, please share them
+      placeholder: |
+        This could be implemented by:
+        1. Adding...
+        2. Modifying...
+        3. Creating...
+
+  - type: textarea
+    id: breaking
+    attributes:
+      label: Breaking Changes
+      description: Would this feature introduce any breaking changes?
+      placeholder: |
+        - [ ] No breaking changes
+        - [ ] Minor breaking changes (describe)
+        - [ ] Major breaking changes (describe)
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Would this feature require new dependencies or external services?
+      placeholder: |
+        This would require:
+        - New package: ...
+        - External service: ...
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing Considerations
+      description: How should this feature be tested?
+      placeholder: |
+        - Unit tests for...
+        - Integration tests for...
+        - Manual testing of...
+
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation Needs
+      description: What documentation would be needed for this feature?
+      placeholder: |
+        - Update README with...
+        - Add examples for...
+        - Document configuration options...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or examples about the feature request
+      placeholder: |
+        Here's an example from another project...
+        Similar features in other tools...
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have clearly described the problem this feature solves
+          required: true
+        - label: I am willing to help implement this feature (optional)
+          required: false

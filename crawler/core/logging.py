@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 import structlog
+
 from config import get_settings
 
 
@@ -31,7 +32,8 @@ def setup_logging() -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
-            structlog.processors.JSONRenderer() if settings.log_format == "json"
+            structlog.processors.JSONRenderer()
+            if settings.log_format == "json"
             else structlog.dev.ConsoleRenderer(),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,

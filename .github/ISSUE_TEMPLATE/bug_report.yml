@@ -1,0 +1,143 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below to help us investigate.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: When I try to..., I expect... but instead...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run command '...'
+        2. Send request to endpoint '...'
+        3. Observe error '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: I expected...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+      placeholder: Instead, I got...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and Error Messages
+      description: Please paste relevant logs, error messages, or stack traces
+      placeholder: |
+        Paste logs here (please redact sensitive information)
+      render: shell
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - API/FastAPI Routes
+        - Crawler Service
+        - Browser Automation (Playwright/Selenium)
+        - Database (PostgreSQL)
+        - Cache (Redis)
+        - Storage (GCS)
+        - Message Queue (NATS)
+        - Monitoring/Metrics
+        - Configuration
+        - Docker/Infrastructure
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this bug?
+      options:
+        - Critical (system down, data loss)
+        - High (major feature broken)
+        - Medium (feature partially broken)
+        - Low (minor issue, workaround exists)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please provide information about your environment
+      value: |
+        - OS: [e.g. macOS 14.0, Ubuntu 22.04]
+        - Python version: [run `python --version`]
+        - Installation method: [e.g. uv, pip, Docker]
+        - Branch/Version: [e.g. main, v1.0.0]
+        - Environment: [development/staging/production]
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: Relevant configuration or environment variables (redact sensitive values)
+      placeholder: |
+        DATABASE_URL: postgresql+asyncpg://...
+        MAX_CONCURRENT_REQUESTS: 10
+        LOG_LEVEL: DEBUG
+      render: shell
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Have you found any workaround for this issue?
+      placeholder: I found that...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here
+      placeholder: This started happening after...
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have provided all the requested information
+          required: true
+        - label: I have redacted any sensitive information (credentials, tokens, etc.)
+          required: true

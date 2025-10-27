@@ -1,0 +1,223 @@
+name: Task / Implementation Issue
+description: Create a new implementation task with acceptance criteria
+title: "[Task]: "
+labels: ["task", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to create a new development task with clear acceptance criteria and requirements.
+
+  - type: input
+    id: issue_number
+    attributes:
+      label: Issue Reference Number
+      description: Optional reference number for tracking (e.g., #26 from Issue.md)
+      placeholder: "#26"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Task Description
+      description: A clear and concise description of what needs to be implemented
+      placeholder: Implement core engine for executing multi-step workflows sequentially...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component will be modified?
+      options:
+        - API/FastAPI Routes
+        - Database Models (SQLAlchemy)
+        - Redis Data Structures
+        - Crawler Service
+        - Worker/Background Jobs
+        - Browser Automation (Playwright/Selenium)
+        - Message Queue (NATS)
+        - Scheduler/Cron
+        - Storage (GCS)
+        - Monitoring/Metrics
+        - Configuration
+        - Utilities/Helpers
+        - Tests
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: List all the requirements that must be met for this task to be complete (use checkboxes)
+      placeholder: |
+        - [ ] Execute steps in configured order
+        - [ ] Pass output from one step as input to next
+        - [ ] Support step skipping based on conditions
+        - [ ] Handle step dependencies
+        - [ ] Unit tests for step execution
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size Estimate
+      description: How much work is this task?
+      options:
+        - Small (1-2 days)
+        - Medium (3-5 days)
+        - Large (1+ weeks)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this task?
+      options:
+        - Critical (Blocking) - Must be done first
+        - High - Important for core functionality
+        - Medium - Nice to have, not urgent
+        - Low - Future enhancement
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any issues or tasks that must be completed before this one
+      placeholder: |
+        - Depends on #0 (Database Models)
+        - Requires completion of #26 (Step Engine)
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation Notes
+      description: Technical details, approaches, or considerations for implementation
+      placeholder: |
+        - Use SQLAlchemy async sessions
+        - Follow the service pattern from existing code
+        - Add Prometheus metrics for execution time
+
+  - type: textarea
+    id: testing_requirements
+    attributes:
+      label: Testing Requirements
+      description: Specific testing that needs to be done
+      placeholder: |
+        - [ ] Unit tests for all public methods
+        - [ ] Integration tests with test database
+        - [ ] Edge case handling tests
+        - [ ] Performance tests (if applicable)
+
+  - type: textarea
+    id: documentation_requirements
+    attributes:
+      label: Documentation Requirements
+      description: What documentation needs to be created or updated?
+      placeholder: |
+        - [ ] Docstrings for all new functions/classes
+        - [ ] Update CLAUDE.md if architectural patterns change
+        - [ ] Add examples to README if user-facing
+        - [ ] API documentation for new endpoints
+
+  - type: dropdown
+    id: observability
+    attributes:
+      label: Observability Requirements
+      description: Does this task need metrics or logging?
+      options:
+        - Not applicable
+        - Logging only (structured logs)
+        - Metrics only (Prometheus)
+        - Both logging and metrics
+    validations:
+      required: true
+
+  - type: textarea
+    id: database_changes
+    attributes:
+      label: Database Changes
+      description: Does this task require database migrations?
+      placeholder: |
+        - [ ] New table(s): describe...
+        - [ ] Schema changes: describe...
+        - [ ] New indexes: describe...
+        - [ ] Alembic migration required
+
+  - type: textarea
+    id: api_changes
+    attributes:
+      label: API Changes
+      description: Does this task add or modify API endpoints?
+      placeholder: |
+        New endpoints:
+        - POST /api/jobs/{job_id}/cancel
+
+        Modified endpoints:
+        - GET /api/jobs - added new query parameters
+
+        Breaking changes:
+        - None
+
+  - type: textarea
+    id: configuration_changes
+    attributes:
+      label: Configuration Changes
+      description: Does this task require new environment variables or configuration?
+      placeholder: |
+        New environment variables:
+        - MAX_RETRY_ATTEMPTS (default: 3)
+        - RETRY_BACKOFF_BASE (default: 2)
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Definition of Done
+      description: How do we know this task is completely finished?
+      placeholder: |
+        - All acceptance criteria met
+        - All tests passing
+        - Code reviewed and approved
+        - Documentation updated
+        - No new linter/type errors
+        - Metrics/logging verified in dev environment
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any other information, references, or examples
+      placeholder: |
+        References:
+        - Similar implementation in project X
+        - Design doc: link...
+        - Related PRD section: 3.6
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm before submitting
+      options:
+        - label: I have checked for duplicate issues
+          required: true
+        - label: I have filled in all required fields
+          required: true
+        - label: Acceptance criteria are clear and testable
+          required: true
+        - label: Dependencies are documented (if any)
+          required: true
