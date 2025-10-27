@@ -1,15 +1,15 @@
 """Unit tests for WebsiteService (dependency injection)."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
 from crawler.api.schemas import StatusEnum
 from crawler.api.v1.schemas import (
-    CreateWebsiteRequest,
     CrawlStep,
+    CreateWebsiteRequest,
     MethodEnum,
     StepTypeEnum,
 )
@@ -44,9 +44,7 @@ class TestWebsiteService:
         return CreateWebsiteRequest(
             name="Test Website",
             base_url="https://example.com",
-            steps=[
-                CrawlStep(name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API)
-            ],
+            steps=[CrawlStep(name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
         )
 
     @pytest.mark.asyncio

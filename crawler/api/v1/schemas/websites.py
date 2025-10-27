@@ -172,8 +172,8 @@ class CrawlStep(BaseModel):
     )
     output: OutputConfig = Field(default_factory=OutputConfig, description="Output configuration")
 
-    @model_validator(mode='after')
-    def validate_browser_type(self) -> 'CrawlStep':
+    @model_validator(mode="after")
+    def validate_browser_type(self) -> "CrawlStep":
         """Validate browser_type is set when method is browser."""
         if self.method == MethodEnum.BROWSER and self.browser_type is None:
             raise ValueError("browser_type is required when method is 'browser'")

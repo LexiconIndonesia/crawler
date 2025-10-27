@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from crawler.api.v1.schemas import (
     ActionConfig,
     BrowserTypeEnum,
-    CreateWebsiteRequest,
     CrawlStep,
+    CreateWebsiteRequest,
     GlobalConfig,
     MethodEnum,
     PaginationConfig,
@@ -87,9 +87,7 @@ class TestCrawlStep:
 
     def test_crawl_step_minimal(self) -> None:
         """Test CrawlStep with minimal required fields."""
-        step = CrawlStep(
-            name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-        )
+        step = CrawlStep(name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API)
 
         assert step.name == "test_step"
         assert step.type == StepTypeEnum.CRAWL
@@ -199,11 +197,7 @@ class TestCreateWebsiteRequest:
         request = CreateWebsiteRequest(
             name="Test Website",
             base_url="https://example.com",
-            steps=[
-                CrawlStep(
-                    name="fetch_data", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-                )
-            ],
+            steps=[CrawlStep(name="fetch_data", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
         )
 
         assert request.name == "Test Website"
@@ -253,11 +247,7 @@ class TestCreateWebsiteRequest:
             CreateWebsiteRequest(
                 name="Test",
                 base_url="invalid-url",
-                steps=[
-                    CrawlStep(
-                        name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-                    )
-                ],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
             )
 
     def test_create_website_request_empty_name(self) -> None:
@@ -266,19 +256,13 @@ class TestCreateWebsiteRequest:
             CreateWebsiteRequest(
                 name="",
                 base_url="https://example.com",
-                steps=[
-                    CrawlStep(
-                        name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-                    )
-                ],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
             )
 
     def test_create_website_request_no_steps(self) -> None:
         """Test CreateWebsiteRequest with no steps."""
         with pytest.raises(ValidationError, match="at least 1 item"):
-            CreateWebsiteRequest(
-                name="Test", base_url="https://example.com", steps=[]
-            )
+            CreateWebsiteRequest(name="Test", base_url="https://example.com", steps=[])
 
     def test_create_website_request_duplicate_step_names(self) -> None:
         """Test CreateWebsiteRequest with duplicate step names."""
@@ -287,12 +271,8 @@ class TestCreateWebsiteRequest:
                 name="Test",
                 base_url="https://example.com",
                 steps=[
-                    CrawlStep(
-                        name="duplicate", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-                    ),
-                    CrawlStep(
-                        name="duplicate", type=StepTypeEnum.SCRAPE, method=MethodEnum.HTTP
-                    ),
+                    CrawlStep(name="duplicate", type=StepTypeEnum.CRAWL, method=MethodEnum.API),
+                    CrawlStep(name="duplicate", type=StepTypeEnum.SCRAPE, method=MethodEnum.HTTP),
                 ],
             )
 
@@ -302,11 +282,7 @@ class TestCreateWebsiteRequest:
             CreateWebsiteRequest(
                 name="x" * 256,  # Exceeds 255 max length
                 base_url="https://example.com",
-                steps=[
-                    CrawlStep(
-                        name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API
-                    )
-                ],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
             )
 
 
@@ -361,18 +337,14 @@ class TestActionConfig:
 
     def test_action_config_click_optional(self) -> None:
         """Test ActionConfig for optional click action."""
-        action = ActionConfig(
-            type="click", selector="button.load-more", optional=True
-        )
+        action = ActionConfig(type="click", selector="button.load-more", optional=True)
 
         assert action.type == "click"
         assert action.optional is True
 
     def test_action_config_fill(self) -> None:
         """Test ActionConfig for fill action."""
-        action = ActionConfig(
-            type="fill", selector="input[name='search']", value="test query"
-        )
+        action = ActionConfig(type="fill", selector="input[name='search']", value="test query")
 
         assert action.type == "fill"
         assert action.value == "test query"

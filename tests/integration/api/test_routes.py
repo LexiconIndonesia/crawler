@@ -88,9 +88,7 @@ class TestCreateWebsiteEndpoint:
         payload = {
             "name": "Test Website",
             "base_url": "https://example.com",
-            "steps": [
-                {"name": "crawl_list", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "crawl_list", "type": "crawl", "method": "api"}],
         }
 
         response = await test_client.post("/api/v1/websites", json=payload)
@@ -118,9 +116,7 @@ class TestCreateWebsiteEndpoint:
                 "timezone": "Asia/Jakarta",
                 "enabled": True,
             },
-            "steps": [
-                {"name": "fetch_data", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "fetch_data", "type": "crawl", "method": "api"}],
         }
 
         response = await test_client.post("/api/v1/websites", json=payload)
@@ -177,9 +173,7 @@ class TestCreateWebsiteEndpoint:
         payload = {
             "name": "Website With Variables",
             "base_url": "https://example.com",
-            "steps": [
-                {"name": "fetch_data", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "fetch_data", "type": "crawl", "method": "api"}],
             "variables": {
                 "api_key": "test_key",
                 "page_size": 100,
@@ -198,9 +192,7 @@ class TestCreateWebsiteEndpoint:
         payload = {
             "name": "Duplicate Test",
             "base_url": "https://example.com",
-            "steps": [
-                {"name": "test", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "test", "type": "crawl", "method": "api"}],
         }
 
         # Create first website
@@ -222,9 +214,7 @@ class TestCreateWebsiteEndpoint:
             "schedule": {
                 "cron": "invalid cron",
             },
-            "steps": [
-                {"name": "test", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "test", "type": "crawl", "method": "api"}],
         }
 
         response = await test_client.post("/api/v1/websites", json=payload)
@@ -238,9 +228,7 @@ class TestCreateWebsiteEndpoint:
         payload = {
             "name": "Invalid URL",
             "base_url": "not-a-valid-url",
-            "steps": [
-                {"name": "test", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "test", "type": "crawl", "method": "api"}],
         }
 
         response = await test_client.post("/api/v1/websites", json=payload)
@@ -274,7 +262,9 @@ class TestCreateWebsiteEndpoint:
         error = response.json()
         assert "Step names must be unique" in str(error)
 
-    async def test_create_website_browser_without_browser_type(self, test_client: AsyncClient) -> None:
+    async def test_create_website_browser_without_browser_type(
+        self, test_client: AsyncClient
+    ) -> None:
         """Test creating a website with browser method but no browser_type."""
         payload = {
             "name": "Missing Browser Type",
@@ -300,9 +290,7 @@ class TestCreateWebsiteEndpoint:
         payload = {
             "name": "Custom Config Website",
             "base_url": "https://example.com",
-            "steps": [
-                {"name": "test", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "test", "type": "crawl", "method": "api"}],
             "global_config": {
                 "rate_limit": {
                     "requests_per_second": 5.0,
@@ -336,9 +324,7 @@ class TestCreateWebsiteEndpoint:
                 "enabled": False,
                 "cron": "0 0 * * *",
             },
-            "steps": [
-                {"name": "test", "type": "crawl", "method": "api"}
-            ],
+            "steps": [{"name": "test", "type": "crawl", "method": "api"}],
         }
 
         response = await test_client.post("/api/v1/websites", json=payload)

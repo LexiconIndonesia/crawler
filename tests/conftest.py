@@ -8,7 +8,6 @@ import pytest
 import pytest_asyncio
 import redis.asyncio as redis
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 

@@ -47,7 +47,9 @@ class TestValidateCronExpression:
             is_valid, error = validate_cron_expression(cron)
             assert not is_valid, f"Expected {cron} to be invalid"
             assert error is not None
-            assert expected_error_prefix in error, f"Expected error to contain '{expected_error_prefix}'"
+            assert expected_error_prefix in error, (
+                f"Expected error to contain '{expected_error_prefix}'"
+            )
 
     def test_validate_cron_with_invalid_values(self) -> None:
         """Test validate_cron_expression with invalid values."""
