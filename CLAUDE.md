@@ -416,12 +416,15 @@ Use `make encode-gcs FILE=path/to/creds.json` to generate base64-encoded GCS cre
 - Path filtering: only runs when relevant files change (`.py`, `pyproject.toml`, `openapi.yaml`, Docker files)
 - Single Python version (3.11) instead of matrix to save runner time
 - Spins up PostgreSQL and Redis services automatically
-- Executes: **OpenAPI contract validation** → format check → lint → type-check (non-blocking) → tests
+- **Auto-generates OpenAPI models** before running tests (models are not committed to git)
+- Executes: **OpenAPI contract validation** → format check → lint → type-check (non-blocking) → **generate models** → tests
 - **Contract tests** automatically run as part of integration test suite
 - Fast-fail tests (`--maxfail=3`) to stop early on failures
 - Quiet output (`-q`) to reduce log size
 - No coverage uploads to save bandwidth
 - Aggressive caching for uv dependencies
+
+**Important**: `crawler/api/generated/models.py` is auto-generated during CI and NOT committed to git. The CI automatically runs `datamodel-codegen` from `openapi.yaml` before tests.
 
 **Claude Code Review** (`.github/workflows/claude-code-review.yml`)
 - Automatically reviews PRs using Claude Code
