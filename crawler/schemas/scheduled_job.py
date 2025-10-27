@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any
 
+from croniter import CroniterBadCronError, croniter
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -24,13 +25,26 @@ class ScheduledJobBase(BaseModel):
     @field_validator("cron_schedule")
     @classmethod
     def validate_cron_schedule(cls, v: str) -> str:
-        """Validate cron schedule format (basic validation)."""
-        parts = v.strip().split()
-        if len(parts) < 5 or len(parts) > 6:
+        """Validate cron schedule format using croniter.
+
+        Validates:
+        - Correct number of fields (5-6)
+        - Valid values for each field
+        - Proper cron expression syntax
+
+        Raises:
+            ValueError: If the cron expression is invalid
+        """
+        try:
+            # Test if croniter can parse it
+            croniter(v)
+            return v
+        except (CroniterBadCronError, ValueError) as e:
             raise ValueError(
-                "Cron schedule must have 5 or 6 parts (minute hour day month weekday [year])"
-            )
-        return v
+                f"Invalid cron expression: {e}. "
+                "Expected format: 'minute hour day month weekday [year]' "
+                "(e.g., '0 0 * * *' for daily at midnight)"
+            ) from e
 
 
 class ScheduledJobCreate(ScheduledJobBase):
@@ -67,15 +81,28 @@ class ScheduledJobUpdate(BaseModel):
     @field_validator("cron_schedule")
     @classmethod
     def validate_cron_schedule(cls, v: str | None) -> str | None:
-        """Validate cron schedule format (basic validation)."""
+        """Validate cron schedule format using croniter.
+
+        Validates:
+        - Correct number of fields (5-6)
+        - Valid values for each field
+        - Proper cron expression syntax
+
+        Raises:
+            ValueError: If the cron expression is invalid
+        """
         if v is None:
             return v
-        parts = v.strip().split()
-        if len(parts) < 5 or len(parts) > 6:
+        try:
+            # Test if croniter can parse it
+            croniter(v)
+            return v
+        except (CroniterBadCronError, ValueError) as e:
             raise ValueError(
-                "Cron schedule must have 5 or 6 parts (minute hour day month weekday [year])"
-            )
-        return v
+                f"Invalid cron expression: {e}. "
+                "Expected format: 'minute hour day month weekday [year]' "
+                "(e.g., '0 0 * * *' for daily at midnight)"
+            ) from e
 
 
 class ScheduledJobResponse(ScheduledJobBase):

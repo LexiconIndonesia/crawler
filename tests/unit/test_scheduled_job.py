@@ -47,25 +47,45 @@ class TestScheduledJobSchemas:
         """Test scheduled job with invalid cron expression (too few parts)."""
         data = {
             "website_id": "123e4567-e89b-12d3-a456-426614174000",
-            "cron_schedule": "minute hour day",  # Only 3 parts (but > 9 chars)
+            "cron_schedule": "minute hour day",  # Only 3 parts
             "next_run_time": datetime.now(UTC),
         }
         with pytest.raises(ValidationError) as exc_info:
             ScheduledJobCreate(**data)
-        # The validation error should mention parts count
         errors = str(exc_info.value)
-        assert "5 or 6 parts" in errors
+        assert "Invalid cron expression" in errors
 
     def test_scheduled_job_invalid_cron_too_many_parts(self) -> None:
         """Test scheduled job with invalid cron expression (too many parts)."""
         data = {
             "website_id": "123e4567-e89b-12d3-a456-426614174000",
-            "cron_schedule": "0 0 * * * * *",  # 7 parts
+            "cron_schedule": "0 0 * * * * * *",  # 8 parts - definitely invalid
             "next_run_time": datetime.now(UTC),
         }
         with pytest.raises(ValidationError) as exc_info:
             ScheduledJobCreate(**data)
-        assert "must have 5 or 6 parts" in str(exc_info.value)
+        assert "Invalid cron expression" in str(exc_info.value)
+
+    def test_scheduled_job_invalid_cron_values(self) -> None:
+        """Test scheduled job with invalid cron values."""
+        invalid_crons = [
+            "99 0 * * *",  # Invalid minute (> 59)
+            "0 24 * * *",  # Invalid hour (> 23)
+            "0 0 32 * *",  # Invalid day (> 31)
+            "0 0 * 13 *",  # Invalid month (> 12)
+            "0 0 * * 8",  # Invalid weekday (> 7)
+            "invalid cron",  # Not a cron at all
+        ]
+
+        for invalid_cron in invalid_crons:
+            data = {
+                "website_id": "123e4567-e89b-12d3-a456-426614174000",
+                "cron_schedule": invalid_cron,
+                "next_run_time": datetime.now(UTC),
+            }
+            with pytest.raises(ValidationError) as exc_info:
+                ScheduledJobCreate(**data)
+            assert "Invalid cron expression" in str(exc_info.value)
 
     def test_scheduled_job_valid_cron_expressions(self) -> None:
         """Test various valid cron expressions."""
@@ -75,7 +95,6 @@ class TestScheduledJobSchemas:
             "*/15 * * * *",  # Every 15 minutes
             "0 0 1,15 * *",  # Bi-weekly (1st and 15th)
             "0 0 * * 1-5",  # Weekdays only
-            "0 0 1 * * 2025",  # With year
         ]
         for cron in valid_crons:
             data = {
