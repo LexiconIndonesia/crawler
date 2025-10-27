@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from crawler.api.v1.schemas import (
+from crawler.api.generated import (
     ActionConfig,
     BrowserTypeEnum,
     CrawlStep,

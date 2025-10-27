@@ -186,14 +186,15 @@ make info             # Show project information
 crawler/
 ├── crawler/                # Main application package
 │   ├── api/               # API routes and endpoints
-│   │   ├── generated/    # OpenAPI-generated models (do not edit models.py)
-│   │   │   ├── models.py      # Auto-generated from openapi.yaml
-│   │   │   ├── extended.py    # Custom validators (version controlled)
-│   │   │   └── __init__.py    # Exports (version controlled)
+│   │   ├── generated/    # ⚠️ OpenAPI-generated models (single source of truth)
+│   │   │   ├── models.py      # ❌ AUTO-GENERATED - never edit (git-ignored)
+│   │   │   ├── extended.py    # ✅ Custom validators (version controlled)
+│   │   │   └── __init__.py    # ✅ Re-exports extended models (version controlled)
 │   │   ├── v1/           # API version 1
 │   │   │   ├── routes/   # V1 endpoint implementations
 │   │   │   ├── services/ # V1 business logic
 │   │   │   └── handlers/ # V1 request handlers
+│   │   ├── schemas/      # Common schemas (HealthResponse, ErrorResponse)
 │   │   └── routes.py     # Base routes (health, metrics)
 │   ├── core/              # Core functionality (logging, metrics)
 │   ├── db/                # Database layer
@@ -286,7 +287,7 @@ This project uses **OpenAPI spec as the single source of truth** for API contrac
 
 **Example: Adding a New Endpoint**
 
-1. Edit `openapi.yaml`:
+1. **Edit** `openapi.yaml`:
 ```yaml
 paths:
   /api/v1/crawl-jobs:
@@ -301,25 +302,52 @@ paths:
               $ref: '#/components/schemas/CreateCrawlJobRequest'
 ```
 
-2. Generate models:
+2. **Generate models** (creates `models.py` - don't edit it!):
 ```bash
-make generate-models  # Auto-generates Pydantic models
+make generate-models  # Creates crawler/api/generated/models.py
+# ⚠️ models.py is git-ignored, regenerated every time
 ```
 
-3. Implement in FastAPI:
+3. **Add custom validators** (ONLY if needed) in `extended.py`:
 ```python
-from crawler.api.v1.schemas import CreateCrawlJobRequest, CrawlJobResponse
+# In crawler/api/generated/extended.py (manually maintained)
+from .models import CreateCrawlJobRequest as _CreateCrawlJobRequest
+
+class CreateCrawlJobRequest(_CreateCrawlJobRequest):
+    """Extended with custom validation."""
+
+    @model_validator(mode="after")
+    def validate_job_config(self) -> "CreateCrawlJobRequest":
+        # Custom validation logic
+        return self
+```
+
+4. **Implement in FastAPI** (import directly from `crawler.api.generated`):
+```python
+# ✅ CORRECT: Import directly from crawler.api.generated
+from crawler.api.generated import CreateCrawlJobRequest, CrawlJobResponse
 
 @router.post("", response_model=CrawlJobResponse, operation_id="createCrawlJob")
 async def create_crawl_job(request: CreateCrawlJobRequest) -> CrawlJobResponse:
-    # Implementation here
+    # Implementation uses type-safe models with custom validators
     pass
 ```
 
-4. Verify with contract tests:
+**Import Pattern**:
+- ✅ **Always import from**: `from crawler.api.generated import YourModel`
+- ❌ **Never import from**: `models.py` directly (use the `__init__.py` re-exports)
+- 📦 **What you get**: Extended models with custom validators, not raw generated models
+
+5. **Verify with contract tests**:
 ```bash
 uv run pytest tests/integration/test_openapi_contract.py -v
 ```
+
+**Remember**:
+- ❌ NEVER edit `models.py` (it's regenerated)
+- ✅ DO edit `extended.py` (manually maintained)
+- ❌ DON'T commit `models.py` (git-ignored)
+- ✅ DO commit `openapi.yaml`, `extended.py`, `__init__.py`
 
 **Contract Tests Verify:**
 - ✅ All paths in `openapi.yaml` are implemented
@@ -329,10 +357,11 @@ uv run pytest tests/integration/test_openapi_contract.py -v
 - ✅ HTTP methods match
 - ✅ API version and title match
 
-**Generated Files:**
-- `crawler/api/generated/models.py` - Auto-generated (NOT committed to git)
-- `crawler/api/generated/extended.py` - Custom validators (committed to git)
-- `clients/python/` - Generated Python SDK (NOT committed to git)
+**File Management:**
+- `crawler/api/generated/models.py` - **Auto-generated, never edit** (git-ignored, CI generates it)
+- `crawler/api/generated/extended.py` - **Manually maintained** (version controlled)
+- `crawler/api/generated/__init__.py` - **Manually maintained exports** (version controlled)
+- `clients/python/` - **Auto-generated SDK** (git-ignored)
 
 See `docs/openapi-generation.md` for the complete guide.
 

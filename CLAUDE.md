@@ -167,10 +167,28 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 ## Important Patterns
 
 ### Adding a New API Endpoint
-1. Define route in `crawler/api/routes.py`
-2. Use repository classes for database access (see "Working with Database" below)
-3. Add metrics tracking if needed (import from `crawler.core.metrics`)
-4. Use structured logging: `logger.info("event_name", key=value)`
+
+**Important**: All API models must be imported from `crawler.api.generated`, not from any other location.
+
+1. Define schema in `openapi.yaml` first (contract-first approach)
+2. Run `make generate-models` to generate Pydantic models
+3. Define route in `crawler/api/v1/routes/*.py` or `crawler/api/routes.py`
+4. Import models: `from crawler.api.generated import YourRequestModel, YourResponseModel`
+5. Use repository classes for database access (see "Working with Database" below)
+6. Add metrics tracking if needed (import from `crawler.core.metrics`)
+7. Use structured logging: `logger.info("event_name", key=value)`
+
+**Import Examples**:
+```python
+# ✅ CORRECT: Import from crawler.api.generated
+from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
+
+# ❌ INCORRECT: Don't import from models.py directly
+from crawler.api.generated.models import CreateWebsiteRequest
+
+# ✅ CORRECT: For common schemas (non-OpenAPI models)
+from crawler.api.schemas import ErrorResponse, HealthResponse
+```
 
 ### Adding a New Service
 1. Create service class in `crawler/services/`
@@ -273,52 +291,71 @@ await scheduled_job_repo.toggle_status(job_id=job.id, is_active=True)
 
 This project uses **OpenAPI spec as the single source of truth** for API contracts. The workflow ensures frontend and backend stay in sync.
 
-**Architecture**:
+**Architecture** (Data Flow):
 ```
-openapi.yaml (Contract)
-    ↓
-Generate Pydantic Models (datamodel-codegen)
-    ↓
-crawler/api/generated/models.py + extended.py
-    ↓
-Use in FastAPI routes
-    ↓
-Contract tests verify implementation matches spec
+1. openapi.yaml (Contract - single source of truth)
+       ↓
+2. make generate-models (datamodel-codegen)
+       ↓
+3. crawler/api/generated/models.py (auto-generated, git-ignored)
+       ↓
+4. crawler/api/generated/extended.py (extends models with validators)
+       ↓
+5. crawler/api/generated/__init__.py (re-exports extended models)
+       ↓
+6. Your code: from crawler.api.generated import YourModel
+       ↓
+7. FastAPI routes use models
+       ↓
+8. Contract tests verify implementation matches openapi.yaml
 ```
+
+**Key Architectural Points**:
+- 📄 **Single source of truth**: `openapi.yaml` defines all API contracts
+- 🤖 **Auto-generation**: `models.py` is never edited manually
+- ✨ **Extension layer**: `extended.py` adds custom validation without touching generated code
+- 📦 **Clean imports**: Always `from crawler.api.generated import ...`
+- ✅ **Validation**: Contract tests ensure spec and implementation stay in sync
 
 **Workflow for API Changes**:
 
 1. **Update Contract**: Edit `openapi.yaml` with new endpoints/schemas
    ```bash
-   # Edit openapi.yaml
+   # Edit openapi.yaml to add/modify endpoints
    make validate-openapi  # Validate spec is correct
    ```
 
-2. **Generate Models**: Create Pydantic models from spec
+2. **Generate Models**: Run code generation (creates `models.py` - don't edit this file!)
    ```bash
    make generate-models  # Auto-generates crawler/api/generated/models.py
+   # ⚠️ models.py is git-ignored and regenerated every time!
    ```
 
-3. **Add Custom Validators** (if needed): Update `crawler/api/generated/extended.py`
+3. **Add Custom Validators** (ONLY if your new model needs custom validation):
+   - **manually edit** `crawler/api/generated/extended.py` (this file is version controlled)
+   - Import the base model from `models.py` and extend it
    ```python
-   from crawler.api.generated.models import CreateWebsiteRequest as _CreateWebsiteRequest
+   # In crawler/api/generated/extended.py
+   from .models import YourNewModel as _YourNewModel
 
-   class CreateWebsiteRequest(_CreateWebsiteRequest):
+   class YourNewModel(_YourNewModel):
        """Extended model with custom validators."""
 
        @model_validator(mode="after")
-       def validate_browser_type(self) -> "CreateWebsiteRequest":
+       def your_custom_validation(self) -> "YourNewModel":
            # Custom validation logic
            return self
    ```
+   - Export it in `crawler/api/generated/__init__.py`
 
-4. **Implement Routes**: Use generated models in FastAPI
+4. **Implement Routes**: Use models in FastAPI (import directly from `crawler.api.generated`)
    ```python
-   from crawler.api.v1.schemas import CreateWebsiteRequest, WebsiteResponse
+   from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
+   # Imports from crawler.api.generated.__init__.py which re-exports extended models
 
    @router.post("", response_model=WebsiteResponse, operation_id="createWebsite")
    async def create_website(request: CreateWebsiteRequest) -> WebsiteResponse:
-       # Implementation uses type-safe models
+       # Implementation uses type-safe models with custom validators
        pass
    ```
 
@@ -327,10 +364,17 @@ Contract tests verify implementation matches spec
    uv run pytest tests/integration/test_openapi_contract.py -v
    ```
 
-6. **Generate Client SDK** (for frontend/consumers):
+6. **Generate Client SDK** (optional, for frontend/external consumers):
    ```bash
    make generate-client  # Creates clients/python/ SDK
    ```
+
+**Key Points**:
+- ❌ **NEVER edit** `crawler/api/generated/models.py` - it's regenerated every time
+- ✅ **DO edit** `crawler/api/generated/extended.py` - this is manually maintained
+- ✅ **DO commit** `extended.py` and `__init__.py` to git
+- ❌ **DON'T commit** `models.py` - it's in .gitignore
+- 🤖 **CI automatically** generates `models.py` before running tests
 
 **Contract Tests** (`tests/integration/test_openapi_contract.py`):
 - ✅ API version and title match
@@ -350,11 +394,66 @@ Contract tests verify implementation matches spec
 4. **Client generation** - Automatic SDK for any language (Python, TypeScript, Go, etc.)
 5. **Team collaboration** - Frontend/backend agree on API before implementation
 
-**Important Files**:
-- `openapi.yaml` - API contract (version controlled)
-- `crawler/api/generated/models.py` - Auto-generated models (NOT version controlled)
-- `crawler/api/generated/extended.py` - Custom validators (version controlled)
-- `crawler/api/generated/__init__.py` - Exports (version controlled)
+**File Ownership & Version Control**:
+
+```
+crawler/api/generated/
+├── models.py          ❌ AUTO-GENERATED (git-ignored)
+│                      └─ NEVER EDIT - regenerated by make generate-models
+│                      └─ CI generates this before tests
+│
+├── extended.py        ✅ MANUALLY MAINTAINED (version controlled)
+│                      └─ Edit this to add custom validators
+│                      └─ Imports from models.py and extends classes
+│                      └─ Commit this file
+│
+└── __init__.py        ✅ MANUALLY MAINTAINED (version controlled)
+                       └─ Edit this to export your extended models
+                       └─ Commit this file
+```
+
+**Common Mistakes to Avoid**:
+
+- ❌ **DON'T** create `crawler/api/v1/schemas/` directory
+  - This was removed to avoid duplicate sources of truth
+  - All OpenAPI models come from `crawler.api.generated`
+
+- ❌ **DON'T** create manual Pydantic models that duplicate OpenAPI schemas
+  - Define schemas in `openapi.yaml` instead
+  - Run `make generate-models` to get type-safe models
+
+- ❌ **DON'T** import from `models.py` directly
+
+  ```python
+  from crawler.api.generated.models import CreateWebsiteRequest  # ❌ WRONG
+  ```
+
+- ✅ **DO** import from `crawler.api.generated` (the `__init__.py`)
+
+  ```python
+  from crawler.api.generated import CreateWebsiteRequest  # ✅ CORRECT
+  ```
+
+- ❌ **DON'T** edit `models.py` to add validators
+  - It will be overwritten on next generation
+  - Add validators in `extended.py` instead
+
+- ✅ **DO** extend generated models in `extended.py`
+
+  ```python
+  # In extended.py
+  from .models import YourModel as _YourModel
+
+  class YourModel(_YourModel):
+      @model_validator(mode="after")
+      def your_validator(self) -> "YourModel":
+          # Custom logic here
+          return self
+  ```
+
+**Other Important Files**:
+- `openapi.yaml` - API contract (✅ version controlled, source of truth)
+- `clients/python/` - Generated SDK (❌ git-ignored, regenerated)
 - `docs/openapi-generation.md` - Detailed documentation
 
 ### Testing
@@ -470,14 +569,21 @@ The CI/CD setup is optimized to minimize GitHub Actions usage:
 Before merging a PR, ensure:
 1. All CI checks pass (OpenAPI validation, format, lint, type-check, tests)
 2. **Contract tests pass** (if API changes made)
-3. If `openapi.yaml` changed: Run `make generate-models` and commit generated extended models
-4. Claude Code Review feedback addressed (if applicable)
-5. No merge conflicts with `main`
+3. Claude Code Review feedback addressed (if applicable)
+4. No merge conflicts with `main`
 
 **For API Changes Specifically**:
-1. Update `openapi.yaml` with new endpoints/schemas
-2. Run `make validate-openapi` to validate spec
-3. Run `make generate-models` to regenerate Pydantic models
-4. Update `crawler/api/generated/extended.py` if custom validators needed
-5. Run contract tests: `uv run pytest tests/integration/test_openapi_contract.py -v`
-6. All 14 contract tests must pass
+1. ✅ Updated `openapi.yaml` with new endpoints/schemas
+2. ✅ Ran `make validate-openapi` - spec is valid
+3. ✅ Ran `make generate-models` locally (to test generation works)
+4. ✅ If new models need custom validation: **manually updated** `crawler/api/generated/extended.py`
+5. ✅ Updated `crawler/api/generated/__init__.py` exports if added new models
+6. ✅ **Committed** `openapi.yaml`, `extended.py`, `__init__.py` (NOT `models.py`!)
+7. ✅ Ran contract tests: `uv run pytest tests/integration/test_openapi_contract.py -v` - all pass
+8. ✅ All 14+ contract tests pass
+
+**What Gets Committed**:
+- ✅ `openapi.yaml` - the contract
+- ✅ `crawler/api/generated/extended.py` - your custom validators
+- ✅ `crawler/api/generated/__init__.py` - exports
+- ❌ `crawler/api/generated/models.py` - NEVER commit (git-ignored, CI generates it)

@@ -6,13 +6,13 @@ from uuid import uuid4
 
 import pytest
 
-from crawler.api.schemas import StatusEnum
-from crawler.api.v1.schemas import (
+from crawler.api.generated import (
     CrawlStep,
     CreateWebsiteRequest,
     MethodEnum,
     StepTypeEnum,
 )
+from crawler.api.schemas import StatusEnum
 from crawler.api.v1.services import WebsiteService
 from crawler.db.generated.models import Website
 

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 
-from crawler.api.v1.schemas import CreateWebsiteRequest, WebsiteResponse
+from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
 from crawler.api.v1.services import WebsiteService
 from crawler.api.validators import validate_and_calculate_next_run
 from crawler.core.logging import get_logger
@@ -66,17 +66,17 @@ async def create_website_handler(
         ) from e
 
     except RuntimeError as e:
-        # Service operation error
-        logger.error("service_error", error=str(e), website_name=request.name)
+        # Service operation error - log details but return generic message
+        logger.error("service_error", error=str(e), website_name=request.name, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="An error occurred while creating the website",
         ) from e
 
     except Exception as e:
-        # Unexpected error
-        logger.error("unexpected_error", error=str(e), website_name=request.name)
+        # Unexpected error - log with full stack trace but return generic message
+        logger.error("unexpected_error", error=str(e), website_name=request.name, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}",
+            detail="An unexpected error occurred",
         ) from e
