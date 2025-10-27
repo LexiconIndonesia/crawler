@@ -12,6 +12,12 @@ class WebsiteBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Unique website name")
     base_url: HttpUrl = Field(..., description="Base URL of the website")
     config: dict[str, Any] = Field(default_factory=dict, description="Website crawl configuration")
+    cron_schedule: str | None = Field(
+        None,
+        min_length=9,
+        max_length=255,
+        description="Default cron schedule (e.g., '0 0 1,15 * *' for bi-weekly)",
+    )
     status: str = Field(default="active", description="Website status")
     created_by: str | None = Field(None, max_length=255, description="User who created")
 
@@ -44,6 +50,7 @@ class WebsiteUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     base_url: HttpUrl | None = None
     config: dict[str, Any] | None = None
+    cron_schedule: str | None = Field(None, min_length=9, max_length=255)
     status: str | None = None
 
 
