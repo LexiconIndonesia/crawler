@@ -3,7 +3,7 @@ name = "crawler"
 version = "0.1.0"
 description = "Lexicon Crawler"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     # Web Framework
     "fastapi>=0.115.0",
@@ -71,7 +71,7 @@ exclude = [
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
