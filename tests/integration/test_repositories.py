@@ -4,7 +4,7 @@ These tests require a running PostgreSQL database.
 Run with: make test-integration
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -476,3 +476,66 @@ class TestScheduledJobRepository:
 
         # Should have the default bi-weekly schedule
         assert website2.cron_schedule == "0 0 1,15 * *"
+
+    async def test_job_config_deserialization(self, db_session: AsyncSession) -> None:
+        """Test that job_config is properly deserialized from JSON."""
+        conn = await db_session.connection()
+        website_repo = WebsiteRepository(conn)
+        scheduled_job_repo = ScheduledJobRepository(conn)
+
+        website = await website_repo.create(
+            name="config-test-site", base_url="https://test.com", config={}
+        )
+
+        # Create job with complex job_config
+        complex_config = {
+            "max_depth": 5,
+            "timeout": 30,
+            "user_agent": "CustomBot/1.0",
+            "headers": {"Authorization": "Bearer token123"},
+            "nested": {"key": "value", "list": [1, 2, 3]},
+        }
+
+        job = await scheduled_job_repo.create(
+            website_id=str(website.id),
+            cron_schedule="0 0 * * *",
+            next_run_time=datetime.now(UTC),
+            job_config=complex_config,
+        )
+
+        assert job is not None
+        # Verify job_config is a dict, not a JSON string
+        assert isinstance(job.job_config, dict)
+        assert job.job_config == complex_config
+        assert job.job_config["max_depth"] == 5
+        assert job.job_config["nested"]["list"] == [1, 2, 3]
+
+        # Test get_by_id deserialization
+        retrieved_job = await scheduled_job_repo.get_by_id(str(job.id))
+        assert retrieved_job is not None
+        assert isinstance(retrieved_job.job_config, dict)
+        assert retrieved_job.job_config == complex_config
+
+        # Test get_by_website_id deserialization
+        jobs = await scheduled_job_repo.get_by_website_id(str(website.id))
+        assert len(jobs) == 1
+        assert isinstance(jobs[0].job_config, dict)
+        assert jobs[0].job_config == complex_config
+
+        # Test get_due_jobs deserialization
+        due_jobs = await scheduled_job_repo.get_due_jobs(
+            cutoff_time=datetime.now(UTC) + timedelta(hours=1), limit=10
+        )
+        assert len(due_jobs) >= 1
+        assert any(j.id == job.id for j in due_jobs)
+        matching_job = next(j for j in due_jobs if j.id == job.id)
+        assert isinstance(matching_job.job_config, dict)
+        assert matching_job.job_config == complex_config
+
+        # Test list_active deserialization
+        active_jobs = await scheduled_job_repo.list_active(limit=10)
+        assert len(active_jobs) >= 1
+        assert any(j.id == job.id for j in active_jobs)
+        matching_job = next(j for j in active_jobs if j.id == job.id)
+        assert isinstance(matching_job.job_config, dict)
+        assert matching_job.job_config == complex_config

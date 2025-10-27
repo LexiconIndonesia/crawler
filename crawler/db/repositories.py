@@ -540,6 +540,31 @@ class ScheduledJobRepository:
         self.conn = connection
         self._querier = scheduled_job.AsyncQuerier(connection)
 
+    @staticmethod
+    def _deserialize_job_config(job: models.ScheduledJob | None) -> models.ScheduledJob | None:
+        """Deserialize job_config from JSON string to dict.
+
+        Args:
+            job: ScheduledJob model from database
+
+        Returns:
+            ScheduledJob with deserialized job_config, or None if input is None
+        """
+        if job is None:
+            return None
+
+        # If job_config is a string, deserialize it
+        if isinstance(job.job_config, str):
+            try:
+                deserialized_config = json.loads(job.job_config)
+                # Create a new model with deserialized config
+                return job.model_copy(update={"job_config": deserialized_config})
+            except (json.JSONDecodeError, TypeError):
+                # If deserialization fails, keep original value
+                return job
+
+        return job
+
     async def create(
         self,
         website_id: str | UUID,
@@ -569,44 +594,51 @@ class ScheduledJobRepository:
         )
 
     async def get_by_id(self, job_id: str | UUID) -> models.ScheduledJob | None:
-        """Get scheduled job by ID."""
-        return await self._querier.get_scheduled_job_by_id(id=_to_uuid(job_id))
+        """Get scheduled job by ID with deserialized job_config."""
+        job = await self._querier.get_scheduled_job_by_id(id=_to_uuid(job_id))
+        return self._deserialize_job_config(job)
 
     async def get_by_website_id(self, website_id: str | UUID) -> list[models.ScheduledJob]:
-        """Get all scheduled jobs for a website."""
+        """Get all scheduled jobs for a website with deserialized job_config."""
         jobs = []
         async for job in self._querier.get_scheduled_jobs_by_website_id(
             website_id=_to_uuid(website_id)
         ):
-            jobs.append(job)
+            deserialized_job = self._deserialize_job_config(job)
+            if deserialized_job:
+                jobs.append(deserialized_job)
         return jobs
 
     async def list_active(self, limit: int = 100, offset: int = 0) -> list[models.ScheduledJob]:
-        """List active scheduled jobs."""
+        """List active scheduled jobs with deserialized job_config."""
         jobs = []
         async for job in self._querier.list_active_scheduled_jobs(
             offset_count=offset, limit_count=limit
         ):
-            jobs.append(job)
+            deserialized_job = self._deserialize_job_config(job)
+            if deserialized_job:
+                jobs.append(deserialized_job)
         return jobs
 
     async def get_due_jobs(
         self, cutoff_time: datetime, limit: int = 100
     ) -> list[models.ScheduledJob]:
-        """Get jobs due for execution.
+        """Get jobs due for execution with deserialized job_config.
 
         Args:
             cutoff_time: Jobs with next_run_time <= this time will be returned
             limit: Maximum number of jobs to return
 
         Returns:
-            List of ScheduledJob models ordered by next_run_time
+            List of ScheduledJob models with deserialized job_config, ordered by next_run_time
         """
         jobs = []
         async for job in self._querier.get_jobs_due_for_execution(
             cutoff_time=cutoff_time, limit_count=limit
         ):
-            jobs.append(job)
+            deserialized_job = self._deserialize_job_config(job)
+            if deserialized_job:
+                jobs.append(deserialized_job)
         return jobs
 
     async def update(
