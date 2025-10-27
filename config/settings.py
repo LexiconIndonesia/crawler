@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     app_name: str = "Lexicon Crawler"
     app_version: str = "0.1.0"
     debug: bool = False
-    environment: Literal["development", "staging", "production"] = Field(
+    environment: Literal["development", "staging", "production", "testing"] = Field(
         default="development",
         description="Application environment",
     )
