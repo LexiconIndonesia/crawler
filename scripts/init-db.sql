@@ -1,9 +1,20 @@
--- Initialize database schema
--- This file is executed when PostgreSQL container starts
+-- Initialize database for Docker container startup
+-- This file is executed when PostgreSQL 18+ container starts
+--
+-- Note: Minimal initialization only. Full schema is managed via migrations.
+-- Run migrations with: make db-migrate
 
--- Enable necessary extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+-- Enable useful extensions
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";     -- Trigram similarity for text search
+CREATE EXTENSION IF NOT EXISTS "btree_gin";   -- GIN indexes for btree types
+CREATE EXTENSION IF NOT EXISTS "pg_search";   -- Full-text search enhancements
 
--- Create initial schema (if needed)
--- Tables will be created by Alembic migrations
+-- Create migration tracking table (will be overwritten by 000_migration_tracking.sql)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(255) PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    description TEXT,
+    checksum VARCHAR(64)
+);
+
+-- Note: UUIDv7 is built-in to PostgreSQL 18+, no extension needed

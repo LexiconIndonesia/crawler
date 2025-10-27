@@ -1,5 +1,42 @@
-"""Database package."""
+"""Database package.
 
-from .session import get_db
+Provides database session management and type-safe query repositories.
+Uses sqlc for generating type-safe Python code from SQL queries.
 
-__all__ = ["get_db"]
+## Usage
+
+```python
+from crawler.db import get_db
+from crawler.db.repositories import WebsiteRepository
+
+async with get_db() as session:
+    async with session.begin():
+        repo = WebsiteRepository(session.connection())
+        website = await repo.create(
+            name="example",
+            base_url="https://example.com",
+            config={}
+        )
+```
+"""
+
+from .repositories import (
+    ContentHashRepository,
+    CrawlJobRepository,
+    CrawledPageRepository,
+    CrawlLogRepository,
+    WebsiteRepository,
+)
+from .session import engine, get_db
+
+__all__ = [
+    # Session management
+    "get_db",
+    "engine",
+    # Repositories
+    "WebsiteRepository",
+    "CrawlJobRepository",
+    "CrawledPageRepository",
+    "ContentHashRepository",
+    "CrawlLogRepository",
+]

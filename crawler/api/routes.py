@@ -1,5 +1,8 @@
 """API routes."""
 
+from datetime import UTC, datetime
+
+import redis.asyncio as redis
 from fastapi import APIRouter, Depends
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
@@ -24,14 +27,39 @@ async def root() -> dict[str, str]:
 
 
 @router.get("/health")
-async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
-    """Health check endpoint."""
+async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str | dict[str, str]]:
+    """Health check endpoint with database and Redis connectivity checks."""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "checks": {},
+    }
+
+    # Check PostgreSQL connection
     try:
-        # Check database connection
         await db.execute(text("SELECT 1"))
-        return {"status": "healthy", "database": "connected"}
+        health_status["checks"]["database"] = "connected"
     except Exception as e:
-        return {"status": "unhealthy", "database": f"error: {str(e)}"}
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["database"] = f"error: {str(e)}"
+
+    # Check Redis connection
+    settings = get_settings()
+    redis_client = None
+    try:
+        redis_client = redis.from_url(
+            str(settings.redis_url), encoding="utf-8", decode_responses=True
+        )
+        await redis_client.ping()
+        health_status["checks"]["redis"] = "connected"
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["redis"] = f"error: {str(e)}"
+    finally:
+        if redis_client:
+            await redis_client.close()
+
+    return health_status
 
 
 @router.get("/metrics")

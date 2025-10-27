@@ -75,10 +75,14 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 - Environment-aware: development/staging/production
 
 **Database Layer** (`crawler/db/`)
-- SQLAlchemy 2.0 with async support (asyncpg driver)
-- Async session factory created at module level in `session.py`
-- `get_db()` dependency provides sessions with automatic commit/rollback
-- Connection pooling configured via settings (pool_size, max_overflow)
+- **SQL schema as single source of truth**: `sql/schema/*.sql` defines all tables and types
+- **sqlc** generates type-safe Python code from SQL queries
+- **Repository pattern** provides clean interfaces over sqlc-generated code
+- SQLAlchemy 2.0 for connections and sessions only (asyncpg driver)
+- Async session factory in `session.py`, connection pooling via settings
+- SQL queries in `sql/queries/*.sql`, schema in `sql/schema/*.sql`
+- Generated code in `crawler/db/generated/` (never edit manually)
+- Repositories in `crawler/db/repositories.py` handle JSON serialization and parameter mapping
 
 **Services** (`crawler/services/`)
 - `CacheService`: Redis-based caching for URL deduplication and rate limiting
@@ -94,7 +98,10 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 ### Data Flow Patterns
 
 1. **Configuration Loading**: Settings loaded once via `get_settings()` LRU cache
-2. **Database Sessions**: Use `Depends(get_db)` for automatic session lifecycle
+2. **Database Access**:
+   - Use `Depends(get_db)` for SQLAlchemy sessions (legacy patterns)
+   - Use repository classes with `AsyncConnection` for sqlc queries (preferred)
+   - All queries return type-safe Pydantic models
 3. **Logging**: Get logger with `get_logger(__name__)`, logs structured JSON
 4. **Storage**: Base64-encoded GCS credentials decoded and used to create service account
 5. **Caching**: Redis async client for URL deduplication and rate limiting
@@ -102,6 +109,7 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 ### Key Design Decisions
 
 - **Async everywhere**: FastAPI + SQLAlchemy async + Redis async + httpx
+- **Type-safe database**: sqlc generates Python code from SQL queries
 - **Dependency injection**: FastAPI's `Depends()` for DB sessions and services
 - **Configuration**: Environment-based with Pydantic validation
 - **Observability first**: Structured logging + Prometheus metrics from the start
@@ -111,7 +119,7 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 
 ### Adding a New API Endpoint
 1. Define route in `crawler/api/routes.py`
-2. Use `Depends(get_db)` for database access
+2. Use repository classes for database access (see "Working with Database" below)
 3. Add metrics tracking if needed (import from `crawler.core.metrics`)
 4. Use structured logging: `logger.info("event_name", key=value)`
 
@@ -122,21 +130,57 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 4. Add structured logging for key operations
 5. Add relevant Prometheus metrics
 
-### Database Models
-- Use SQLAlchemy 2.0 declarative syntax
-- Place in `crawler/models/`
-- Create corresponding Pydantic schemas in `crawler/schemas/`
-- Run migrations with Alembic (not yet configured in current setup)
+### Working with Database
+
+**Adding New Queries**:
+1. Write SQL query in `sql/queries/*.sql` following sqlc syntax
+2. Run `sqlc generate` to generate Python code
+3. Import generated queries in `crawler/db/repositories.py`
+4. Add repository method wrapping the generated query
+5. Use repository in your routes/services
+
+**Schema Changes**:
+1. Add new table or modify schema in `sql/schema/*.sql` (single source of truth)
+2. Create new SQL migration file in `sql/schema/` with next version number
+3. Add sqlc queries in `sql/queries/*.sql` for the new table
+4. Run `sqlc generate` to generate type-safe Python models and queries
+5. Add repository methods in `crawler/db/repositories.py` if needed
+6. Update tests to verify new functionality
+
+**Note**: SQL schema files are the only place to define database structure. No Python table definitions needed - sqlc generates Pydantic models directly from SQL queries.
+
+**Using Repositories**:
+```python
+from crawler.db import get_db
+from crawler.db.repositories import WebsiteRepository
+
+async with get_db() as session:
+    async with session.begin():
+        repo = WebsiteRepository(session.connection())
+        website = await repo.create(
+            name="example",
+            base_url="https://example.com",
+            config={}
+        )
+        # Returns Pydantic model with type safety
+        print(website.id, website.name)
+```
 
 ### Testing
 - Unit tests go in `tests/unit/`
 - Integration tests in `tests/integration/`
 - Use `pytest-asyncio` for async tests (auto mode enabled in pyproject.toml)
 - Test coverage reports generated to `htmlcov/`
+- Database tests use repository fixtures: `website_repo`, `crawl_job_repo`, etc.
+- Fixtures automatically create schema from SQL files and clean up after tests
+- Schema cleanup is automatic - queries PostgreSQL system tables to drop all tables and types
+- No manual maintenance needed when adding new tables or types
 
 ## Technology Stack Notes
 
 **Package Manager**: This project uses [uv](https://github.com/astral-sh/uv) for fast dependency management. All Python commands should be run via `uv run` or within the uv environment.
+
+**Type-Safe Queries**: [sqlc](https://sqlc.dev) generates type-safe Python code from SQL. Run `sqlc generate` after modifying queries in `sql/queries/*.sql`. Generated code is in `crawler/db/generated/` (never edit manually).
 
 **Browser Automation**: Playwright browsers must be installed separately with `make playwright`. For anti-bot scenarios, undetected-chromedriver is available.
 

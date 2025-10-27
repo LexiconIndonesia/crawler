@@ -170,6 +170,25 @@ nats-shell: ## Open NATS monitoring
 	@echo "$(BLUE)📡 NATS Monitoring: http://localhost:8222$(NC)"
 	@open http://localhost:8222 || xdg-open http://localhost:8222 || echo "Open http://localhost:8222 in your browser"
 
+db-migrate: ## Run database migrations
+	@echo "$(BLUE)🔄 Running database migrations...$(NC)"
+	$(PYTHON) scripts/migrate.py up
+	@echo "$(GREEN)✅ Migrations complete$(NC)"
+
+db-migrate-status: ## Show migration status
+	@echo "$(BLUE)📊 Migration Status:$(NC)"
+	$(PYTHON) scripts/migrate.py status
+
+db-migrate-down: ## Rollback last migration
+	@echo "$(RED)⬇️  Rolling back migration...$(NC)"
+	$(PYTHON) scripts/migrate.py down
+	@echo "$(YELLOW)⚠️  Migration rolled back$(NC)"
+
+sqlc-generate: ## Generate type-safe Python code from SQL queries
+	@echo "$(BLUE)⚙️  Generating code with sqlc...$(NC)"
+	sqlc generate
+	@echo "$(GREEN)✅ Code generated in crawler/db/generated/$(NC)"
+
 ##@ Monitoring
 
 monitoring-up: ## Start monitoring stack (Prometheus, Grafana, Loki)
