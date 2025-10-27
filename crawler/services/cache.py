@@ -4,7 +4,7 @@ from typing import Any
 
 import redis.asyncio as redis
 
-from config import get_settings
+from config import Settings
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -13,12 +13,14 @@ logger = get_logger(__name__)
 class CacheService:
     """Redis cache service for deduplication and rate limiting."""
 
-    def __init__(self) -> None:
-        """Initialize cache service."""
-        settings = get_settings()
-        self.redis = redis.from_url(
-            str(settings.redis_url), encoding="utf-8", decode_responses=True
-        )
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
+        """Initialize cache service with injected dependencies.
+
+        Args:
+            redis_client: Redis client instance
+            settings: Application settings
+        """
+        self.redis = redis_client
         self.default_ttl = settings.redis_ttl
 
     async def get(self, key: str) -> str | None:

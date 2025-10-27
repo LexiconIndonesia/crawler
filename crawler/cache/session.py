@@ -4,17 +4,30 @@ from collections.abc import AsyncGenerator
 
 import redis.asyncio as redis
 
-from config import get_settings
+from config import Settings, get_settings
 
-settings = get_settings()
 
-# Create Redis connection pool
-redis_pool: redis.ConnectionPool = redis.ConnectionPool.from_url(
-    str(settings.redis_url),
-    encoding="utf-8",
-    decode_responses=True,
-    max_connections=settings.redis_max_connections,
-)
+def create_redis_pool(settings: Settings) -> redis.ConnectionPool:
+    """Create Redis connection pool from settings.
+
+    Args:
+        settings: Application settings
+
+    Returns:
+        Configured Redis connection pool
+    """
+    return redis.ConnectionPool.from_url(
+        str(settings.redis_url),
+        encoding="utf-8",
+        decode_responses=True,
+        max_connections=settings.redis_max_connections,
+    )
+
+
+# Module-level singleton initialized with default settings
+# This is shared across the application lifecycle
+_settings = get_settings()
+redis_pool: redis.ConnectionPool = create_redis_pool(_settings)
 
 
 async def get_redis() -> AsyncGenerator[redis.Redis, None]:

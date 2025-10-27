@@ -1,0 +1,83 @@
+"""Generated models from OpenAPI specification.
+
+This module contains auto-generated Pydantic models from the OpenAPI spec.
+DO NOT EDIT MANUALLY - regenerate using: make generate-models
+"""
+
+from .extended import CrawlStep, CreateWebsiteRequest, ScheduleConfig, StepConfig
+from .models import (
+    ActionConfig,
+    BackoffStrategy,
+    BrowserTypeEnum,
+    DetailItem,
+    Environment,
+    ErrorResponse,
+    GlobalConfig,
+    HealthResponse,
+    HttpMethod,
+    MethodEnum,
+    OutputConfig,
+    PaginationConfig,
+    RateLimitConfig,
+    RetryConfig,
+    RootResponse,
+    ScheduleTypeEnum,
+    SelectorConfig,
+    Status,
+    StatusEnum,
+    StepTypeEnum,
+    TimeoutConfig,
+    Type,
+    Type1,
+    Type2,
+    ValidationError,
+    WaitUntil,
+    WebsiteResponse,
+)
+
+# Re-export with better names for generic Type enums
+PaginationType = Type  # page_based, offset_based, cursor_based, next_button, url_pattern
+ActionType = Type1  # wait, click, fill, scroll, execute_script, hover
+SelectorType = Type2  # single, array
+
+__all__ = [
+    # Request/Response Models
+    "CreateWebsiteRequest",
+    "WebsiteResponse",
+    "RootResponse",
+    "HealthResponse",
+    "ErrorResponse",
+    "ValidationError",
+    "DetailItem",
+    # Configuration Models
+    "GlobalConfig",
+    "ScheduleConfig",
+    "StepConfig",
+    "RateLimitConfig",
+    "TimeoutConfig",
+    "RetryConfig",
+    "PaginationConfig",
+    "ActionConfig",
+    "OutputConfig",
+    "SelectorConfig",
+    "CrawlStep",
+    # Enums
+    "StatusEnum",
+    "ScheduleTypeEnum",
+    "StepTypeEnum",
+    "MethodEnum",
+    "BrowserTypeEnum",
+    "BackoffStrategy",
+    "HttpMethod",
+    "WaitUntil",
+    "Status",
+    "Environment",
+    # Type aliases (better names for generic enums)
+    "PaginationType",
+    "ActionType",
+    "SelectorType",
+    # Original generic type names
+    "Type",
+    "Type1",
+    "Type2",
+]

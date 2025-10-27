@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from config import get_settings
+from config import Settings, get_settings
 from crawler.db.repositories import (
     ContentHashRepository,
     CrawledPageRepository,
@@ -22,7 +22,8 @@ from crawler.db.repositories import (
 )
 from main import create_app
 
-settings = get_settings()
+# Module-level settings for test setup
+_test_settings = get_settings()
 
 # SQL schema files location
 SCHEMA_DIR = Path(__file__).parent.parent / "sql" / "schema"
@@ -89,19 +90,28 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture
+def settings() -> Settings:
+    """Provide application settings for tests.
+
+    Returns:
+        Application settings instance
+    """
+    return get_settings()
+
+
 @pytest_asyncio.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session.
 
-    This fixture creates a new database session for each test function,
-    and rolls back all changes after the test completes.
+    This fixture reuses the session-scoped schema and creates a transaction
+    for each test function, rolling back all changes after the test completes.
+
+    Args:
+        test_db_schema: Session-scoped fixture that ensures schema exists
     """
     # Create test engine
-    engine = create_async_engine(str(settings.database_url), echo=False)
-
-    # Create all tables from SQL schema
-    async with engine.begin() as conn:
-        await create_schema(conn)
+    engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
     # Create session
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -111,36 +121,27 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
             yield session
             await session.rollback()
 
-    # Drop all tables after test
-    async with engine.begin() as conn:
-        await drop_schema(conn)
-
     await engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_connection() -> AsyncGenerator[AsyncConnection, None]:
+async def db_connection(test_db_schema) -> AsyncGenerator[AsyncConnection, None]:
     """Create a test database connection for sqlc repositories.
 
-    This fixture creates a new database connection for each test function,
-    and rolls back all changes after the test completes.
+    This fixture reuses the session-scoped schema and creates a transaction
+    for each test function, rolling back all changes after the test completes.
+
+    Args:
+        test_db_schema: Session-scoped fixture that ensures schema exists
     """
     # Create test engine
-    engine = create_async_engine(str(settings.database_url), echo=False)
-
-    # Create all tables from SQL schema
-    async with engine.begin() as conn:
-        await create_schema(conn)
+    engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
     # Create connection with transaction
     async with engine.connect() as connection:
         async with connection.begin() as transaction:
             yield connection
             await transaction.rollback()
-
-    # Drop all tables after test
-    async with engine.begin() as conn:
-        await drop_schema(conn)
 
     await engine.dispose()
 
@@ -186,10 +187,10 @@ async def redis_client() -> AsyncGenerator[redis.Redis, None]:
     """Create a Redis client for testing.
 
     This fixture provides a Redis client without reusing the global pool
-    to avoid event loop issues in tests.
+    to avoid event loop issues in tests. Flushes test keys after each test.
     """
     client = redis.from_url(
-        str(settings.redis_url),
+        str(_test_settings.redis_url),
         encoding="utf-8",
         decode_responses=True,
     )
@@ -197,18 +198,91 @@ async def redis_client() -> AsyncGenerator[redis.Redis, None]:
         # Verify connection
         await client.ping()
         yield client
+        # Clean up test keys after each test
+        await client.flushdb()
     finally:
         # Clean up connection
         await client.aclose()
 
 
+@pytest_asyncio.fixture(scope="session")
+async def test_db_schema():
+    """Set up database schema once for all integration tests."""
+    engine = create_async_engine(str(_test_settings.database_url), echo=False)
+
+    # Create schema
+    async with engine.begin() as conn:
+        await create_schema(conn)
+
+    yield
+
+    # Drop schema
+    async with engine.begin() as conn:
+        await drop_schema(conn)
+
+    await engine.dispose()
+
+
 @pytest_asyncio.fixture
-async def test_client() -> AsyncGenerator[AsyncClient, None]:
+async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
     """Create FastAPI test client for integration tests.
 
     This fixture provides an async HTTP client for testing API endpoints.
+    The database schema is set up once per test session.
+    Each test gets fresh state by truncating all tables after completion.
+
+    Args:
+        test_db_schema: Session-scoped fixture that ensures schema exists
     """
+    import crawler.db.session as db_module
+    from crawler.db import get_db
+
+    # Create test engine without pool_pre_ping
+    engine = create_async_engine(
+        str(_test_settings.database_url),
+        echo=False,
+        pool_pre_ping=False,
+        pool_size=5,
+        max_overflow=10,
+    )
+
+    # Override module-level engine to prevent event loop issues
+    original_engine = db_module.engine
+    original_sessionmaker = db_module.async_session_maker
+
+    db_module.engine = engine
+    db_module.async_session_maker = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    # Create session
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    session = async_session()
+    transaction = await session.begin()
+
+    async def get_test_db() -> AsyncGenerator[AsyncSession, None]:
+        """Return the shared test session."""
+        yield session
+
+    # Create app and override dependency
     app = create_app()
+    app.dependency_overrides[get_db] = get_test_db
+
+    # Create client
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+    # Cleanup: rollback transaction
+    await transaction.rollback()
+    await session.close()
+
+    # Restore original module-level engine
+    db_module.engine = original_engine
+    db_module.async_session_maker = original_sessionmaker
+
+    await engine.dispose()
+
+    # Clean up overrides
+    app.dependency_overrides.clear()

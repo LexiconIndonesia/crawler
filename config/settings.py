@@ -1,9 +1,9 @@
 """Application configuration using pydantic-settings."""
 
 import os
-from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
+from fastapi import Depends
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     )
 
     # Application
-    app_name: str = "Lexicon Crawler"
-    app_version: str = "0.1.0"
+    app_name: str = "Lexicon Crawler API"
+    app_version: str = "1.0.0"
     debug: bool = False
     environment: Literal["development", "staging", "production", "testing"] = Field(
         default="development",
@@ -100,7 +100,15 @@ class Settings(BaseSettings):
         return v_upper
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get settings instance for dependency injection.
+
+    FastAPI will cache this automatically within the same request.
+    For cross-request caching, Settings class itself uses Pydantic's
+    validation caching and the instance is lightweight to create.
+    """
     return Settings()
+
+
+# Type alias for dependency injection
+SettingsDep = Annotated[Settings, Depends(get_settings)]

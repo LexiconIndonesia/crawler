@@ -1,0 +1,887 @@
+openapi: 3.1.0
+info:
+  title: Lexicon Crawler API
+  description: |
+    Lexicon Crawler is a production-ready web crawler built with FastAPI and modern Python async patterns.
+    It combines browser automation (Playwright, undetected-chromedriver) with distributed task queuing (NATS JetStream),
+    persistent storage (PostgreSQL + GCS), and full observability (Prometheus, Grafana, Loki).
+
+    ## Features
+    - Website configuration with multi-step crawl/scrape workflows
+    - Scheduled crawling with cron expressions
+    - Browser automation (Playwright, undetected-chromedriver)
+    - Rate limiting and retry logic
+    - Full observability (metrics, structured logging)
+
+  version: 1.0.0
+  contact:
+    name: Lexicon Crawler Support
+    url: https://github.com/lexicon/crawler
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://crawler.lexicon.id
+    description: Production server
+
+tags:
+  - name: General
+    description: General application endpoints (health, root, metrics)
+  - name: Websites
+    description: Website configuration and management
+  - name: Monitoring
+    description: Monitoring and observability endpoints
+
+paths:
+  /:
+    get:
+      tags:
+        - General
+      summary: Root endpoint
+      description: Returns basic application information including name, version, and environment
+      operationId: getRoot
+      responses:
+        '200':
+          description: Application information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RootResponse'
+              examples:
+                default:
+                  value:
+                    message: "Welcome to Lexicon Crawler"
+                    version: "1.0.0"
+                    environment: "development"
+
+  /health:
+    get:
+      tags:
+        - General
+      summary: Health check
+      description: Check the health status of the application including database and Redis
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Health check results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  value:
+                    status: "healthy"
+                    timestamp: "2025-10-27T10:00:00Z"
+                    checks:
+                      database: "connected"
+                      redis: "connected"
+                unhealthy:
+                  value:
+                    status: "unhealthy"
+                    timestamp: "2025-10-27T10:00:00Z"
+                    checks:
+                      database: "error: connection timeout"
+                      redis: "connected"
+
+  /metrics:
+    get:
+      tags:
+        - Monitoring
+      summary: Prometheus metrics
+      description: Expose Prometheus metrics for monitoring
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP http_requests_total Total HTTP requests
+                  # TYPE http_requests_total counter
+                  http_requests_total{method="GET",endpoint="/"} 42
+
+  /api/v1/websites:
+    post:
+      tags:
+        - Websites
+      summary: Create a new website configuration
+      description: |
+        Create a new website with crawl configuration and schedule.
+
+        This endpoint:
+        1. Validates the website configuration including selectors and steps
+        2. Validates the cron schedule expression
+        3. Stores the configuration in PostgreSQL
+        4. Creates a scheduled job if schedule is enabled
+        5. Returns the created website with ID and next run time
+
+        The configuration includes:
+        - Steps for crawling/scraping (API, Browser, or HTTP methods)
+        - Selectors for data extraction
+        - Schedule configuration with cron expression
+        - Global settings (rate limits, timeouts, retries)
+        - Variables for dynamic value substitution
+      operationId: createWebsite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebsiteRequest'
+            examples:
+              simple_crawl:
+                summary: Simple HTTP crawl
+                value:
+                  name: "Example News Site"
+                  base_url: "https://news.example.com"
+                  description: "Crawl news articles from example site"
+                  schedule:
+                    type: "recurring"
+                    cron: "0 0 1,15 * *"
+                    timezone: "UTC"
+                    enabled: true
+                  steps:
+                    - name: "crawl_list"
+                      type: "crawl"
+                      description: "Get article list"
+                      method: "http"
+                      config:
+                        url: "https://news.example.com/articles"
+                      selectors:
+                        detail_urls: ".article-link"
+                      output:
+                        urls_field: "detail_urls"
+                    - name: "scrape_detail"
+                      type: "scrape"
+                      description: "Scrape article content"
+                      method: "http"
+                      input_from: "crawl_list.detail_urls"
+                      selectors:
+                        title: "h1.title"
+                        content: ".article-body"
+                        author: ".author-name"
+                      output:
+                        main_content_field: "content"
+                  global_config:
+                    rate_limit:
+                      requests_per_second: 2.0
+                      concurrent_pages: 5
+                      burst: 10
+                    timeout:
+                      page_load: 30
+                      selector_wait: 10
+                      http_request: 30
+                    retry:
+                      max_attempts: 3
+                      backoff_strategy: "exponential"
+                      initial_delay: 1
+              browser_crawl:
+                summary: Browser-based crawl with Playwright
+                value:
+                  name: "Dynamic Content Site"
+                  base_url: "https://dynamic.example.com"
+                  schedule:
+                    type: "recurring"
+                    cron: "0 2 * * 1"
+                    enabled: true
+                  steps:
+                    - name: "crawl_spa"
+                      type: "crawl"
+                      method: "browser"
+                      browser_type: "playwright"
+                      config:
+                        url: "https://dynamic.example.com/products"
+                        wait_until: "networkidle"
+                        actions:
+                          - type: "wait"
+                            selector: ".product-list"
+                            timeout: 5000
+                          - type: "scroll"
+                            value: "bottom"
+                          - type: "wait"
+                            value: "2000"
+                      selectors:
+                        product_urls: ".product-card a"
+                      output:
+                        urls_field: "product_urls"
+                  global_config:
+                    rate_limit:
+                      requests_per_second: 1.0
+                      concurrent_pages: 3
+      responses:
+        '201':
+          description: Website created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteResponse'
+              examples:
+                created:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    base_url: "https://news.example.com"
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    status: "active"
+                    cron_schedule: "0 0 1,15 * *"
+                    created_at: "2025-10-27T10:00:00Z"
+                    updated_at: "2025-10-27T10:00:00Z"
+                    created_by: null
+                    next_run_time: "2025-11-01T00:00:00Z"
+                    scheduled_job_id: "660e8400-e29b-41d4-a716-446655440000"
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_cron:
+                  summary: Invalid cron expression
+                  value:
+                    detail: "Invalid cron expression: expected 5 fields, got 3"
+                    error_code: "INVALID_CRON_EXPRESSION"
+                duplicate_name:
+                  summary: Duplicate website name
+                  value:
+                    detail: "Website with name 'Example Site' already exists"
+                    error_code: "DUPLICATE_WEBSITE_NAME"
+                invalid_url:
+                  summary: Invalid base URL
+                  value:
+                    detail: "base_url must start with http:// or https://"
+                    error_code: "VALIDATION_ERROR"
+                    field: "base_url"
+        '422':
+          description: Unprocessable Entity (validation error in request body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                server_error:
+                  value:
+                    detail: "Internal server error: database connection failed"
+                    error_code: "INTERNAL_ERROR"
+
+components:
+  schemas:
+    # ============================================================================
+    # Base Schemas
+    # ============================================================================
+
+    RootResponse:
+      type: object
+      required:
+        - message
+        - version
+        - environment
+      properties:
+        message:
+          type: string
+          description: Welcome message
+          example: "Welcome to Lexicon Crawler"
+        version:
+          type: string
+          description: Application version
+          example: "1.0.0"
+        environment:
+          type: string
+          description: Environment name
+          enum: [development, staging, production, testing]
+          example: "development"
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - checks
+      properties:
+        status:
+          type: string
+          description: Overall health status
+          enum: [healthy, unhealthy]
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: Check timestamp (ISO 8601)
+          example: "2025-10-27T10:00:00Z"
+        checks:
+          type: object
+          description: Individual service checks
+          additionalProperties:
+            type: string
+          example:
+            database: "connected"
+            redis: "connected"
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "Invalid cron expression"
+        error_code:
+          type: string
+          description: Machine-readable error code
+          example: "INVALID_CRON_EXPRESSION"
+        field:
+          type: string
+          description: Field that caused the error (for validation errors)
+          example: "cron_schedule"
+
+    ValidationError:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+                description: Location of the error
+              msg:
+                type: string
+                description: Error message
+              type:
+                type: string
+                description: Error type
+
+    # ============================================================================
+    # Enums
+    # ============================================================================
+
+    StatusEnum:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - cancelled
+        - active
+        - inactive
+      description: Status of website or job
+
+    ScheduleTypeEnum:
+      type: string
+      enum:
+        - once
+        - recurring
+      description: Schedule type for website crawling
+
+    StepTypeEnum:
+      type: string
+      enum:
+        - crawl
+        - scrape
+      description: Type of crawl step
+
+    MethodEnum:
+      type: string
+      enum:
+        - api
+        - browser
+        - http
+      description: Method used for crawling/scraping
+
+    BrowserTypeEnum:
+      type: string
+      enum:
+        - playwright
+        - undetected_chromedriver
+      description: Browser type for automation
+
+    # ============================================================================
+    # Configuration Schemas
+    # ============================================================================
+
+    ScheduleConfig:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ScheduleTypeEnum'
+          default: recurring
+        cron:
+          type: string
+          description: Cron expression (minute hour day month weekday)
+          default: "0 0 1,15 * *"
+          example: "0 0 1,15 * *"
+          pattern: '^(\*|([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])|\*\/([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])) (\*|([0-9]|1[0-9]|2[0-3])|\*\/([0-9]|1[0-9]|2[0-3])) (\*|([1-9]|1[0-9]|2[0-9]|3[0-1])|\*\/([1-9]|1[0-9]|2[0-9]|3[0-1])) (\*|([1-9]|1[0-2])|\*\/([1-9]|1[0-2])) (\*|([0-6])|\*\/([0-6]))$'
+        timezone:
+          type: string
+          description: Timezone for schedule
+          default: "UTC"
+          example: "UTC"
+        enabled:
+          type: boolean
+          description: Enable/disable schedule
+          default: true
+
+    RateLimitConfig:
+      type: object
+      properties:
+        requests_per_second:
+          type: number
+          format: float
+          description: Max requests per second
+          minimum: 0.1
+          maximum: 100
+          default: 2.0
+        concurrent_pages:
+          type: integer
+          description: Max concurrent pages
+          minimum: 1
+          maximum: 50
+          default: 5
+        burst:
+          type: integer
+          description: Max burst requests
+          minimum: 1
+          maximum: 100
+          default: 10
+
+    TimeoutConfig:
+      type: object
+      properties:
+        page_load:
+          type: integer
+          description: Page load timeout (seconds)
+          minimum: 5
+          maximum: 300
+          default: 30
+        selector_wait:
+          type: integer
+          description: Selector wait timeout (seconds)
+          minimum: 1
+          maximum: 60
+          default: 10
+        http_request:
+          type: integer
+          description: HTTP request timeout (seconds)
+          minimum: 5
+          maximum: 300
+          default: 30
+
+    RetryConfig:
+      type: object
+      properties:
+        max_attempts:
+          type: integer
+          description: Maximum retry attempts
+          minimum: 1
+          maximum: 10
+          default: 3
+        backoff_strategy:
+          type: string
+          description: Backoff strategy
+          enum: [exponential, linear, fixed]
+          default: "exponential"
+        backoff_base:
+          type: number
+          format: float
+          description: Backoff base multiplier
+          minimum: 1.0
+          maximum: 10.0
+          default: 2.0
+        initial_delay:
+          type: integer
+          description: Initial delay (seconds)
+          minimum: 1
+          maximum: 60
+          default: 1
+        max_delay:
+          type: integer
+          description: Maximum delay (seconds)
+          minimum: 1
+          maximum: 3600
+          default: 300
+
+    GlobalConfig:
+      type: object
+      properties:
+        rate_limit:
+          $ref: '#/components/schemas/RateLimitConfig'
+        timeout:
+          $ref: '#/components/schemas/TimeoutConfig'
+        retry:
+          $ref: '#/components/schemas/RetryConfig'
+        headers:
+          type: object
+          description: Global HTTP headers
+          additionalProperties:
+            type: string
+          example:
+            User-Agent: "Mozilla/5.0"
+            Accept: "text/html"
+        cookies:
+          type: object
+          description: Global cookies
+          additionalProperties:
+            type: string
+      additionalProperties: true
+
+    # ============================================================================
+    # Step Configuration Schemas
+    # ============================================================================
+
+    PaginationConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Enable pagination
+          default: false
+        type:
+          type: string
+          description: Pagination type
+          enum: [page_based, offset_based, cursor_based, next_button, url_pattern]
+          default: "page_based"
+        page_param:
+          type: string
+          description: Page parameter name
+          default: "page"
+        start_page:
+          type: integer
+          description: Starting page number
+          minimum: 1
+          default: 1
+        max_pages:
+          type: integer
+          description: Maximum pages to crawl
+          minimum: 1
+          maximum: 1000
+          default: 100
+        selector:
+          type: string
+          description: Next button selector (for browser)
+          nullable: true
+        wait_after_click:
+          type: integer
+          description: Wait time after clicking next (ms)
+          minimum: 0
+          default: 2000
+          nullable: true
+        url_template:
+          type: string
+          description: URL template with {page} placeholder
+          nullable: true
+          example: "https://example.com/page/{page}"
+
+    ActionConfig:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: Action type
+          enum: [wait, click, fill, scroll, execute_script, hover]
+        selector:
+          type: string
+          description: Element selector
+          nullable: true
+        value:
+          type: string
+          description: Value for fill actions or wait duration
+          nullable: true
+        timeout:
+          type: integer
+          description: Action timeout (ms)
+          minimum: 0
+          maximum: 60000
+          default: 5000
+        optional:
+          type: boolean
+          description: Continue if action fails
+          default: false
+
+    StepConfig:
+      type: object
+      properties:
+        url:
+          type: string
+          description: URL to fetch (supports variables like {base_url})
+          nullable: true
+          example: "https://example.com/api/data"
+        http_method:
+          type: string
+          description: HTTP method
+          enum: [GET, POST, PUT, DELETE, PATCH]
+          default: "GET"
+        headers:
+          type: object
+          description: HTTP headers
+          additionalProperties:
+            type: string
+        query_params:
+          type: object
+          description: Query parameters
+          additionalProperties: true
+        pagination:
+          $ref: '#/components/schemas/PaginationConfig'
+          nullable: true
+        wait_until:
+          type: string
+          description: Browser wait condition
+          enum: [load, domcontentloaded, networkidle]
+          default: "networkidle"
+          nullable: true
+        actions:
+          type: array
+          description: Browser actions
+          items:
+            $ref: '#/components/schemas/ActionConfig'
+        timeout:
+          type: integer
+          description: Request timeout (seconds)
+          minimum: 1
+          maximum: 300
+          default: 30
+      additionalProperties: true
+
+    OutputConfig:
+      type: object
+      properties:
+        urls_field:
+          type: string
+          description: Field name for extracted URLs
+          default: "detail_urls"
+          nullable: true
+        main_content_field:
+          type: string
+          description: Main content field name
+          default: "content"
+          nullable: true
+        metadata_fields:
+          type: array
+          description: Metadata fields to extract
+          items:
+            type: string
+          default: []
+
+    SelectorConfig:
+      type: object
+      required:
+        - selector
+      properties:
+        selector:
+          type: string
+          description: CSS selector or XPath expression
+          example: ".article-title"
+        attribute:
+          type: string
+          description: Attribute to extract (text, html, href, src, etc.)
+          default: "text"
+          example: "text"
+          nullable: true
+        type:
+          type: string
+          description: Type of selector result
+          enum: [single, array]
+          default: "single"
+
+    CrawlStep:
+      type: object
+      required:
+        - name
+        - type
+        - method
+      properties:
+        name:
+          type: string
+          description: Unique step name
+          minLength: 1
+          maxLength: 255
+          example: "crawl_list"
+        type:
+          $ref: '#/components/schemas/StepTypeEnum'
+        description:
+          type: string
+          description: Human-readable description
+          nullable: true
+          example: "Crawl article list page"
+        method:
+          $ref: '#/components/schemas/MethodEnum'
+        browser_type:
+          $ref: '#/components/schemas/BrowserTypeEnum'
+          nullable: true
+        input_from:
+          type: string
+          description: Input data source from previous step (e.g., 'crawl_list.detail_urls')
+          nullable: true
+          example: "crawl_list.detail_urls"
+        config:
+          $ref: '#/components/schemas/StepConfig'
+        selectors:
+          type: object
+          description: CSS/XPath selectors for data extraction
+          additionalProperties:
+            oneOf:
+              - type: string
+              - $ref: '#/components/schemas/SelectorConfig'
+          example:
+            title: "h1.title"
+            content: ".article-body"
+            links:
+              selector: "a.article-link"
+              attribute: "href"
+              type: "array"
+        output:
+          $ref: '#/components/schemas/OutputConfig'
+
+    # ============================================================================
+    # Request/Response Schemas
+    # ============================================================================
+
+    CreateWebsiteRequest:
+      type: object
+      required:
+        - name
+        - base_url
+        - steps
+      properties:
+        name:
+          type: string
+          description: Unique website name
+          minLength: 1
+          maxLength: 255
+          example: "Example News Site"
+        base_url:
+          type: string
+          description: Base URL of the website
+          minLength: 1
+          maxLength: 2048
+          format: uri
+          example: "https://example.com"
+        description:
+          type: string
+          description: Optional description
+          nullable: true
+          example: "News site crawler for daily articles"
+        schedule:
+          $ref: '#/components/schemas/ScheduleConfig'
+        steps:
+          type: array
+          description: List of crawl/scrape steps to execute
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CrawlStep'
+        global_config:
+          $ref: '#/components/schemas/GlobalConfig'
+        variables:
+          type: object
+          description: Variables for substitution in URLs and configurations
+          additionalProperties: true
+          example:
+            api_key: "YOUR_API_KEY"
+            user_id: "12345"
+
+    WebsiteResponse:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - config
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        base_url:
+          type: string
+          format: uri
+          description: Base URL
+          example: "https://example.com"
+        config:
+          type: object
+          description: Full configuration
+          additionalProperties: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        cron_schedule:
+          type: string
+          description: Cron schedule expression
+          nullable: true
+          example: "0 0 1,15 * *"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2025-10-27T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-10-27T10:00:00Z"
+        created_by:
+          type: string
+          description: Creator identifier
+          nullable: true
+          example: "user@example.com"
+        next_run_time:
+          type: string
+          format: date-time
+          description: Next scheduled crawl time (if scheduled job exists)
+          nullable: true
+          example: "2025-11-01T00:00:00Z"
+        scheduled_job_id:
+          type: string
+          format: uuid
+          description: Associated scheduled job ID
+          nullable: true
+          example: "660e8400-e29b-41d4-a716-446655440000"
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token authentication (future implementation)
+
+security: []
+
+# Code generation hints
+x-codegen-settings:
+  packageName: lexicon-crawler-client
+  packageVersion: 1.0.0
+  generateModels: true
+  generateApis: true

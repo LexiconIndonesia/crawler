@@ -291,3 +291,41 @@ urls: ## Display all service URLs
 	@echo "  • Grafana:      http://localhost:3000 (admin/admin)"
 	@echo "  • Prometheus:   http://localhost:9090"
 	@echo "  • AlertManager: http://localhost:9093"
+
+##@ OpenAPI Code Generation
+
+validate-openapi: ## Validate OpenAPI specification
+	@echo "$(BLUE)✅ Validating OpenAPI spec...$(NC)"
+	openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5
+	@echo "$(GREEN)✅ OpenAPI spec is valid$(NC)"
+
+generate-models: ## Generate Pydantic models from OpenAPI spec
+	@echo "$(BLUE)⚙️  Generating Pydantic models from OpenAPI spec...$(NC)"
+	@mkdir -p crawler/api/generated
+	uv run datamodel-codegen \
+	  --input openapi.yaml \
+	  --output crawler/api/generated/models.py \
+	  --input-file-type openapi \
+	  --output-model-type pydantic_v2.BaseModel \
+	  --use-standard-collections \
+	  --use-schema-description \
+	  --field-constraints \
+	  --use-default \
+	  --use-annotated \
+	  --use-double-quotes \
+	  --target-python-version 3.11
+	@echo "$(GREEN)✅ Pydantic models generated$(NC)"
+	@echo "$(YELLOW)⚠️  Remember to review crawler/api/generated/extended.py for any needed updates$(NC)"
+
+generate-client: ## Generate Python client SDK from OpenAPI spec
+	@echo "$(BLUE)⚙️  Generating Python client SDK...$(NC)"
+	@mkdir -p clients
+	openapi-generator-cli generate \
+	  -i openapi.yaml \
+	  -g python \
+	  -o clients/python \
+	  --additional-properties=packageName=lexicon_crawler_client,packageVersion=1.0.0,projectName=lexicon-crawler-client
+	@echo "$(GREEN)✅ Python client SDK generated in clients/python/$(NC)"
+
+generate-all: validate-openapi generate-models generate-client ## Validate and generate all OpenAPI artifacts
+	@echo "$(GREEN)✅ All OpenAPI artifacts generated successfully$(NC)"

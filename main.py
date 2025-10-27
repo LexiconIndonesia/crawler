@@ -6,14 +6,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import get_settings
-from crawler.api import router
+from crawler.api import router, router_v1
 from crawler.core import setup_logging
+from crawler.core.dependencies import get_app_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan manager."""
+    """Application lifespan manager.
+
+    Handles application startup and shutdown events.
+    """
     # Startup
     setup_logging()
     yield
@@ -22,8 +25,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
-    settings = get_settings()
+    """Create and configure FastAPI application.
+
+    Uses centralized dependency injection for settings.
+    """
+    # Get settings for app initialization
+    # This is acceptable here as we need settings before the app is created
+    settings = get_app_settings()
 
     app = FastAPI(
         title=settings.app_name,
@@ -42,7 +50,8 @@ def create_app() -> FastAPI:
     )
 
     # Include routers
-    app.include_router(router)
+    app.include_router(router)  # Non-versioned endpoints (root, health, metrics)
+    app.include_router(router_v1)  # API v1 endpoints
 
     return app
 

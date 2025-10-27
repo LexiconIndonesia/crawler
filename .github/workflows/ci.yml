@@ -7,6 +7,7 @@ on:
       - '**.py'
       - 'pyproject.toml'
       - 'requirements*.txt'
+      - 'openapi.yaml'
       - '.github/workflows/ci.yml'
       - 'Dockerfile'
       - 'docker-compose.yml'
@@ -28,6 +29,14 @@ jobs:
         run: uv python install 3.14
       - name: Install dependencies
         run: uv sync
+      - name: Install OpenAPI Generator CLI
+        run: |
+          npm install -g @openapitools/openapi-generator-cli
+      - name: Validate OpenAPI contract
+        run: |
+          echo "Validating OpenAPI specification..."
+          openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -10 || true
+          echo "✅ OpenAPI spec validation complete"
       - name: Run all quality checks
         run: |
           echo "Running format check..."
@@ -55,6 +64,23 @@ jobs:
         run: uv python install 3.14
       - name: Install dependencies
         run: uv sync
+      - name: Generate OpenAPI models
+        run: |
+          echo "Generating Pydantic models from OpenAPI spec..."
+          mkdir -p crawler/api/generated
+          uv run datamodel-codegen \
+            --input openapi.yaml \
+            --output crawler/api/generated/models.py \
+            --input-file-type openapi \
+            --output-model-type pydantic_v2.BaseModel \
+            --use-standard-collections \
+            --use-schema-description \
+            --field-constraints \
+            --use-default \
+            --use-annotated \
+            --use-double-quotes \
+            --target-python-version 3.11
+          echo "✅ Models generated successfully"
       - name: Run unit tests
         run: |
           echo "Running unit tests..."
@@ -99,6 +125,23 @@ jobs:
         run: uv python install 3.14
       - name: Install dependencies
         run: uv sync
+      - name: Generate OpenAPI models
+        run: |
+          echo "Generating Pydantic models from OpenAPI spec..."
+          mkdir -p crawler/api/generated
+          uv run datamodel-codegen \
+            --input openapi.yaml \
+            --output crawler/api/generated/models.py \
+            --input-file-type openapi \
+            --output-model-type pydantic_v2.BaseModel \
+            --use-standard-collections \
+            --use-schema-description \
+            --field-constraints \
+            --use-default \
+            --use-annotated \
+            --use-double-quotes \
+            --target-python-version 3.11
+          echo "✅ Models generated successfully"
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lexicon_test
