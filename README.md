@@ -2,14 +2,55 @@
 
 A scalable, production-ready web crawler built with FastAPI and modern Python async technologies.
 
+## 🚀 Current Development: API Scheduling & Contract Testing
+
+**Branch**: `feature/implements-api-scheduling` | **Version**: 1.0.0
+
+### New in This Branch
+
+✅ **Website Management API** - Create and configure websites with multi-step crawl/scrape workflows
+✅ **Scheduled Crawling** - Cron-based recurring crawls with pause/resume capability
+✅ **OpenAPI Contract Testing** - Automated validation ensuring API spec and implementation stay in sync
+✅ **Contract-First Development** - OpenAPI spec as single source of truth for API contracts
+✅ **Type-Safe Code Generation** - Auto-generate Pydantic models from OpenAPI spec
+
+**Try it now:**
+```bash
+# Create a website with scheduled crawling
+curl -X POST http://localhost:8000/api/v1/websites \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Example Site",
+    "base_url": "https://example.com",
+    "schedule": {
+      "type": "recurring",
+      "cron": "0 0 1,15 * *",
+      "enabled": true
+    },
+    "steps": [
+      {
+        "name": "crawl_list",
+        "type": "crawl",
+        "method": "http",
+        "config": {"url": "https://example.com/articles"},
+        "selectors": {"detail_urls": ".article-link"}
+      }
+    ]
+  }'
+```
+
 ## Features
 
+- **RESTful API v1**: Full-featured API for website management and crawl configuration
+- **Contract-First Development**: OpenAPI 3.1 spec with automated contract testing
 - **Modern Async Architecture**: Built on FastAPI and async/await patterns
 - **Browser Automation**: Playwright for JavaScript-heavy sites, undetected-chromedriver for anti-bot bypass
 - **Distributed Queue**: NATS JetStream for reliable task distribution
 - **Scheduled Crawls**: Cron-based scheduling with pause/resume capability and bi-weekly defaults
+- **Multi-Step Workflows**: Define complex crawl/scrape pipelines with data flow between steps
 - **Persistent Storage**: PostgreSQL for structured data, Google Cloud Storage for raw HTML
 - **Type-Safe Queries**: sqlc for compile-time safe SQL queries with Pydantic models
+- **Type-Safe APIs**: Auto-generated Pydantic models from OpenAPI spec
 - **High-Performance Parsing**: selectolax for fast HTML parsing
 - **Caching & Deduplication**: Redis for URL deduplication and rate limiting
 - **Full Observability**: Prometheus metrics, Grafana dashboards, Loki log aggregation
@@ -100,14 +141,21 @@ make help
 # Development
 make dev              # Start dev server with auto-reload
 make run              # Run production server
-make test             # Run all tests
+make test             # Run all tests (including contract tests)
 make test-cov         # Run tests with coverage
+
+# OpenAPI & Code Generation
+make validate-openapi # Validate OpenAPI specification
+make generate-models  # Generate Pydantic models from OpenAPI
+make generate-client  # Generate Python client SDK
+make generate-all     # Validate + generate all OpenAPI artifacts
 
 # Code Quality
 make format           # Format code with ruff
 make lint             # Check code with linter
 make type-check       # Run type checking
 make check            # Run all quality checks
+make pre-commit       # Run format + lint-fix + type-check
 
 # Docker
 make docker-up        # Start all services
@@ -119,6 +167,7 @@ make docker-status    # Show service status
 make db-up            # Start database services
 make db-shell         # Connect to PostgreSQL
 make redis-shell      # Connect to Redis
+make sqlc-generate    # Generate type-safe queries from SQL
 
 # Monitoring
 make monitoring-up    # Start monitoring stack
@@ -137,6 +186,15 @@ make info             # Show project information
 crawler/
 ├── crawler/                # Main application package
 │   ├── api/               # API routes and endpoints
+│   │   ├── generated/    # OpenAPI-generated models (do not edit models.py)
+│   │   │   ├── models.py      # Auto-generated from openapi.yaml
+│   │   │   ├── extended.py    # Custom validators (version controlled)
+│   │   │   └── __init__.py    # Exports (version controlled)
+│   │   ├── v1/           # API version 1
+│   │   │   ├── routes/   # V1 endpoint implementations
+│   │   │   ├── services/ # V1 business logic
+│   │   │   └── handlers/ # V1 request handlers
+│   │   └── routes.py     # Base routes (health, metrics)
 │   ├── core/              # Core functionality (logging, metrics)
 │   ├── db/                # Database layer
 │   │   ├── generated/    # sqlc-generated queries (do not edit)
@@ -153,14 +211,19 @@ crawler/
 ├── tests/                 # Test suite
 │   ├── unit/             # Unit tests
 │   └── integration/      # Integration tests
+│       └── test_openapi_contract.py  # Contract tests
 ├── monitoring/           # Monitoring configurations
 │   ├── prometheus/       # Prometheus config and alerts
 │   ├── grafana/         # Grafana dashboards
 │   ├── loki/            # Loki log aggregation
 │   └── alertmanager/    # Alert management
+├── clients/              # Generated client SDKs (not version controlled)
+│   └── python/          # Auto-generated Python client
 ├── scripts/             # Utility scripts
 ├── docs/                # Documentation
+│   └── openapi-generation.md  # OpenAPI workflow guide
 ├── main.py              # Application entry point
+├── openapi.yaml         # OpenAPI 3.1 API contract (single source of truth)
 ├── pyproject.toml       # Project dependencies
 ├── sqlc.yaml            # sqlc configuration
 └── docker-compose.yml   # Service orchestration
@@ -209,10 +272,74 @@ Websites support recurring crawls via cron schedules:
 
 See `docs/SQLC_IMPLEMENTATION.md` for detailed guide.
 
+### Working with the API (Contract-First Development)
+
+This project uses **OpenAPI spec as the single source of truth** for API contracts. This ensures frontend and backend stay perfectly in sync.
+
+**Quick Workflow:**
+
+1. **Define API in OpenAPI spec** (`openapi.yaml`)
+2. **Validate spec**: `make validate-openapi`
+3. **Generate models**: `make generate-models`
+4. **Implement routes** using generated Pydantic models
+5. **Run contract tests**: Tests automatically verify implementation matches spec
+
+**Example: Adding a New Endpoint**
+
+1. Edit `openapi.yaml`:
+```yaml
+paths:
+  /api/v1/crawl-jobs:
+    post:
+      summary: Create a new crawl job
+      operationId: createCrawlJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCrawlJobRequest'
+```
+
+2. Generate models:
+```bash
+make generate-models  # Auto-generates Pydantic models
+```
+
+3. Implement in FastAPI:
+```python
+from crawler.api.v1.schemas import CreateCrawlJobRequest, CrawlJobResponse
+
+@router.post("", response_model=CrawlJobResponse, operation_id="createCrawlJob")
+async def create_crawl_job(request: CreateCrawlJobRequest) -> CrawlJobResponse:
+    # Implementation here
+    pass
+```
+
+4. Verify with contract tests:
+```bash
+uv run pytest tests/integration/test_openapi_contract.py -v
+```
+
+**Contract Tests Verify:**
+- ✅ All paths in `openapi.yaml` are implemented
+- ✅ No undocumented endpoints exist
+- ✅ Response schemas match
+- ✅ Operation IDs match
+- ✅ HTTP methods match
+- ✅ API version and title match
+
+**Generated Files:**
+- `crawler/api/generated/models.py` - Auto-generated (NOT committed to git)
+- `crawler/api/generated/extended.py` - Custom validators (committed to git)
+- `clients/python/` - Generated Python SDK (NOT committed to git)
+
+See `docs/openapi-generation.md` for the complete guide.
+
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (unit + integration + contract tests)
 make test
 
 # Run with coverage
@@ -221,12 +348,21 @@ make test-cov
 # Run unit tests only
 make test-unit
 
-# Run integration tests only
+# Run integration tests only (includes contract tests)
 make test-integration
+
+# Run contract tests only
+uv run pytest tests/integration/test_openapi_contract.py -v
 
 # Run tests in watch mode
 make test-watch
 ```
+
+**Test Coverage:**
+- **179 total tests** (as of v1.0.0)
+- Unit tests: Business logic, validators, utilities
+- Integration tests: API endpoints, database, Redis, scheduled jobs
+- **Contract tests** (14 tests): Validate OpenAPI spec vs FastAPI implementation
 
 ### Code Quality
 
@@ -256,10 +392,17 @@ make urls
 
 Once running, you can access:
 
-- **API Documentation**: http://localhost:8000/docs
-- **API Alternative Docs**: http://localhost:8000/redoc
+**API Endpoints:**
+- **Swagger UI**: http://localhost:8000/docs (interactive API documentation)
+- **ReDoc**: http://localhost:8000/redoc (alternative API docs)
+- **OpenAPI Spec**: http://localhost:8000/openapi.json (JSON spec)
 - **Health Check**: http://localhost:8000/health
 - **Prometheus Metrics**: http://localhost:8000/metrics
+
+**API v1 Endpoints:**
+- **Create Website**: POST http://localhost:8000/api/v1/websites
+
+**Monitoring:**
 - **Grafana Dashboard**: http://localhost:3000 (admin/admin)
 - **Prometheus UI**: http://localhost:9090
 - **AlertManager**: http://localhost:9093
@@ -402,6 +545,9 @@ make redis-shell
 
 - [Database Schema](docs/DATABASE_SCHEMA.md) - Database design and Redis caching
 - [sqlc Implementation](docs/SQLC_IMPLEMENTATION.md) - Type-safe SQL queries guide
+- [OpenAPI Code Generation](docs/openapi-generation.md) - Contract-first API development guide
+- [API Documentation](http://localhost:8000/docs) - Interactive Swagger UI (when running)
+- [API Alternative Docs](http://localhost:8000/redoc) - ReDoc interface (when running)
 
 ## License
 
