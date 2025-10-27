@@ -63,13 +63,12 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [
+    "crawler/db/generated",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-
-[tool.ruff.lint.per-file-ignores]
-# Ignore line length in sqlc-generated files
-"crawler/db/generated/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
