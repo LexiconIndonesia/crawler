@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
@@ -27,7 +28,7 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     """Health check endpoint."""
     try:
         # Check database connection
-        await db.execute("SELECT 1")
+        await db.execute(text("SELECT 1"))
         return {"status": "healthy", "database": "connected"}
     except Exception as e:
         return {"status": "unhealthy", "database": f"error: {str(e)}"}

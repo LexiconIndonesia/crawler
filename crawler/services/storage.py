@@ -2,9 +2,7 @@
 
 import base64
 import json
-import tempfile
-from pathlib import Path
-from typing import Optional
+from typing import cast
 
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -73,7 +71,7 @@ class StorageService:
         """Download HTML from GCS."""
         try:
             blob = self.bucket.blob(blob_name)
-            content = blob.download_as_text()
+            content = cast(str, blob.download_as_text())
 
             logger.info("html_downloaded", blob_name=blob_name)
             return content
@@ -93,7 +91,7 @@ class StorageService:
             logger.error("html_delete_error", blob_name=blob_name, error=str(e))
             return False
 
-    async def list_blobs(self, prefix: Optional[str] = None) -> list[str]:
+    async def list_blobs(self, prefix: str | None = None) -> list[str]:
         """List blobs with optional prefix filter."""
         try:
             blobs = self.client.list_blobs(self.bucket_name, prefix=prefix)

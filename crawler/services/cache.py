@@ -1,8 +1,9 @@
 """Redis cache service."""
 
-from typing import Any, Optional
+from typing import Any
 
 import redis.asyncio as redis
+
 from config import get_settings
 from crawler.core.logging import get_logger
 
@@ -20,15 +21,16 @@ class CacheService:
         )
         self.default_ttl = settings.redis_ttl
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         """Get value from cache."""
         try:
-            return await self.redis.get(key)
+            result: str | None = await self.redis.get(key)
+            return result
         except Exception as e:
             logger.error("cache_get_error", key=key, error=str(e))
             return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set value in cache with TTL."""
         try:
             ttl = ttl or self.default_ttl
