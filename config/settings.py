@@ -52,9 +52,7 @@ class Settings(BaseSettings):
     database_echo: bool = False
 
     # Redis
-    redis_url: str = Field(
-        default="redis://localhost:6379/0", description="Redis connection URL"
-    )
+    redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     redis_ttl: int = 3600  # 1 hour default TTL
 
     # NATS
