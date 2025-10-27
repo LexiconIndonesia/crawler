@@ -15,6 +15,7 @@ router = APIRouter()
     response_model=WebsiteResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new website configuration",
+    operation_id="createWebsite",
     description="""
     Create a new website with crawl configuration and schedule.
 

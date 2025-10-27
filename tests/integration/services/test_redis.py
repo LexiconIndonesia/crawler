@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 import redis.asyncio as redis
 
+from config import Settings
 from crawler.services import (
     BrowserPoolStatus,
     JobCancellationFlag,
@@ -22,9 +23,9 @@ from crawler.services import (
 class TestURLDeduplicationCache:
     """Tests for URL deduplication cache."""
 
-    async def test_set_and_get(self, redis_client: redis.Redis) -> None:
+    async def test_set_and_get(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test setting and getting URL hash."""
-        cache = URLDeduplicationCache(redis_client)
+        cache = URLDeduplicationCache(redis_client, settings)
         url_hash = "test_hash_123"
         data = {
             "job_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -38,9 +39,9 @@ class TestURLDeduplicationCache:
         assert retrieved is not None
         assert retrieved["job_id"] == data["job_id"]
 
-    async def test_exists(self, redis_client: redis.Redis) -> None:
+    async def test_exists(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test checking if URL hash exists."""
-        cache = URLDeduplicationCache(redis_client)
+        cache = URLDeduplicationCache(redis_client, settings)
         url_hash = "test_hash_456"
         data = {"job_id": "test"}
 
@@ -52,9 +53,9 @@ class TestURLDeduplicationCache:
         exists_after = await cache.exists(url_hash)
         assert exists_after is True
 
-    async def test_delete(self, redis_client: redis.Redis) -> None:
+    async def test_delete(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test deleting URL hash."""
-        cache = URLDeduplicationCache(redis_client)
+        cache = URLDeduplicationCache(redis_client, settings)
         url_hash = "test_hash_789"
         data = {"job_id": "test"}
 
@@ -70,9 +71,11 @@ class TestURLDeduplicationCache:
 class TestJobCancellationFlag:
     """Tests for job cancellation flags."""
 
-    async def test_set_and_check_cancellation(self, redis_client: redis.Redis) -> None:
+    async def test_set_and_check_cancellation(
+        self, redis_client: redis.Redis, settings: Settings
+    ) -> None:
         """Test setting and checking cancellation flag."""
-        flag = JobCancellationFlag(redis_client)
+        flag = JobCancellationFlag(redis_client, settings)
         job_id = "test_job_123"
 
         # Clean up any previous state
@@ -87,9 +90,9 @@ class TestJobCancellationFlag:
         is_cancelled_after = await flag.is_cancelled(job_id)
         assert is_cancelled_after is True
 
-    async def test_clear_cancellation(self, redis_client: redis.Redis) -> None:
+    async def test_clear_cancellation(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test clearing cancellation flag."""
-        flag = JobCancellationFlag(redis_client)
+        flag = JobCancellationFlag(redis_client, settings)
         job_id = "test_job_456"
 
         # Clean up any previous state
@@ -107,9 +110,9 @@ class TestJobCancellationFlag:
 class TestRateLimiter:
     """Tests for rate limiter."""
 
-    async def test_increment(self, redis_client: redis.Redis) -> None:
+    async def test_increment(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test incrementing request counter."""
-        limiter = RateLimiter(redis_client)
+        limiter = RateLimiter(redis_client, settings)
         website_id = "test_website_123"
 
         # Reset counter first
@@ -124,9 +127,9 @@ class TestRateLimiter:
         count3 = await limiter.increment(website_id)
         assert count3 == 3
 
-    async def test_get_count(self, redis_client: redis.Redis) -> None:
+    async def test_get_count(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test getting current request count."""
-        limiter = RateLimiter(redis_client)
+        limiter = RateLimiter(redis_client, settings)
         website_id = "test_website_456"
         await limiter.reset(website_id)
 
@@ -139,9 +142,9 @@ class TestRateLimiter:
         count_after = await limiter.get_count(website_id)
         assert count_after == 2
 
-    async def test_is_rate_limited(self, redis_client: redis.Redis) -> None:
+    async def test_is_rate_limited(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test checking if rate limited."""
-        limiter = RateLimiter(redis_client)
+        limiter = RateLimiter(redis_client, settings)
         website_id = "test_website_789"
         await limiter.reset(website_id)
 
@@ -157,9 +160,9 @@ class TestRateLimiter:
         # Should not be limited yet (limit is 1000 by default)
         assert is_limited_after is False
 
-    async def test_reset(self, redis_client: redis.Redis) -> None:
+    async def test_reset(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test resetting rate limit counter."""
-        limiter = RateLimiter(redis_client)
+        limiter = RateLimiter(redis_client, settings)
         website_id = "test_website_reset"
         await limiter.reset(website_id)
 
@@ -176,9 +179,11 @@ class TestRateLimiter:
 class TestBrowserPoolStatus:
     """Tests for browser pool status tracker."""
 
-    async def test_update_and_get_status(self, redis_client: redis.Redis) -> None:
+    async def test_update_and_get_status(
+        self, redis_client: redis.Redis, settings: Settings
+    ) -> None:
         """Test updating and getting browser pool status."""
-        pool = BrowserPoolStatus(redis_client)
+        pool = BrowserPoolStatus(redis_client, settings)
         result = await pool.update_status(
             active_browsers=3, active_contexts=5, available_contexts=10, memory_mb=512.5
         )
@@ -196,9 +201,11 @@ class TestBrowserPoolStatus:
 class TestJobProgressCache:
     """Tests for job progress cache."""
 
-    async def test_set_and_get_progress(self, redis_client: redis.Redis) -> None:
+    async def test_set_and_get_progress(
+        self, redis_client: redis.Redis, settings: Settings
+    ) -> None:
         """Test setting and getting job progress."""
-        cache = JobProgressCache(redis_client)
+        cache = JobProgressCache(redis_client, settings)
         job_id = "test_job_progress_123"
         progress = {
             "pages_crawled": 150,
@@ -215,9 +222,9 @@ class TestJobProgressCache:
         assert retrieved["pages_crawled"] == 150
         assert retrieved["pages_pending"] == 50
 
-    async def test_delete_progress(self, redis_client: redis.Redis) -> None:
+    async def test_delete_progress(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test deleting job progress."""
-        cache = JobProgressCache(redis_client)
+        cache = JobProgressCache(redis_client, settings)
         job_id = "test_job_progress_456"
         progress = {"pages_crawled": 100}
 

@@ -7,7 +7,7 @@ from typing import cast
 from google.cloud import storage
 from google.oauth2 import service_account
 
-from config import get_settings
+from config import Settings
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -16,9 +16,12 @@ logger = get_logger(__name__)
 class StorageService:
     """GCS storage service for raw HTML and documents."""
 
-    def __init__(self) -> None:
-        """Initialize storage service with base64-encoded credentials."""
-        settings = get_settings()
+    def __init__(self, settings: Settings) -> None:
+        """Initialize storage service with injected settings.
+
+        Args:
+            settings: Application settings
+        """
         self.bucket_name = settings.gcs_bucket_name
 
         # Decode base64 credentials and create temporary credentials

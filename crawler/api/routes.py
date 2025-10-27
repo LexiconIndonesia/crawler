@@ -3,17 +3,13 @@
 from datetime import UTC, datetime
 from typing import Any
 
-import redis.asyncio as redis
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
-from config import get_settings
 from crawler.api.schemas import HealthResponse, RootResponse
-from crawler.cache import get_redis
-from crawler.db import get_db
+from crawler.core.dependencies import DBSessionDep, RedisDep, SettingsDep
 
 router = APIRouter()
 
@@ -24,10 +20,14 @@ router = APIRouter()
     summary="Root endpoint",
     description="Returns basic application information including name, version, and environment",
     tags=["General"],
+    operation_id="getRoot",
 )
-async def root() -> RootResponse:
-    """Root endpoint."""
-    settings = get_settings()
+async def root(settings: SettingsDep) -> RootResponse:
+    """Root endpoint with injected settings.
+
+    Args:
+        settings: Application settings from dependency injection
+    """
     return RootResponse(
         message=f"Welcome to {settings.app_name}",
         version=settings.app_version,
@@ -41,6 +41,7 @@ async def root() -> RootResponse:
     summary="Health check",
     description="Check the health status of the application including database and Redis",
     tags=["General"],
+    operation_id="healthCheck",
     responses={
         200: {
             "description": "Health check results",
@@ -71,10 +72,15 @@ async def root() -> RootResponse:
     },
 )
 async def health(
-    db: AsyncSession = Depends(get_db),
-    redis_client: redis.Redis = Depends(get_redis),
+    db: DBSessionDep,
+    redis_client: RedisDep,
 ) -> HealthResponse:
-    """Health check endpoint with database and Redis connectivity checks."""
+    """Health check endpoint with database and Redis connectivity checks.
+
+    Args:
+        db: Database session from dependency injection
+        redis_client: Redis client from dependency injection
+    """
     health_status: dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.now(UTC).isoformat(),
@@ -105,6 +111,7 @@ async def health(
     summary="Prometheus metrics",
     description="Expose Prometheus metrics for monitoring",
     tags=["Monitoring"],
+    operation_id="getMetrics",
     response_class=Response,
 )
 async def metrics() -> Response:

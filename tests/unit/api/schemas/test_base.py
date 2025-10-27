@@ -9,6 +9,7 @@ from crawler.api.v1.schemas import (
     CrawlStep,
     CreateWebsiteRequest,
     GlobalConfig,
+    HttpMethod,
     MethodEnum,
     PaginationConfig,
     RateLimitConfig,
@@ -28,7 +29,7 @@ class TestScheduleConfig:
         """Test ScheduleConfig with default values."""
         schedule = ScheduleConfig()
 
-        assert schedule.type == ScheduleTypeEnum.RECURRING
+        assert schedule.type == ScheduleTypeEnum.recurring
         assert schedule.cron == "0 0 1,15 * *"  # Bi-weekly default
         assert schedule.timezone == "UTC"
         assert schedule.enabled is True
@@ -36,13 +37,13 @@ class TestScheduleConfig:
     def test_schedule_config_custom_values(self) -> None:
         """Test ScheduleConfig with custom values."""
         schedule = ScheduleConfig(
-            type=ScheduleTypeEnum.ONCE,
+            type=ScheduleTypeEnum.once,
             cron="0 2 * * 1",
             timezone="Asia/Jakarta",
             enabled=False,
         )
 
-        assert schedule.type == ScheduleTypeEnum.ONCE
+        assert schedule.type == ScheduleTypeEnum.once
         assert schedule.cron == "0 2 * * 1"
         assert schedule.timezone == "Asia/Jakarta"
         assert schedule.enabled is False
@@ -56,9 +57,9 @@ class TestStepConfig:
         config = StepConfig()
 
         assert config.url is None
-        assert config.http_method == "GET"
-        assert config.headers == {}
-        assert config.query_params == {}
+        assert config.http_method == HttpMethod.GET  # Extended model uses enum default
+        assert config.headers is None  # Generated model defaults to None
+        assert config.query_params is None  # Generated model defaults to None
         assert config.timeout == 30
 
     def test_step_config_with_pagination(self) -> None:
@@ -87,11 +88,11 @@ class TestCrawlStep:
 
     def test_crawl_step_minimal(self) -> None:
         """Test CrawlStep with minimal required fields."""
-        step = CrawlStep(name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API)
+        step = CrawlStep(name="test_step", type=StepTypeEnum.crawl, method=MethodEnum.api)
 
         assert step.name == "test_step"
-        assert step.type == StepTypeEnum.CRAWL
-        assert step.method == MethodEnum.API
+        assert step.type == StepTypeEnum.crawl
+        assert step.method == MethodEnum.api
         assert step.browser_type is None
         assert step.description is None
 
@@ -100,8 +101,8 @@ class TestCrawlStep:
         with pytest.raises(ValidationError, match="browser_type is required"):
             CrawlStep(
                 name="test_step",
-                type=StepTypeEnum.SCRAPE,
-                method=MethodEnum.BROWSER,
+                type=StepTypeEnum.scrape,
+                method=MethodEnum.browser,
                 browser_type=None,  # Should fail validation
             )
 
@@ -109,13 +110,13 @@ class TestCrawlStep:
         """Test CrawlStep with browser method and browser_type."""
         step = CrawlStep(
             name="test_step",
-            type=StepTypeEnum.SCRAPE,
-            method=MethodEnum.BROWSER,
-            browser_type=BrowserTypeEnum.PLAYWRIGHT,
+            type=StepTypeEnum.scrape,
+            method=MethodEnum.browser,
+            browser_type=BrowserTypeEnum.playwright,
         )
 
-        assert step.method == MethodEnum.BROWSER
-        assert step.browser_type == BrowserTypeEnum.PLAYWRIGHT
+        assert step.method == MethodEnum.browser
+        assert step.browser_type == BrowserTypeEnum.playwright
 
     def test_crawl_step_with_selectors(self) -> None:
         """Test CrawlStep with selectors."""
@@ -127,13 +128,14 @@ class TestCrawlStep:
 
         step = CrawlStep(
             name="scrape_page",
-            type=StepTypeEnum.SCRAPE,
-            method=MethodEnum.HTTP,
+            type=StepTypeEnum.scrape,
+            method=MethodEnum.http,
             selectors=selectors,
         )
 
         assert step.selectors["title"] == "h1.title"
-        assert step.selectors["author"]["selector"] == "span.author"
+        # Generated model converts dict to SelectorConfig object
+        assert step.selectors["author"].selector == "span.author"
 
 
 class TestGlobalConfig:
@@ -143,11 +145,12 @@ class TestGlobalConfig:
         """Test GlobalConfig with default values."""
         config = GlobalConfig()
 
-        assert isinstance(config.rate_limit, RateLimitConfig)
-        assert isinstance(config.timeout, TimeoutConfig)
-        assert isinstance(config.retry, RetryConfig)
-        assert config.headers == {}
-        assert config.cookies == {}
+        # Generated model defaults to None for all fields
+        assert config.rate_limit is None
+        assert config.timeout is None
+        assert config.retry is None
+        assert config.headers is None
+        assert config.cookies is None
 
     def test_global_config_custom_rate_limit(self) -> None:
         """Test GlobalConfig with custom rate limit."""
@@ -197,11 +200,11 @@ class TestCreateWebsiteRequest:
         request = CreateWebsiteRequest(
             name="Test Website",
             base_url="https://example.com",
-            steps=[CrawlStep(name="fetch_data", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
+            steps=[CrawlStep(name="fetch_data", type=StepTypeEnum.crawl, method=MethodEnum.api)],
         )
 
         assert request.name == "Test Website"
-        assert request.base_url == "https://example.com"
+        assert str(request.base_url) == "https://example.com/"
         assert len(request.steps) == 1
         assert request.description is None
         assert isinstance(request.schedule, ScheduleConfig)
@@ -213,15 +216,15 @@ class TestCreateWebsiteRequest:
         steps = [
             CrawlStep(
                 name="crawl_list",
-                type=StepTypeEnum.CRAWL,
-                method=MethodEnum.API,
+                type=StepTypeEnum.crawl,
+                method=MethodEnum.api,
                 description="Get list of items",
             ),
             CrawlStep(
                 name="scrape_detail",
-                type=StepTypeEnum.SCRAPE,
-                method=MethodEnum.BROWSER,
-                browser_type=BrowserTypeEnum.PLAYWRIGHT,
+                type=StepTypeEnum.scrape,
+                method=MethodEnum.browser,
+                browser_type=BrowserTypeEnum.playwright,
                 description="Extract content",
             ),
         ]
@@ -243,11 +246,12 @@ class TestCreateWebsiteRequest:
 
     def test_create_website_request_invalid_url(self) -> None:
         """Test CreateWebsiteRequest with invalid base_url."""
-        with pytest.raises(ValidationError, match="base_url must start with"):
+        # Pydantic AnyUrl validation catches invalid URLs before our custom validator
+        with pytest.raises(ValidationError, match="Input should be a valid URL"):
             CreateWebsiteRequest(
                 name="Test",
                 base_url="invalid-url",
-                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.crawl, method=MethodEnum.api)],
             )
 
     def test_create_website_request_empty_name(self) -> None:
@@ -256,7 +260,7 @@ class TestCreateWebsiteRequest:
             CreateWebsiteRequest(
                 name="",
                 base_url="https://example.com",
-                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.crawl, method=MethodEnum.api)],
             )
 
     def test_create_website_request_no_steps(self) -> None:
@@ -271,8 +275,8 @@ class TestCreateWebsiteRequest:
                 name="Test",
                 base_url="https://example.com",
                 steps=[
-                    CrawlStep(name="duplicate", type=StepTypeEnum.CRAWL, method=MethodEnum.API),
-                    CrawlStep(name="duplicate", type=StepTypeEnum.SCRAPE, method=MethodEnum.HTTP),
+                    CrawlStep(name="duplicate", type=StepTypeEnum.crawl, method=MethodEnum.api),
+                    CrawlStep(name="duplicate", type=StepTypeEnum.scrape, method=MethodEnum.http),
                 ],
             )
 
@@ -282,7 +286,7 @@ class TestCreateWebsiteRequest:
             CreateWebsiteRequest(
                 name="x" * 256,  # Exceeds 255 max length
                 base_url="https://example.com",
-                steps=[CrawlStep(name="test", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
+                steps=[CrawlStep(name="test", type=StepTypeEnum.crawl, method=MethodEnum.api)],
             )
 
 
@@ -330,7 +334,7 @@ class TestActionConfig:
         """Test ActionConfig for wait action."""
         action = ActionConfig(type="wait", selector="div.content", timeout=10000)
 
-        assert action.type == "wait"
+        assert action.type.value == "wait"
         assert action.selector == "div.content"
         assert action.timeout == 10000
         assert action.optional is False
@@ -339,14 +343,14 @@ class TestActionConfig:
         """Test ActionConfig for optional click action."""
         action = ActionConfig(type="click", selector="button.load-more", optional=True)
 
-        assert action.type == "click"
+        assert action.type.value == "click"
         assert action.optional is True
 
     def test_action_config_fill(self) -> None:
         """Test ActionConfig for fill action."""
         action = ActionConfig(type="fill", selector="input[name='search']", value="test query")
 
-        assert action.type == "fill"
+        assert action.type.value == "fill"
         assert action.value == "test query"
 
     def test_action_config_timeout_validation(self) -> None:
@@ -387,7 +391,7 @@ class TestRetryConfig:
         )
 
         assert config.max_attempts == 5
-        assert config.backoff_strategy == "linear"
+        assert config.backoff_strategy.value == "linear"
         assert config.initial_delay == 2
         assert config.max_delay == 600
 

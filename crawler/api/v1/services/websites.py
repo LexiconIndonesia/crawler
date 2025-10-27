@@ -46,11 +46,12 @@ class WebsiteService:
         logger.info("creating_website", website_name=request.name, base_url=request.base_url)
 
         # Build full configuration dict
+        # Use mode='json' to properly serialize enums and URLs to strings
         config = {
             "description": request.description,
-            "schedule": request.schedule.model_dump(),
-            "steps": [step.model_dump() for step in request.steps],
-            "global_config": request.global_config.model_dump(),
+            "schedule": request.schedule.model_dump(mode="json"),
+            "steps": [step.model_dump(mode="json") for step in request.steps],
+            "global_config": request.global_config.model_dump(mode="json"),
             "variables": request.variables,
         }
 
@@ -62,9 +63,10 @@ class WebsiteService:
             raise ValueError(f"Website with name '{request.name}' already exists")
 
         # Create website
+        # Convert AnyUrl to string for database storage
         website = await self.website_repo.create(
             name=request.name,
-            base_url=request.base_url,
+            base_url=str(request.base_url),
             config=config,
             cron_schedule=request.schedule.cron,
         )

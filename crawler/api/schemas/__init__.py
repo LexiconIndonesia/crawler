@@ -1,7 +1,14 @@
-"""Common API schemas."""
+"""Common API schemas.
 
-from .base import ErrorResponse, HealthResponse, RootResponse
-from .enums import StatusEnum
+This module re-exports models from the generated OpenAPI models.
+"""
+
+from crawler.api.generated import (
+    ErrorResponse,
+    HealthResponse,
+    RootResponse,
+    StatusEnum,
+)
 
 __all__ = [
     "ErrorResponse",

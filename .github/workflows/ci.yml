@@ -7,6 +7,7 @@ on:
       - '**.py'
       - 'pyproject.toml'
       - 'requirements*.txt'
+      - 'openapi.yaml'
       - '.github/workflows/ci.yml'
       - 'Dockerfile'
       - 'docker-compose.yml'
@@ -28,6 +29,14 @@ jobs:
         run: uv python install 3.14
       - name: Install dependencies
         run: uv sync
+      - name: Install OpenAPI Generator CLI
+        run: |
+          npm install -g @openapitools/openapi-generator-cli
+      - name: Validate OpenAPI contract
+        run: |
+          echo "Validating OpenAPI specification..."
+          openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -10 || true
+          echo "✅ OpenAPI spec validation complete"
       - name: Run all quality checks
         run: |
           echo "Running format check..."

@@ -44,7 +44,7 @@ class TestWebsiteService:
         return CreateWebsiteRequest(
             name="Test Website",
             base_url="https://example.com",
-            steps=[CrawlStep(name="test_step", type=StepTypeEnum.CRAWL, method=MethodEnum.API)],
+            steps=[CrawlStep(name="test_step", type=StepTypeEnum.crawl, method=MethodEnum.api)],
         )
 
     @pytest.mark.asyncio
@@ -58,7 +58,7 @@ class TestWebsiteService:
             name="Test Website",
             base_url="https://example.com",
             config={},
-            status=StatusEnum.ACTIVE,
+            status=StatusEnum.active,
             cron_schedule="0 0 * * *",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -77,8 +77,10 @@ class TestWebsiteService:
 
         # Assert
         assert result.name == "Test Website"
-        assert result.base_url == "https://example.com"
-        assert result.status == StatusEnum.ACTIVE
+        assert (
+            str(result.base_url) == "https://example.com/"
+        )  # AnyUrl normalizes with trailing slash
+        assert result.status == StatusEnum.active
         website_service.website_repo.get_by_name.assert_called_once_with("Test Website")
         website_service.website_repo.create.assert_called_once()
         website_service.scheduled_job_repo.create.assert_called_once()
@@ -94,7 +96,7 @@ class TestWebsiteService:
             name="Test Website",
             base_url="https://example.com",
             config={},
-            status=StatusEnum.ACTIVE,
+            status=StatusEnum.active,
             cron_schedule="0 0 * * *",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -137,7 +139,7 @@ class TestWebsiteService:
             name="Test Website",
             base_url="https://example.com",
             config={},
-            status=StatusEnum.ACTIVE,
+            status=StatusEnum.active,
             cron_schedule="0 0 * * *",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),

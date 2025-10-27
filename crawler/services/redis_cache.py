@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import redis.asyncio as redis
 
-from config import get_settings
+from config import Settings
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,13 +26,14 @@ class URLDeduplicationCache:
     Supports TTL-based expiration for temporary deduplication windows.
     """
 
-    def __init__(self, redis_client: redis.Redis) -> None:
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Initialize URL deduplication cache.
 
         Args:
             redis_client: Redis client from connection pool.
+            settings: Application settings.
         """
-        self.settings = get_settings()
+        self.settings = settings
         self.redis = redis_client
         self.key_prefix = "url:dedup:"
 
@@ -130,13 +131,14 @@ class JobCancellationFlag:
     Workers can poll these flags during execution.
     """
 
-    def __init__(self, redis_client: redis.Redis) -> None:
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Initialize job cancellation flag service.
 
         Args:
             redis_client: Redis client from connection pool.
+            settings: Application settings.
         """
-        self.settings = get_settings()
+        self.settings = settings
         self.redis = redis_client
         self.key_prefix = "job:cancel:"
 
@@ -213,13 +215,14 @@ class RateLimiter:
     Tracks request counts per website within a time window.
     """
 
-    def __init__(self, redis_client: redis.Redis) -> None:
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Initialize rate limiter.
 
         Args:
             redis_client: Redis client from connection pool.
+            settings: Application settings.
         """
-        self.settings = get_settings()
+        self.settings = settings
         self.redis = redis_client
         self.key_prefix = "ratelimit:"
 
@@ -318,13 +321,14 @@ class BrowserPoolStatus:
     Stores current state of the browser pool for monitoring and coordination.
     """
 
-    def __init__(self, redis_client: redis.Redis) -> None:
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Initialize browser pool status tracker.
 
         Args:
             redis_client: Redis client from connection pool.
+            settings: Application settings.
         """
-        self.settings = get_settings()
+        self.settings = settings
         self.redis = redis_client
         self.key = "browser:pool:status"
 
@@ -389,13 +393,14 @@ class JobProgressCache:
     Progress data is updated frequently and has a short TTL.
     """
 
-    def __init__(self, redis_client: redis.Redis) -> None:
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Initialize job progress cache.
 
         Args:
             redis_client: Redis client from connection pool.
+            settings: Application settings.
         """
-        self.settings = get_settings()
+        self.settings = settings
         self.redis = redis_client
         self.key_prefix = "job:progress:"
 
