@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from crawler.api import router
+from crawler.api import router, router_v1
 from crawler.core import setup_logging
 
 
@@ -42,7 +42,8 @@ def create_app() -> FastAPI:
     )
 
     # Include routers
-    app.include_router(router)
+    app.include_router(router)  # Non-versioned endpoints (root, health, metrics)
+    app.include_router(router_v1)  # API v1 endpoints
 
     return app
 

@@ -25,13 +25,21 @@ async_session_maker = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session dependency."""
+    """Get database session dependency.
+
+    Creates a session with automatic transaction management:
+    - Commits on successful completion
+    - Rolls back on exceptions
+    - Handles closed connections gracefully
+    """
     async with async_session_maker() as session:
         try:
             yield session
-            await session.commit()
+            # Only commit if session is not closed and is dirty
+            if session.in_transaction():
+                await session.commit()
         except Exception:
-            await session.rollback()
+            # Only rollback if session is not closed
+            if session.in_transaction():
+                await session.rollback()
             raise
-        finally:
-            await session.close()
