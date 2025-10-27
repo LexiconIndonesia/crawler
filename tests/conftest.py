@@ -17,6 +17,7 @@ from crawler.db.repositories import (
     CrawledPageRepository,
     CrawlJobRepository,
     CrawlLogRepository,
+    ScheduledJobRepository,
     WebsiteRepository,
 )
 from main import create_app
@@ -33,6 +34,7 @@ async def create_schema(conn: AsyncConnection) -> None:
     schema_files = [
         SCHEMA_DIR / "000_migration_tracking.sql",
         SCHEMA_DIR / "001_initial_schema.sql",
+        SCHEMA_DIR / "002_scheduled_jobs.sql",
     ]
 
     # Get the raw asyncpg connection for executing multi-statement scripts
@@ -171,6 +173,12 @@ async def content_hash_repo(db_connection: AsyncConnection) -> ContentHashReposi
 async def crawl_log_repo(db_connection: AsyncConnection) -> CrawlLogRepository:
     """Create crawl log repository fixture."""
     return CrawlLogRepository(db_connection)
+
+
+@pytest_asyncio.fixture
+async def scheduled_job_repo(db_connection: AsyncConnection) -> ScheduledJobRepository:
+    """Create scheduled job repository fixture."""
+    return ScheduledJobRepository(db_connection)
 
 
 @pytest_asyncio.fixture

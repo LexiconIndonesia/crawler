@@ -37,6 +37,15 @@ from .crawled_page import (
     CrawledPageStats,
     CrawledPageUpdate,
 )
+
+# ScheduledJob schemas
+from .scheduled_job import (
+    ScheduledJobCreate,
+    ScheduledJobListResponse,
+    ScheduledJobResponse,
+    ScheduledJobToggleStatus,
+    ScheduledJobUpdate,
+)
 from .website import (
     WebsiteCreate,
     WebsiteListResponse,
@@ -72,4 +81,10 @@ __all__ = [
     "CrawlLogResponse",
     "CrawlLogListResponse",
     "CrawlLogFilter",
+    # ScheduledJob
+    "ScheduledJobCreate",
+    "ScheduledJobUpdate",
+    "ScheduledJobResponse",
+    "ScheduledJobListResponse",
+    "ScheduledJobToggleStatus",
 ]

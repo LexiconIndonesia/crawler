@@ -3,12 +3,14 @@ INSERT INTO website (
     name,
     base_url,
     config,
+    cron_schedule,
     created_by,
     status
 ) VALUES (
     sqlc.arg(name),
     sqlc.arg(base_url),
     sqlc.arg(config),
+    COALESCE(sqlc.arg(cron_schedule), '0 0 1,15 * *'),
     sqlc.arg(created_by),
     COALESCE(sqlc.arg(status), 'active'::status_enum)
 )
@@ -38,6 +40,7 @@ SET
     name = COALESCE(sqlc.arg(name), name),
     base_url = COALESCE(sqlc.arg(base_url), base_url),
     config = COALESCE(sqlc.arg(config), config),
+    cron_schedule = COALESCE(sqlc.arg(cron_schedule), cron_schedule),
     status = COALESCE(sqlc.arg(status), status),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)

@@ -22,16 +22,18 @@ INSERT INTO website (
     name,
     base_url,
     config,
+    cron_schedule,
     created_by,
     status
 ) VALUES (
     :p1,
     :p2,
     :p3,
-    :p4,
-    COALESCE(:p5, 'active'\\:\\:status_enum)
+    COALESCE(:p4, '0 0 1,15 * *'),
+    :p5,
+    COALESCE(:p6, 'active'\\:\\:status_enum)
 )
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
 """
 
 
@@ -42,19 +44,19 @@ WHERE id = :p1
 
 
 GET_WEBSITE_BY_ID = """-- name: get_website_by_id \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
 WHERE id = :p1
 """
 
 
 GET_WEBSITE_BY_NAME = """-- name: get_website_by_name \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
 WHERE name = :p1
 """
 
 
 LIST_WEBSITES = """-- name: list_websites \\:many
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
 WHERE status = COALESCE(:p1, status)
 ORDER BY created_at DESC
 LIMIT :p3 OFFSET :p2
@@ -67,10 +69,11 @@ SET
     name = COALESCE(:p1, name),
     base_url = COALESCE(:p2, base_url),
     config = COALESCE(:p3, config),
-    status = COALESCE(:p4, status),
+    cron_schedule = COALESCE(:p4, cron_schedule),
+    status = COALESCE(:p5, status),
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p5
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
+WHERE id = :p6
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
 """
 
 
@@ -80,7 +83,7 @@ SET
     status = :p1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p2
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
 """
 
 
@@ -94,13 +97,14 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_website(self, *, name: str, base_url: str, config: Any, created_by: Optional[str], status: Optional[Any]) -> Optional[models.Website]:
+    async def create_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[Any], created_by: Optional[str], status: Optional[Any]) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_WEBSITE), {
             "p1": name,
             "p2": base_url,
             "p3": config,
-            "p4": created_by,
-            "p5": status,
+            "p4": cron_schedule,
+            "p5": created_by,
+            "p6": status,
         })).first()
         if row is None:
             return None
@@ -113,6 +117,7 @@ class AsyncQuerier:
             created_at=row[5],
             updated_at=row[6],
             created_by=row[7],
+            cron_schedule=row[8],
         )
 
     async def delete_website(self, *, id: uuid.UUID) -> None:
@@ -131,6 +136,7 @@ class AsyncQuerier:
             created_at=row[5],
             updated_at=row[6],
             created_by=row[7],
+            cron_schedule=row[8],
         )
 
     async def get_website_by_name(self, *, name: str) -> Optional[models.Website]:
@@ -146,6 +152,7 @@ class AsyncQuerier:
             created_at=row[5],
             updated_at=row[6],
             created_by=row[7],
+            cron_schedule=row[8],
         )
 
     async def list_websites(self, *, status: models.StatusEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.Website]:
@@ -160,15 +167,17 @@ class AsyncQuerier:
                 created_at=row[5],
                 updated_at=row[6],
                 created_by=row[7],
+                cron_schedule=row[8],
             )
 
-    async def update_website(self, *, name: str, base_url: str, config: Any, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
+    async def update_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[str], status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE), {
             "p1": name,
             "p2": base_url,
             "p3": config,
-            "p4": status,
-            "p5": id,
+            "p4": cron_schedule,
+            "p5": status,
+            "p6": id,
         })).first()
         if row is None:
             return None
@@ -181,6 +190,7 @@ class AsyncQuerier:
             created_at=row[5],
             updated_at=row[6],
             created_by=row[7],
+            cron_schedule=row[8],
         )
 
     async def update_website_status(self, *, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
@@ -196,4 +206,5 @@ class AsyncQuerier:
             created_at=row[5],
             updated_at=row[6],
             created_by=row[7],
+            cron_schedule=row[8],
         )

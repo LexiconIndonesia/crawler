@@ -7,6 +7,7 @@ A scalable, production-ready web crawler built with FastAPI and modern Python as
 - **Modern Async Architecture**: Built on FastAPI and async/await patterns
 - **Browser Automation**: Playwright for JavaScript-heavy sites, undetected-chromedriver for anti-bot bypass
 - **Distributed Queue**: NATS JetStream for reliable task distribution
+- **Scheduled Crawls**: Cron-based scheduling with pause/resume capability and bi-weekly defaults
 - **Persistent Storage**: PostgreSQL for structured data, Google Cloud Storage for raw HTML
 - **Type-Safe Queries**: sqlc for compile-time safe SQL queries with Pydantic models
 - **High-Performance Parsing**: selectolax for fast HTML parsing
@@ -197,6 +198,14 @@ async with get_db() as session:
         # Returns Pydantic model with type safety
         print(website.id, website.name)
 ```
+
+**Scheduled Jobs:**
+
+Websites support recurring crawls via cron schedules:
+- Default schedule: `0 0 1,15 * *` (bi-weekly on 1st and 15th at midnight)
+- Use `ScheduledJobRepository` to manage scheduled crawls
+- Pause/resume schedules with `is_active` flag (preserves history)
+- Optimized indexes for finding jobs due for execution
 
 See `docs/SQLC_IMPLEMENTATION.md` for detailed guide.
 

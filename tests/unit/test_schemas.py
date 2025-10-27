@@ -54,6 +54,28 @@ class TestWebsiteSchemas:
         assert update.status == "inactive"
         assert update.name is None
 
+    def test_website_create_with_cron_schedule(self) -> None:
+        """Test website creation with cron schedule."""
+        data = {
+            "name": "scheduled-site",
+            "base_url": "https://example.com",
+            "cron_schedule": "0 0 1,15 * *",
+        }
+        website = WebsiteCreate(**data)
+        assert website.cron_schedule == "0 0 1,15 * *"
+
+    def test_website_create_without_cron_schedule(self) -> None:
+        """Test website creation without cron schedule."""
+        data = {"name": "test-site", "base_url": "https://example.com"}
+        website = WebsiteCreate(**data)
+        assert website.cron_schedule is None
+
+    def test_website_update_cron_schedule(self) -> None:
+        """Test updating website cron schedule."""
+        data = {"cron_schedule": "0 12 * * *"}
+        update = WebsiteUpdate(**data)
+        assert update.cron_schedule == "0 12 * * *"
+
 
 class TestCrawlJobSchemas:
     """Tests for CrawlJob schemas."""

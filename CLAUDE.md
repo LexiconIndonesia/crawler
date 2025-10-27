@@ -83,6 +83,8 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 - SQL queries in `sql/queries/*.sql`, schema in `sql/schema/*.sql`
 - Generated code in `crawler/db/generated/` (never edit manually)
 - Repositories in `crawler/db/repositories.py` handle JSON serialization and parameter mapping
+- **Core tables**: `website`, `crawl_job`, `crawled_page`, `content_hash`, `crawl_log`, `scheduled_job`
+- **Scheduled jobs**: Websites can have default cron schedules; `scheduled_job` table tracks recurring crawls with `is_active` flag for pausing
 
 **Services** (`crawler/services/`)
 - `CacheService`: Redis-based caching for URL deduplication and rate limiting
@@ -166,12 +168,66 @@ async with get_db() as session:
         print(website.id, website.name)
 ```
 
+### Working with Scheduled Jobs
+
+**Creating a Scheduled Job**:
+```python
+from datetime import datetime, UTC
+from crawler.db.repositories import ScheduledJobRepository
+
+async with get_db() as session:
+    async with session.begin():
+        scheduled_job_repo = ScheduledJobRepository(session.connection())
+
+        # Create a scheduled job with bi-weekly schedule
+        job = await scheduled_job_repo.create(
+            website_id=website.id,
+            cron_schedule="0 0 1,15 * *",  # 1st and 15th at midnight
+            next_run_time=datetime.now(UTC),
+            is_active=True,
+            job_config={"max_depth": 5}
+        )
+```
+
+**Finding Jobs Due for Execution**:
+```python
+# Get all jobs that need to run
+due_jobs = await scheduled_job_repo.get_due_jobs(
+    cutoff_time=datetime.now(UTC),
+    limit=100
+)
+
+for job in due_jobs:
+    # Process the job
+    # Update next_run_time after execution
+    await scheduled_job_repo.update_next_run(
+        job_id=job.id,
+        next_run_time=calculate_next_run(job.cron_schedule),
+        last_run_time=datetime.now(UTC)
+    )
+```
+
+**Pausing/Resuming Schedules**:
+```python
+# Pause a schedule without deleting it
+await scheduled_job_repo.toggle_status(job_id=job.id, is_active=False)
+
+# Resume the schedule
+await scheduled_job_repo.toggle_status(job_id=job.id, is_active=True)
+```
+
+**Notes**:
+- Default cron schedule for websites: `0 0 1,15 * *` (bi-weekly)
+- Use `is_active=False` to pause schedules instead of deleting
+- Composite index on `(is_active, next_run_time)` optimizes job lookup
+- `job_config` JSONB field allows per-job configuration overrides
+
 ### Testing
 - Unit tests go in `tests/unit/`
 - Integration tests in `tests/integration/`
 - Use `pytest-asyncio` for async tests (auto mode enabled in pyproject.toml)
 - Test coverage reports generated to `htmlcov/`
-- Database tests use repository fixtures: `website_repo`, `crawl_job_repo`, etc.
+- Database tests use repository fixtures: `website_repo`, `crawl_job_repo`, `scheduled_job_repo`, etc.
 - Fixtures automatically create schema from SQL files and clean up after tests
 - Schema cleanup is automatic - queries PostgreSQL system tables to drop all tables and types
 - No manual maintenance needed when adding new tables or types

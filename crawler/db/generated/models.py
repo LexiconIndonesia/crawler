@@ -99,6 +99,24 @@ class CrawledPage(pydantic.BaseModel):
     created_at: datetime.datetime
 
 
+class ScheduledJob(pydantic.BaseModel):
+    """Stores scheduled crawl job configurations with cron schedules"""
+    id: uuid.UUID
+    website_id: uuid.UUID
+    # Cron expression defining when the job should run
+    cron_schedule: str
+    # Next scheduled execution time
+    next_run_time: datetime.datetime
+    # Most recent execution time
+    last_run_time: Optional[datetime.datetime]
+    # Flag to pause/resume schedule without deleting
+    is_active: bool
+    # Job-specific configuration overrides
+    job_config: Optional[Any]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
 class SchemaMigration(pydantic.BaseModel):
     """Tracks applied database migrations"""
     version: str
@@ -117,3 +135,5 @@ class Website(pydantic.BaseModel):
     created_at: datetime.datetime
     updated_at: datetime.datetime
     created_by: Optional[str]
+    # Default cron schedule expression for this website (default: "0 0 1,15 * *" runs on 1st and 15th at midnight, approximately every 2 weeks)
+    cron_schedule: Optional[str]
