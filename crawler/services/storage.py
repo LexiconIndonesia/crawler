@@ -29,7 +29,7 @@ class StorageService:
                 # Decode base64 credentials
                 credentials_json = base64.b64decode(
                     settings.google_application_credentials_base64
-                ).decode('utf-8')
+                ).decode("utf-8")
                 credentials_dict = json.loads(credentials_json)
 
                 # Create credentials from dict
@@ -39,8 +39,7 @@ class StorageService:
 
                 # Initialize client with credentials
                 self.client = storage.Client(
-                    credentials=credentials,
-                    project=credentials_dict.get('project_id')
+                    credentials=credentials, project=credentials_dict.get("project_id")
                 )
                 logger.info("gcs_initialized", bucket=self.bucket_name)
             except Exception as e:
@@ -53,12 +52,7 @@ class StorageService:
 
         self.bucket = self.client.bucket(self.bucket_name)
 
-    async def upload_html(
-        self,
-        url: str,
-        content: str,
-        task_id: str
-    ) -> str:
+    async def upload_html(self, url: str, content: str, task_id: str) -> str:
         """Upload raw HTML to GCS."""
         try:
             # Create blob path: tasks/{task_id}/{url_hash}.html
@@ -66,23 +60,13 @@ class StorageService:
             blob = self.bucket.blob(blob_name)
 
             # Upload content
-            blob.upload_from_string(content, content_type='text/html')
+            blob.upload_from_string(content, content_type="text/html")
 
-            logger.info(
-                "html_uploaded",
-                url=url,
-                task_id=task_id,
-                blob_name=blob_name
-            )
+            logger.info("html_uploaded", url=url, task_id=task_id, blob_name=blob_name)
 
             return blob_name
         except Exception as e:
-            logger.error(
-                "html_upload_error",
-                url=url,
-                task_id=task_id,
-                error=str(e)
-            )
+            logger.error("html_upload_error", url=url, task_id=task_id, error=str(e))
             raise
 
     async def download_html(self, blob_name: str) -> str:

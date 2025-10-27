@@ -36,7 +36,4 @@ async def health(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
 @router.get("/metrics")
 async def metrics() -> Response:
     """Prometheus metrics endpoint."""
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

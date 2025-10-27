@@ -16,9 +16,7 @@ class CacheService:
         """Initialize cache service."""
         settings = get_settings()
         self.redis = redis.from_url(
-            str(settings.redis_url),
-            encoding="utf-8",
-            decode_responses=True
+            str(settings.redis_url), encoding="utf-8", decode_responses=True
         )
         self.default_ttl = settings.redis_ttl
 
@@ -30,12 +28,7 @@ class CacheService:
             logger.error("cache_get_error", key=key, error=str(e))
             return None
 
-    async def set(
-        self,
-        key: str,
-        value: Any,
-        ttl: Optional[int] = None
-    ) -> bool:
+    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         """Set value in cache with TTL."""
         try:
             ttl = ttl or self.default_ttl

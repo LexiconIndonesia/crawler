@@ -29,12 +29,12 @@ help: ## Display this help message
 
 install: ## Install production dependencies
 	@echo "$(BLUE)📦 Installing production dependencies...$(NC)"
-	uv sync
+	uv sync --no-dev
 	@echo "$(GREEN)✅ Dependencies installed$(NC)"
 
 install-dev: ## Install development dependencies
 	@echo "$(BLUE)📦 Installing development dependencies...$(NC)"
-	uv sync --extra dev
+	uv sync
 	@echo "$(GREEN)✅ Dev dependencies installed$(NC)"
 
 playwright: ## Install Playwright browsers
