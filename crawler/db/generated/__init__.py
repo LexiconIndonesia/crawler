@@ -1,11 +1,12 @@
-"""Database models package.
+"""Generated database code by sqlc.
 
-This package re-exports sqlc-generated Pydantic models for convenience.
-All models are generated from SQL queries in sql/queries/*.sql.
+This package contains type-safe database query functions and Pydantic models
+generated from SQL queries using sqlc.
+
+DO NOT EDIT - Code is auto-generated from sql/queries/*.sql
 """
 
-# Re-export sqlc-generated models for convenience
-from crawler.db.generated.models import (
+from .models import (
     ContentHash,
     CrawledPage,
     CrawlJob,
@@ -24,7 +25,7 @@ __all__ = [
     "ContentHash",
     "CrawlLog",
     # Enums
-    "StatusEnum",
     "JobTypeEnum",
+    "StatusEnum",
     "LogLevelEnum",
 ]

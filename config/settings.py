@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     app_name: str = "Lexicon Crawler"
     app_version: str = "0.1.0"
     debug: bool = False
-    environment: Literal["development", "staging", "production"] = Field(
+    environment: Literal["development", "staging", "production", "testing"] = Field(
         default="development",
         description="Application environment",
     )
@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
+    redis_max_connections: int = 10
     redis_ttl: int = 3600  # 1 hour default TTL
 
     # NATS
