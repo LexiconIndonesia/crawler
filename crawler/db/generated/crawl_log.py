@@ -105,7 +105,7 @@ WHERE job_id = :p1
     AND created_at <= :p3\\:\\:TIMESTAMP WITH TIME ZONE
     AND log_level = COALESCE(:p4, log_level)
 ORDER BY created_at DESC
-LIMIT :p6 OFFSET :p5
+OFFSET :p5 LIMIT :p6
 """
 
 
@@ -114,7 +114,7 @@ SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id,
 WHERE job_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
-LIMIT :p4 OFFSET :p3
+OFFSET :p3 LIMIT :p4
 """
 
 
@@ -130,7 +130,7 @@ SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id,
 WHERE website_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
-LIMIT :p4 OFFSET :p3
+OFFSET :p3 LIMIT :p4
 """
 
 

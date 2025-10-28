@@ -3,7 +3,7 @@
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -31,8 +31,8 @@ class TestCrawlLogRepository:
 
         mock_log = CrawlLog(
             id=1,
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             step_name="crawling",
             log_level=LogLevelEnum.INFO,
             message="Test log",
@@ -62,8 +62,8 @@ class TestCrawlLogRepository:
 
         mock_log = CrawlLog(
             id=1,
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             step_name="parsing",
             log_level=LogLevelEnum.DEBUG,
             message="Parsing data",
@@ -75,8 +75,8 @@ class TestCrawlLogRepository:
 
         context = {"url": "https://example.com", "status": 200, "elapsed": 1.5}
         result = await repo.create(
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             message="Parsing data",
             context=context,
         )
@@ -93,21 +93,21 @@ class TestCrawlLogRepository:
 
         mock_log = CrawlLog(
             id=1,
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             step_name="crawling",
             log_level=LogLevelEnum.INFO,
             message="Test log",
             context=None,
-            trace_id=uuid4(),
+            trace_id=uuid7(),
             created_at=datetime.now(UTC),
         )
         repo._querier.create_crawl_log = AsyncMock(return_value=mock_log)
 
         trace_id_str = "770e8400-e29b-41d4-a716-446655440000"
         result = await repo.create(
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             message="Test log",
             trace_id=trace_id_str,
         )
@@ -125,8 +125,8 @@ class TestCrawlLogRepository:
 
         mock_log = CrawlLog(
             id=1,
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             step_name="crawling",
             log_level=LogLevelEnum.INFO,
             message="Test log",
@@ -137,7 +137,7 @@ class TestCrawlLogRepository:
         repo._querier.create_crawl_log = AsyncMock(return_value=mock_log)
 
         result = await repo.create(
-            job_id=uuid4(), website_id=uuid4(), message="Test log", trace_id=None
+            job_id=uuid7(), website_id=uuid7(), message="Test log", trace_id=None
         )
 
         # Verify trace_id is None
@@ -154,8 +154,8 @@ class TestCrawlLogRepository:
         mock_logs = [
             CrawlLog(
                 id=i,
-                job_id=uuid4(),
-                website_id=uuid4(),
+                job_id=uuid7(),
+                website_id=uuid7(),
                 step_name=f"step{i}",
                 log_level=LogLevelEnum.INFO,
                 message=f"Log {i}",
@@ -173,7 +173,7 @@ class TestCrawlLogRepository:
 
         repo._querier.list_logs_by_job = MagicMock(return_value=mock_generator())
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.list_by_job(job_id=job_id, limit=10, offset=0)
 
         assert len(result) == 3
@@ -189,8 +189,8 @@ class TestCrawlLogRepository:
         mock_logs = [
             CrawlLog(
                 id=i,
-                job_id=uuid4(),
-                website_id=uuid4(),
+                job_id=uuid7(),
+                website_id=uuid7(),
                 step_name=f"step{i}",
                 log_level=LogLevelEnum.ERROR,
                 message=f"Error {i}",
@@ -208,7 +208,7 @@ class TestCrawlLogRepository:
 
         repo._querier.list_logs_by_job = MagicMock(return_value=mock_generator())
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.list_by_job(
             job_id=job_id, log_level=LogLevelEnum.ERROR, limit=10, offset=0
         )
@@ -228,8 +228,8 @@ class TestCrawlLogRepository:
         mock_logs = [
             CrawlLog(
                 id=i,
-                job_id=uuid4(),
-                website_id=uuid4(),
+                job_id=uuid7(),
+                website_id=uuid7(),
                 step_name=f"step{i}",
                 log_level=LogLevelEnum.ERROR,
                 message=f"Error {i}",
@@ -247,7 +247,7 @@ class TestCrawlLogRepository:
 
         repo._querier.get_error_logs = MagicMock(return_value=mock_generator())
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.get_errors(job_id=job_id, limit=10)
 
         assert len(result) == 3
@@ -262,26 +262,26 @@ class TestCrawlLogRepository:
 
         mock_log = CrawlLog(
             id=1,
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             step_name="validation",
             log_level=LogLevelEnum.WARNING,
             message="Validation warning",
             context={"field": "email", "value": "invalid"},
-            trace_id=uuid4(),
+            trace_id=uuid7(),
             created_at=datetime.now(UTC),
         )
         repo._querier.create_crawl_log = AsyncMock(return_value=mock_log)
 
         context = {"field": "email", "value": "invalid"}
         result = await repo.create(
-            job_id=uuid4(),
-            website_id=uuid4(),
+            job_id=uuid7(),
+            website_id=uuid7(),
             message="Validation warning",
             log_level=LogLevelEnum.WARNING,
             step_name="validation",
             context=context,
-            trace_id=uuid4(),
+            trace_id=uuid7(),
         )
 
         # Verify all parameters were passed

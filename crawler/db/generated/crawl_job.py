@@ -33,32 +33,6 @@ WHERE
 """
 
 
-CREATE_CRAWL_JOB = """-- name: create_crawl_job \\:one
-INSERT INTO crawl_job (
-    website_id,
-    job_type,
-    seed_url,
-    inline_config,
-    priority,
-    scheduled_at,
-    max_retries,
-    metadata,
-    variables
-) VALUES (
-    :p1,
-    COALESCE(:p2, 'one_time'\\:\\:job_type_enum),
-    :p3,
-    :p4,
-    COALESCE(:p5, 5),
-    :p6,
-    COALESCE(:p7, 3),
-    :p8,
-    :p9
-)
-RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
-"""
-
-
 CREATE_SEED_URL_SUBMISSION = """-- name: create_seed_url_submission \\:one
 INSERT INTO crawl_job (
     seed_url,
@@ -134,7 +108,7 @@ SELECT id, website_id, job_type, seed_url, inline_config, status, priority, sche
 WHERE website_id IS NULL
     AND inline_config IS NOT NULL
 ORDER BY created_at DESC
-LIMIT :p2 OFFSET :p1
+OFFSET :p1 LIMIT :p2
 """
 
 
@@ -142,7 +116,7 @@ GET_JOBS_BY_SEED_URL = """-- name: get_jobs_by_seed_url \\:many
 SELECT id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at FROM crawl_job
 WHERE seed_url = :p1
 ORDER BY created_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 
@@ -150,7 +124,7 @@ GET_JOBS_BY_WEBSITE = """-- name: get_jobs_by_website \\:many
 SELECT id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at FROM crawl_job
 WHERE website_id = :p1
 ORDER BY created_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 
@@ -187,7 +161,7 @@ WHERE
     AND status = COALESCE(:p2, status)
     AND job_type = COALESCE(:p3, job_type)
 ORDER BY priority DESC, created_at ASC
-LIMIT :p5 OFFSET :p4
+OFFSET :p4 LIMIT :p5
 """
 
 
@@ -251,44 +225,6 @@ class AsyncQuerier:
         if row is None:
             return None
         return row[0]
-
-    async def create_crawl_job(self, *, website_id: Optional[uuid.UUID], job_type: Optional[Any], seed_url: str, inline_config: Optional[Any], priority: Optional[Any], scheduled_at: Optional[datetime.datetime], max_retries: Optional[Any], metadata: Optional[Any], variables: Optional[Any]) -> Optional[models.CrawlJob]:
-        row = (await self._conn.execute(sqlalchemy.text(CREATE_CRAWL_JOB), {
-            "p1": website_id,
-            "p2": job_type,
-            "p3": seed_url,
-            "p4": inline_config,
-            "p5": priority,
-            "p6": scheduled_at,
-            "p7": max_retries,
-            "p8": metadata,
-            "p9": variables,
-        })).first()
-        if row is None:
-            return None
-        return models.CrawlJob(
-            id=row[0],
-            website_id=row[1],
-            job_type=row[2],
-            seed_url=row[3],
-            inline_config=row[4],
-            status=row[5],
-            priority=row[6],
-            scheduled_at=row[7],
-            started_at=row[8],
-            completed_at=row[9],
-            cancelled_at=row[10],
-            cancelled_by=row[11],
-            cancellation_reason=row[12],
-            error_message=row[13],
-            retry_count=row[14],
-            max_retries=row[15],
-            metadata=row[16],
-            variables=row[17],
-            progress=row[18],
-            created_at=row[19],
-            updated_at=row[20],
-        )
 
     async def create_seed_url_submission(self, *, seed_url: str, inline_config: Optional[Any], variables: Optional[Any], job_type: Optional[Any], priority: Optional[Any], scheduled_at: Optional[datetime.datetime], max_retries: Optional[Any], metadata: Optional[Any]) -> Optional[models.CrawlJob]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_SEED_URL_SUBMISSION), {

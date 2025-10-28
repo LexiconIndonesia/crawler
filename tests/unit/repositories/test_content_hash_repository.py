@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -30,7 +30,7 @@ class TestContentHashRepository:
 
         mock_content_hash = ContentHash(
             content_hash="hash123",
-            first_seen_page_id=uuid4(),
+            first_seen_page_id=uuid7(),
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
@@ -54,14 +54,14 @@ class TestContentHashRepository:
 
         mock_content_hash = ContentHash(
             content_hash="hash123",
-            first_seen_page_id=uuid4(),
+            first_seen_page_id=uuid7(),
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
         )
         repo._querier.upsert_content_hash = AsyncMock(return_value=mock_content_hash)
 
-        page_id = uuid4()
+        page_id = uuid7()
         result = await repo.upsert(content_hash_value="hash123", first_seen_page_id=page_id)
 
         # Verify UUID was passed unchanged
@@ -98,7 +98,7 @@ class TestContentHashRepository:
 
         mock_content_hash = ContentHash(
             content_hash="hash123",
-            first_seen_page_id=uuid4(),
+            first_seen_page_id=uuid7(),
             occurrence_count=5,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
@@ -131,7 +131,7 @@ class TestContentHashRepository:
         # First call returns count=1
         first_result = ContentHash(
             content_hash="hash123",
-            first_seen_page_id=uuid4(),
+            first_seen_page_id=uuid7(),
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
@@ -148,7 +148,7 @@ class TestContentHashRepository:
 
         repo._querier.upsert_content_hash = AsyncMock(side_effect=[first_result, second_result])
 
-        page_id = uuid4()
+        page_id = uuid7()
 
         # First upsert
         result1 = await repo.upsert(content_hash_value="hash123", first_seen_page_id=page_id)

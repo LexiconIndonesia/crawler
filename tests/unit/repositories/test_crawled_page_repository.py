@@ -3,7 +3,7 @@
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -30,9 +30,9 @@ class TestCrawledPageRepository:
         repo = CrawledPageRepository(mock_conn)
 
         mock_page = CrawledPage(
-            id=uuid4(),
-            website_id=uuid4(),
-            job_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -53,8 +53,8 @@ class TestCrawledPageRepository:
         gcs_documents = {"pdf": "gs://bucket/doc.pdf", "image": "gs://bucket/img.png"}
 
         result = await repo.create(
-            website_id=uuid4(),
-            job_id=uuid4(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -76,9 +76,9 @@ class TestCrawledPageRepository:
         repo = CrawledPageRepository(mock_conn)
 
         mock_page = CrawledPage(
-            id=uuid4(),
-            website_id=uuid4(),
-            job_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -122,9 +122,9 @@ class TestCrawledPageRepository:
         repo = CrawledPageRepository(mock_conn)
 
         mock_page = CrawledPage(
-            id=uuid4(),
-            website_id=uuid4(),
-            job_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -158,9 +158,9 @@ class TestCrawledPageRepository:
         # Create mock pages
         mock_pages = [
             CrawledPage(
-                id=uuid4(),
-                website_id=uuid4(),
-                job_id=uuid4(),
+                id=uuid7(),
+                website_id=uuid7(),
+                job_id=uuid7(),
                 url=f"https://example.com/page{i}",
                 url_hash=f"hash{i}",
                 content_hash=f"content{i}",
@@ -185,7 +185,7 @@ class TestCrawledPageRepository:
 
         repo._querier.list_pages_by_job = MagicMock(return_value=mock_generator())
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.list_by_job(job_id=job_id, limit=10, offset=0)
 
         assert len(result) == 3
@@ -198,9 +198,9 @@ class TestCrawledPageRepository:
         repo = CrawledPageRepository(mock_conn)
 
         mock_page = CrawledPage(
-            id=uuid4(),
-            website_id=uuid4(),
-            job_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -210,14 +210,14 @@ class TestCrawledPageRepository:
             gcs_html_path=None,
             gcs_documents=None,
             is_duplicate=True,
-            duplicate_of=uuid4(),
+            duplicate_of=uuid7(),
             similarity_score=95,
             crawled_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
         )
         repo._querier.mark_page_as_duplicate = AsyncMock(return_value=mock_page)
 
-        page_id = uuid4()
+        page_id = uuid7()
         duplicate_of_str = "550e8400-e29b-41d4-a716-446655440000"
 
         result = await repo.mark_as_duplicate(
@@ -237,9 +237,9 @@ class TestCrawledPageRepository:
         repo = CrawledPageRepository(mock_conn)
 
         mock_page = CrawledPage(
-            id=uuid4(),
-            website_id=uuid4(),
-            job_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
+            job_id=uuid7(),
             url="https://example.com/page",
             url_hash="hash123",
             content_hash="contenthash456",
@@ -256,7 +256,7 @@ class TestCrawledPageRepository:
         )
         repo._querier.mark_page_as_duplicate = AsyncMock(return_value=mock_page)
 
-        page_id = uuid4()
+        page_id = uuid7()
         result = await repo.mark_as_duplicate(page_id=page_id, duplicate_of=None)
 
         # Verify duplicate_of is None

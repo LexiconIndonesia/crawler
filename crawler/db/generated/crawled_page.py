@@ -94,7 +94,7 @@ SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_con
 WHERE is_duplicate = true
     AND website_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 
@@ -134,7 +134,7 @@ LIST_PAGES_BY_JOB = """-- name: list_pages_by_job \\:many
 SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at FROM crawled_page
 WHERE job_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 
@@ -142,7 +142,7 @@ LIST_PAGES_BY_WEBSITE = """-- name: list_pages_by_website \\:many
 SELECT id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at FROM crawled_page
 WHERE website_id = :p1
 ORDER BY crawled_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 

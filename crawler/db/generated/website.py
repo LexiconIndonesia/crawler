@@ -59,7 +59,7 @@ LIST_WEBSITES = """-- name: list_websites \\:many
 SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
 WHERE status = COALESCE(:p1, status)
 ORDER BY created_at DESC
-LIMIT :p3 OFFSET :p2
+OFFSET :p2 LIMIT :p3
 """
 
 

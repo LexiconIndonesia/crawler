@@ -28,7 +28,7 @@ WHERE name = sqlc.arg(name);
 SELECT * FROM website
 WHERE status = COALESCE(sqlc.arg(status), status)
 ORDER BY created_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountWebsites :one
 SELECT COUNT(*) FROM website

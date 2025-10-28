@@ -3,7 +3,7 @@
 import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -32,8 +32,8 @@ class TestScheduledJobRepository:
         # Create job with string job_config
         job_config_str = json.dumps({"max_depth": 5, "timeout": 30})
         job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -58,8 +58,8 @@ class TestScheduledJobRepository:
         # Create job with dict job_config
         job_config_dict = {"max_depth": 5, "timeout": 30}
         job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -91,8 +91,8 @@ class TestScheduledJobRepository:
 
         # Create job with invalid JSON string
         job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -114,8 +114,8 @@ class TestScheduledJobRepository:
         repo = ScheduledJobRepository(mock_conn)
 
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -128,7 +128,7 @@ class TestScheduledJobRepository:
 
         job_config = {"max_depth": 5, "timeout": 30}
         result = await repo.create(
-            website_id=uuid4(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             job_config=job_config,
@@ -145,8 +145,8 @@ class TestScheduledJobRepository:
         repo = ScheduledJobRepository(mock_conn)
 
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -178,8 +178,8 @@ class TestScheduledJobRepository:
         # Mock job with string job_config
         job_config_str = json.dumps({"max_depth": 10})
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -190,7 +190,7 @@ class TestScheduledJobRepository:
         )
         repo._querier.get_scheduled_job_by_id = AsyncMock(return_value=mock_job)
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.get_by_id(job_id)
 
         assert result is not None
@@ -205,8 +205,8 @@ class TestScheduledJobRepository:
         # Create mock jobs with string job_config
         mock_jobs = [
             ScheduledJob(
-                id=uuid4(),
-                website_id=uuid4(),
+                id=uuid7(),
+                website_id=uuid7(),
                 cron_schedule="0 0 * * *",
                 next_run_time=datetime.now(UTC),
                 last_run_time=None,
@@ -225,7 +225,7 @@ class TestScheduledJobRepository:
 
         repo._querier.get_scheduled_jobs_by_website_id = MagicMock(return_value=mock_generator())
 
-        website_id = uuid4()
+        website_id = uuid7()
         result = await repo.get_by_website_id(website_id)
 
         assert len(result) == 3
@@ -240,8 +240,8 @@ class TestScheduledJobRepository:
         # Create mock jobs with string job_config
         mock_jobs = [
             ScheduledJob(
-                id=uuid4(),
-                website_id=uuid4(),
+                id=uuid7(),
+                website_id=uuid7(),
                 cron_schedule="0 0 * * *",
                 next_run_time=datetime.now(UTC),
                 last_run_time=None,
@@ -273,8 +273,8 @@ class TestScheduledJobRepository:
         repo = ScheduledJobRepository(mock_conn)
 
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -285,7 +285,7 @@ class TestScheduledJobRepository:
         )
         repo._querier.update_scheduled_job = AsyncMock(return_value=mock_job)
 
-        job_id = uuid4()
+        job_id = uuid7()
         new_config = {"updated": True, "max_depth": 15}
         result = await repo.update(job_id=job_id, job_config=new_config)
 
@@ -300,8 +300,8 @@ class TestScheduledJobRepository:
         repo = ScheduledJobRepository(mock_conn)
 
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 1 * *",  # Updated
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -312,7 +312,7 @@ class TestScheduledJobRepository:
         )
         repo._querier.update_scheduled_job = AsyncMock(return_value=mock_job)
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.update(job_id=job_id, cron_schedule="0 0 1 * *")
 
         # Verify job_config is None
@@ -348,8 +348,8 @@ class TestScheduledJobRepository:
         repo = ScheduledJobRepository(mock_conn)
 
         mock_job = ScheduledJob(
-            id=uuid4(),
-            website_id=uuid4(),
+            id=uuid7(),
+            website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
             last_run_time=None,
@@ -360,7 +360,7 @@ class TestScheduledJobRepository:
         )
         repo._querier.toggle_scheduled_job_status = AsyncMock(return_value=mock_job)
 
-        job_id = uuid4()
+        job_id = uuid7()
         result = await repo.toggle_status(job_id=job_id, is_active=False)
 
         # Verify is_active was passed
@@ -376,8 +376,8 @@ class TestScheduledJobRepository:
         # Create mock jobs with string job_config
         mock_jobs = [
             ScheduledJob(
-                id=uuid4(),
-                website_id=uuid4(),
+                id=uuid7(),
+                website_id=uuid7(),
                 cron_schedule="0 0 * * *",
                 next_run_time=datetime.now(UTC),
                 last_run_time=None,

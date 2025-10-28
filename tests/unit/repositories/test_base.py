@@ -1,6 +1,6 @@
 """Unit tests for base repository utilities."""
 
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 
@@ -20,7 +20,7 @@ class TestToUuid:
 
     def test_returns_uuid_unchanged(self):
         """Test that UUID is returned unchanged."""
-        original_uuid = uuid4()
+        original_uuid = uuid7()
         result = to_uuid(original_uuid)
 
         assert result is original_uuid
@@ -60,7 +60,7 @@ class TestToUuidOptional:
 
     def test_returns_uuid_unchanged(self):
         """Test that UUID is returned unchanged."""
-        original_uuid = uuid4()
+        original_uuid = uuid7()
         result = to_uuid_optional(original_uuid)
 
         assert result is original_uuid

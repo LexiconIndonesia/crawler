@@ -69,7 +69,7 @@ LIST_ACTIVE_SCHEDULED_JOBS = """-- name: list_active_scheduled_jobs \\:many
 SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at FROM scheduled_job
 WHERE is_active = true
 ORDER BY next_run_time ASC
-LIMIT :p2 OFFSET :p1
+OFFSET :p1 LIMIT :p2
 """
 
 

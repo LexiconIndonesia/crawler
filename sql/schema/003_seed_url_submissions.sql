@@ -20,21 +20,23 @@ ALTER TABLE crawl_job
 ALTER TABLE crawl_job
     RENAME COLUMN embedded_config TO inline_config;
 
--- Add check constraint: either website_id or inline_config must be present
+-- Add check constraint: exactly one of website_id or inline_config must be present
 -- This ensures jobs always have configuration (either from website template or inline)
+-- and prevents ambiguous configurations where both are set
 ALTER TABLE crawl_job
     ADD CONSTRAINT ck_crawl_job_config_source CHECK (
-        (website_id IS NOT NULL) OR (inline_config IS NOT NULL)
+        num_nonnulls(website_id, inline_config) = 1
     );
 
--- Add index on inline_config for queries that filter by configuration
+-- Add GIN index on inline_config for queries that search within configuration
 CREATE INDEX ix_crawl_job_inline_config ON crawl_job USING gin(inline_config)
     WHERE inline_config IS NOT NULL;
 
--- Add partial index for jobs without website_id (inline config jobs)
-CREATE INDEX ix_crawl_job_null_website_id ON crawl_job(id)
-    WHERE website_id IS NULL;
+-- Add partial index optimized for GetInlineConfigJobs query
+-- This supports: WHERE website_id IS NULL AND inline_config IS NOT NULL ORDER BY created_at DESC
+CREATE INDEX ix_crawl_job_inline_config_jobs ON crawl_job(created_at DESC)
+    WHERE website_id IS NULL AND inline_config IS NOT NULL;
 
 COMMENT ON COLUMN crawl_job.website_id IS 'Reference to website template (nullable for inline config jobs)';
 COMMENT ON COLUMN crawl_job.inline_config IS 'Inline configuration for jobs without website template';
-COMMENT ON CONSTRAINT ck_crawl_job_config_source ON crawl_job IS 'Ensures job has either website_id or inline_config';
+COMMENT ON CONSTRAINT ck_crawl_job_config_source ON crawl_job IS 'Ensures exactly one of website_id or inline_config is set (mutually exclusive)';

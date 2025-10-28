@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from uuid import uuid7
 
 import pytest
 
@@ -54,7 +54,7 @@ class TestWebsiteService:
         next_run_time = datetime.now(UTC)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="Test Website",
             base_url="https://example.com",
             config={},
@@ -66,7 +66,7 @@ class TestWebsiteService:
         )
 
         mock_sched_job = MagicMock()
-        mock_sched_job.id = uuid4()
+        mock_sched_job.id = uuid7()
 
         website_service.website_repo.get_by_name.return_value = None
         website_service.website_repo.create.return_value = mock_website
@@ -92,7 +92,7 @@ class TestWebsiteService:
         next_run_time = datetime.now(UTC)
 
         existing_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="Test Website",
             base_url="https://example.com",
             config={},
@@ -135,7 +135,7 @@ class TestWebsiteService:
         next_run_time = datetime.now(UTC)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="Test Website",
             base_url="https://example.com",
             config={},

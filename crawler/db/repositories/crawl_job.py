@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from crawler.db.generated import crawl_job, models
 from crawler.db.generated.models import StatusEnum
 
-from .base import to_uuid, to_uuid_optional
+from .base import to_uuid
 
 
 class CrawlJobRepository:
@@ -37,7 +37,11 @@ class CrawlJobRepository:
         metadata: dict[str, Any] | None = None,
         variables: dict[str, Any] | None = None,
     ) -> models.CrawlJob | None:
-        """Create a new crawl job.
+        """Create a new crawl job (dispatcher method).
+
+        This method acts as a dispatcher that validates input and delegates
+        to the appropriate specialized creation method based on the provided
+        parameters.
 
         Args:
             seed_url: Seed URL to start crawling (required)
@@ -53,20 +57,57 @@ class CrawlJobRepository:
         Returns:
             Created CrawlJob model or None
 
+        Raises:
+            ValueError: If both website_id and inline_config are provided,
+                       or if neither is provided.
+
         Note:
-            Either website_id or inline_config must be provided.
+            Exactly one of website_id or inline_config must be provided.
+            This method dispatches to create_template_based_job() or
+            create_seed_url_submission() based on the provided parameters.
         """
-        return await self._querier.create_crawl_job(
-            website_id=to_uuid_optional(website_id),
-            job_type=job_type,
-            seed_url=seed_url,
-            inline_config=json.dumps(inline_config) if inline_config else None,
-            priority=priority,
-            scheduled_at=scheduled_at,
-            max_retries=max_retries,
-            metadata=json.dumps(metadata) if metadata else None,
-            variables=json.dumps(variables) if variables else None,
-        )
+        # Validate mutual exclusivity at application level
+        has_website_id = website_id is not None
+        has_inline_config = inline_config is not None
+
+        if has_website_id and has_inline_config:
+            raise ValueError(
+                "Cannot specify both website_id and inline_config. "
+                "Use create_template_based_job() for template-based jobs "
+                "or create_seed_url_submission() for inline config jobs."
+            )
+
+        if not has_website_id and not has_inline_config:
+            raise ValueError(
+                "Must specify either website_id or inline_config. "
+                "Use create_template_based_job() for template-based jobs "
+                "or create_seed_url_submission() for inline config jobs."
+            )
+
+        # Dispatch to appropriate specialized method
+        if has_website_id:
+            return await self.create_template_based_job(
+                website_id=website_id,
+                seed_url=seed_url,
+                variables=variables,
+                job_type=job_type,
+                priority=priority,
+                scheduled_at=scheduled_at,
+                max_retries=max_retries,
+                metadata=metadata,
+            )
+        else:
+            # has_inline_config is guaranteed to be True here
+            return await self.create_seed_url_submission(
+                seed_url=seed_url,
+                inline_config=inline_config,  # type: ignore[arg-type]
+                variables=variables,
+                job_type=job_type,
+                priority=priority,
+                scheduled_at=scheduled_at,
+                max_retries=max_retries,
+                metadata=metadata,
+            )
 
     async def get_by_id(self, job_id: str | UUID) -> models.CrawlJob | None:
         """Get crawl job by ID."""
@@ -204,7 +245,18 @@ class CrawlJobRepository:
 
         Returns:
             Created CrawlJob model or None
+
+        Raises:
+            ValueError: If inline_config is None or empty.
         """
+        # Validate that inline_config is provided
+        if not inline_config:
+            raise ValueError(
+                "inline_config is required for seed URL submission. "
+                "Provide configuration inline or use create_template_based_job() "
+                "to create a job with a website template."
+            )
+
         return await self._querier.create_seed_url_submission(
             seed_url=seed_url,
             inline_config=json.dumps(inline_config),

@@ -52,7 +52,7 @@ LIMIT :p2
 LIST_CONTENT_HASHES = """-- name: list_content_hashes \\:many
 SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at FROM content_hash
 ORDER BY occurrence_count DESC
-LIMIT :p2 OFFSET :p1
+OFFSET :p1 LIMIT :p2
 """
 
 

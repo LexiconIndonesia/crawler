@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -30,7 +30,7 @@ class TestWebsiteRepository:
 
         # Mock the querier method
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="test",
             base_url="https://example.com",
             config={"key": "value"},
@@ -62,7 +62,7 @@ class TestWebsiteRepository:
         repo = WebsiteRepository(mock_conn)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="test",
             base_url="https://example.com",
             config={},
@@ -89,7 +89,7 @@ class TestWebsiteRepository:
         repo = WebsiteRepository(mock_conn)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="test",
             base_url="https://example.com",
             config={},
@@ -101,7 +101,7 @@ class TestWebsiteRepository:
         )
         repo._querier.get_website_by_id = AsyncMock(return_value=mock_website)
 
-        original_uuid = uuid4()
+        original_uuid = uuid7()
         result = await repo.get_by_id(original_uuid)
 
         # Verify UUID was passed unchanged
@@ -115,7 +115,7 @@ class TestWebsiteRepository:
         repo = WebsiteRepository(mock_conn)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="test",
             base_url="https://example.com",
             config={"updated": True},
@@ -127,7 +127,7 @@ class TestWebsiteRepository:
         )
         repo._querier.update_website = AsyncMock(return_value=mock_website)
 
-        website_id = uuid4()
+        website_id = uuid7()
         new_config = {"updated": True, "max_depth": 10}
         result = await repo.update(website_id=website_id, config=new_config)
 
@@ -142,7 +142,7 @@ class TestWebsiteRepository:
         repo = WebsiteRepository(mock_conn)
 
         mock_website = Website(
-            id=uuid4(),
+            id=uuid7(),
             name="test",
             base_url="https://example.com",
             config={},
@@ -154,7 +154,7 @@ class TestWebsiteRepository:
         )
         repo._querier.update_website = AsyncMock(return_value=mock_website)
 
-        website_id = uuid4()
+        website_id = uuid7()
         result = await repo.update(website_id=website_id, name="new_name")
 
         # Verify config is None
@@ -170,7 +170,7 @@ class TestWebsiteRepository:
         # Create mock websites
         mock_websites = [
             Website(
-                id=uuid4(),
+                id=uuid7(),
                 name=f"test{i}",
                 base_url=f"https://example{i}.com",
                 config={},
