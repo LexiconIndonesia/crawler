@@ -86,6 +86,8 @@ class CrawlJobRepository:
 
         # Dispatch to appropriate specialized method
         if has_website_id:
+            # Type narrowing: website_id is guaranteed to be str | UUID here
+            assert website_id is not None
             return await self.create_template_based_job(
                 website_id=website_id,
                 seed_url=seed_url,
@@ -97,10 +99,11 @@ class CrawlJobRepository:
                 metadata=metadata,
             )
         else:
-            # has_inline_config is guaranteed to be True here
+            # Type narrowing: inline_config is guaranteed to be dict here
+            assert inline_config is not None
             return await self.create_seed_url_submission(
                 seed_url=seed_url,
-                inline_config=inline_config,  # type: ignore[arg-type]
+                inline_config=inline_config,
                 variables=variables,
                 job_type=job_type,
                 priority=priority,
