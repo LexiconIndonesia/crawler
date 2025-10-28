@@ -20,12 +20,12 @@ ALTER TABLE crawl_job
 ALTER TABLE crawl_job
     RENAME COLUMN embedded_config TO inline_config;
 
--- Add check constraint: exactly one of website_id or inline_config must be present
+-- Add check constraint: exactly one of website_id or inline_config must be present (XOR)
 -- This ensures jobs always have configuration (either from website template or inline)
 -- and prevents ambiguous configurations where both are set
 ALTER TABLE crawl_job
     ADD CONSTRAINT ck_crawl_job_config_source CHECK (
-        num_nonnulls(website_id, inline_config) = 1
+        (website_id IS NULL) != (inline_config IS NULL)
     );
 
 -- Add GIN index on inline_config for queries that search within configuration
