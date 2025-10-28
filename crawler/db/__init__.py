@@ -27,6 +27,7 @@ from .repositories import (
     CrawledPageRepository,
     CrawlJobRepository,
     CrawlLogRepository,
+    ScheduledJobRepository,
     WebsiteRepository,
 )
 from .session import engine, get_db
@@ -41,6 +42,7 @@ __all__ = [
     "CrawledPageRepository",
     "ContentHashRepository",
     "CrawlLogRepository",
+    "ScheduledJobRepository",
     # Enum types
     "StatusEnum",
     "JobTypeEnum",

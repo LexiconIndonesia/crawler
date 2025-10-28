@@ -3,7 +3,7 @@ INSERT INTO crawl_job (
     website_id,
     job_type,
     seed_url,
-    embedded_config,
+    inline_config,
     priority,
     scheduled_at,
     max_retries,
@@ -13,7 +13,7 @@ INSERT INTO crawl_job (
     sqlc.arg(website_id),
     COALESCE(sqlc.arg(job_type), 'one_time'::job_type_enum),
     sqlc.arg(seed_url),
-    sqlc.arg(embedded_config),
+    sqlc.arg(inline_config),
     COALESCE(sqlc.arg(priority), 5),
     sqlc.arg(scheduled_at),
     COALESCE(sqlc.arg(max_retries), 3),
@@ -108,3 +108,64 @@ LIMIT sqlc.arg(limit_count);
 DELETE FROM crawl_job
 WHERE status IN ('completed', 'cancelled')
     AND completed_at < CURRENT_TIMESTAMP - INTERVAL '30 days';
+
+-- name: GetInlineConfigJobs :many
+-- Get jobs that use inline configuration (no website template)
+SELECT * FROM crawl_job
+WHERE website_id IS NULL
+    AND inline_config IS NOT NULL
+ORDER BY created_at DESC
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+
+-- name: GetJobsBySeedURL :many
+-- Get jobs for a specific seed URL
+SELECT * FROM crawl_job
+WHERE seed_url = sqlc.arg(seed_url)
+ORDER BY created_at DESC
+LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+
+-- name: CreateSeedURLSubmission :one
+-- Create a job with inline configuration (seed URL submission without website template)
+INSERT INTO crawl_job (
+    seed_url,
+    inline_config,
+    variables,
+    job_type,
+    priority,
+    scheduled_at,
+    max_retries,
+    metadata
+) VALUES (
+    sqlc.arg(seed_url),
+    sqlc.arg(inline_config),
+    sqlc.arg(variables),
+    COALESCE(sqlc.arg(job_type), 'one_time'::job_type_enum),
+    COALESCE(sqlc.arg(priority), 5),
+    sqlc.arg(scheduled_at),
+    COALESCE(sqlc.arg(max_retries), 3),
+    sqlc.arg(metadata)
+)
+RETURNING *;
+
+-- name: CreateTemplateBasedJob :one
+-- Create a job using a website template configuration
+INSERT INTO crawl_job (
+    website_id,
+    seed_url,
+    variables,
+    job_type,
+    priority,
+    scheduled_at,
+    max_retries,
+    metadata
+) VALUES (
+    sqlc.arg(website_id),
+    sqlc.arg(seed_url),
+    sqlc.arg(variables),
+    COALESCE(sqlc.arg(job_type), 'one_time'::job_type_enum),
+    COALESCE(sqlc.arg(priority), 5),
+    sqlc.arg(scheduled_at),
+    COALESCE(sqlc.arg(max_retries), 3),
+    sqlc.arg(metadata)
+)
+RETURNING *;
