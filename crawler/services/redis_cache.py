@@ -15,6 +15,7 @@ import redis.asyncio as redis
 
 from config import Settings
 from crawler.core.logging import get_logger
+from crawler.utils import hash_url
 
 logger = get_logger(__name__)
 
@@ -121,6 +122,84 @@ class URLDeduplicationCache:
             return True
         except Exception as e:
             logger.error("url_dedup_delete_error", url_hash=url_hash, error=str(e))
+            return False
+
+    async def set_url(self, url: str, data: dict[str, Any], ttl: int | None = None) -> bool:
+        """Mark URL as seen with associated data (auto-normalizes and hashes).
+
+        This is a convenience method that automatically normalizes the URL
+        and generates its hash before storing.
+
+        Args:
+            url: The URL to mark as seen (will be normalized).
+            data: Associated metadata (job_id, crawled_at, etc.).
+            ttl: Time to live in seconds. Defaults to settings.redis_ttl.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            url_hash = hash_url(url, normalize=True)
+            return await self.set(url_hash, data, ttl)
+        except Exception as e:
+            logger.error("url_dedup_set_url_error", url=url, error=str(e))
+            return False
+
+    async def get_url(self, url: str) -> dict[str, Any] | None:
+        """Get data for a URL (auto-normalizes and hashes).
+
+        This is a convenience method that automatically normalizes the URL
+        and generates its hash before lookup.
+
+        Args:
+            url: The URL to look up (will be normalized).
+
+        Returns:
+            Associated data if exists, None otherwise.
+        """
+        try:
+            url_hash = hash_url(url, normalize=True)
+            return await self.get(url_hash)
+        except Exception as e:
+            logger.error("url_dedup_get_url_error", url=url, error=str(e))
+            return None
+
+    async def exists_url(self, url: str) -> bool:
+        """Check if URL exists in cache (auto-normalizes and hashes).
+
+        This is a convenience method that automatically normalizes the URL
+        and generates its hash before checking.
+
+        Args:
+            url: The URL to check (will be normalized).
+
+        Returns:
+            True if exists, False otherwise.
+        """
+        try:
+            url_hash = hash_url(url, normalize=True)
+            return await self.exists(url_hash)
+        except Exception as e:
+            logger.error("url_dedup_exists_url_error", url=url, error=str(e))
+            return False
+
+    async def delete_url(self, url: str) -> bool:
+        """Remove URL from cache (auto-normalizes and hashes).
+
+        This is a convenience method that automatically normalizes the URL
+        and generates its hash before deletion.
+
+        Args:
+            url: The URL to remove (will be normalized).
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            url_hash = hash_url(url, normalize=True)
+            return await self.delete(url_hash)
+        except Exception as e:
+            logger.error("url_dedup_delete_url_error", url=url, error=str(e))
             return False
 
 

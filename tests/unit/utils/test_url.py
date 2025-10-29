@@ -1,8 +1,15 @@
 """Unit tests for URL normalization utilities."""
 
+import hashlib
+
 import pytest
 
-from crawler.utils.url import are_urls_equivalent, normalize_url
+from crawler.utils.url import (
+    are_urls_equivalent,
+    hash_url,
+    normalize_and_hash,
+    normalize_url,
+)
 
 
 class TestNormalizeURL:
@@ -346,3 +353,130 @@ class TestAreURLsEquivalent:
         )
         url2 = "https://www.example.com/products?page=1&category=shoes&fbclid=IwAR123"
         assert are_urls_equivalent(url1, url2) is True
+
+
+class TestHashURL:
+    """Tests for URL hashing utility."""
+
+    def test_hash_url_basic(self) -> None:
+        """Test basic URL hashing."""
+        url = "https://example.com/path"
+        result = hash_url(url)
+        # Should be a 64-character hex string (SHA-256)
+        assert len(result) == 64
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_hash_url_normalized_by_default(self) -> None:
+        """Test that URLs are normalized before hashing by default."""
+        url1 = "https://example.com/page?utm_source=fb&page=2"
+        url2 = "https://example.com/page?page=2"
+        # Both should produce the same hash because tracking params are removed
+        assert hash_url(url1) == hash_url(url2)
+
+    def test_hash_url_different_tracking_same_hash(self) -> None:
+        """Test that different tracking params produce the same hash."""
+        url1 = "https://example.com/page?utm_source=facebook&category=tech"
+        url2 = "https://example.com/page?utm_source=google&category=tech"
+        assert hash_url(url1) == hash_url(url2)
+
+    def test_hash_url_case_insensitive_host(self) -> None:
+        """Test that hostname case doesn't affect hash."""
+        url1 = "https://EXAMPLE.com/path"
+        url2 = "https://example.com/path"
+        assert hash_url(url1) == hash_url(url2)
+
+    def test_hash_url_param_order_independent(self) -> None:
+        """Test that parameter order doesn't affect hash."""
+        url1 = "https://example.com/page?a=1&b=2&c=3"
+        url2 = "https://example.com/page?c=3&a=1&b=2"
+        assert hash_url(url1) == hash_url(url2)
+
+    def test_hash_url_without_normalization(self) -> None:
+        """Test hashing without normalization."""
+        url1 = "https://example.com/page?utm_source=fb&page=2"
+        url2 = "https://example.com/page?page=2"
+        # Should produce different hashes when normalization is disabled
+        assert hash_url(url1, normalize=False) != hash_url(url2, normalize=False)
+
+    def test_hash_url_raw_matches_expected(self) -> None:
+        """Test that raw hashing produces expected SHA-256."""
+        url = "https://example.com/path"
+        expected = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        result = hash_url(url, normalize=False)
+        assert result == expected
+
+    def test_hash_url_different_urls_different_hashes(self) -> None:
+        """Test that different URLs produce different hashes."""
+        url1 = "https://example.com/path1"
+        url2 = "https://example.com/path2"
+        assert hash_url(url1) != hash_url(url2)
+
+    def test_hash_url_semantic_params_affect_hash(self) -> None:
+        """Test that semantic parameters affect the hash."""
+        url1 = "https://example.com/page?page=1"
+        url2 = "https://example.com/page?page=2"
+        assert hash_url(url1) != hash_url(url2)
+
+    def test_hash_url_invalid_raises_error(self) -> None:
+        """Test that invalid URLs raise ValueError when normalized."""
+        with pytest.raises(ValueError):
+            hash_url("invalid-url", normalize=True)
+
+    def test_hash_url_custom_normalize_options(self) -> None:
+        """Test hashing with custom normalization options."""
+        url = "https://example.com/page#section"
+        # With fragment removal (default)
+        hash1 = hash_url(url, normalize=True, remove_fragment=True)
+        # Without fragment removal
+        hash2 = hash_url(url, normalize=True, remove_fragment=False)
+        assert hash1 != hash2
+
+
+class TestNormalizeAndHash:
+    """Tests for normalize_and_hash utility."""
+
+    def test_normalize_and_hash_returns_tuple(self) -> None:
+        """Test that normalize_and_hash returns a tuple."""
+        url = "https://example.com/path?utm_source=fb&page=1"
+        result = normalize_and_hash(url)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_normalize_and_hash_normalized_url(self) -> None:
+        """Test that the first element is the normalized URL."""
+        url = "HTTPS://EXAMPLE.COM/page?utm_source=fb&page=1"
+        normalized, _ = normalize_and_hash(url)
+        assert normalized == "https://example.com/page?page=1"
+
+    def test_normalize_and_hash_hash_value(self) -> None:
+        """Test that the second element is a valid hash."""
+        url = "https://example.com/path"
+        _, hash_value = normalize_and_hash(url)
+        assert len(hash_value) == 64
+        assert all(c in "0123456789abcdef" for c in hash_value)
+
+    def test_normalize_and_hash_consistency(self) -> None:
+        """Test that hash matches hash_url result."""
+        url = "https://example.com/path?utm_source=fb&page=1"
+        normalized, hash_value = normalize_and_hash(url)
+        expected_hash = hash_url(url, normalize=True)
+        assert hash_value == expected_hash
+
+    def test_normalize_and_hash_same_for_equivalent_urls(self) -> None:
+        """Test that equivalent URLs produce the same hash."""
+        url1 = "https://example.com/page?utm_source=facebook&page=1"
+        url2 = "HTTPS://EXAMPLE.com/page?utm_source=google&page=1"
+        _, hash1 = normalize_and_hash(url1)
+        _, hash2 = normalize_and_hash(url2)
+        assert hash1 == hash2
+
+    def test_normalize_and_hash_with_custom_options(self) -> None:
+        """Test normalize_and_hash with custom options."""
+        url = "https://example.com/page?utm_source=fb&custom=value"
+        normalized, _ = normalize_and_hash(url, preserve_params={"custom"})
+        assert "custom=value" in normalized
+
+    def test_normalize_and_hash_invalid_url(self) -> None:
+        """Test that invalid URLs raise ValueError."""
+        with pytest.raises(ValueError):
+            normalize_and_hash("invalid-url")

@@ -1,5 +1,6 @@
 """URL normalization utilities for deduplication and comparison."""
 
+import hashlib
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -199,3 +200,68 @@ def are_urls_equivalent(url1: str, url2: str, **normalize_kwargs: Any) -> bool:
         return norm1 == norm2
     except ValueError:
         return False
+
+
+def hash_url(url: str, normalize: bool = True, **normalize_kwargs: Any) -> str:
+    """Generate SHA-256 hash of a URL for deduplication.
+
+    By default, the URL is normalized before hashing to ensure that semantically
+    identical URLs (with different tracking params, parameter order, etc.) produce
+    the same hash.
+
+    Args:
+        url: The URL to hash
+        normalize: Whether to normalize the URL before hashing (default: True)
+        **normalize_kwargs: Additional arguments passed to normalize_url() if normalize=True
+
+    Returns:
+        Hexadecimal SHA-256 hash string (64 characters)
+
+    Raises:
+        ValueError: If URL is invalid and normalize=True
+
+    Example:
+        >>> hash_url("https://example.com/page?utm_source=fb&page=2")
+        # Same as:
+        >>> hash_url("https://example.com/page?page=2")
+        # Because tracking params are removed during normalization
+
+        >>> hash_url("https://example.com/page", normalize=False)
+        # Hashes the raw URL without normalization
+    """
+    if normalize:
+        url = normalize_url(url, **normalize_kwargs)
+
+    # Generate SHA-256 hash
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def normalize_and_hash(url: str, **normalize_kwargs: Any) -> tuple[str, str]:
+    """Normalize a URL and generate its hash in one operation.
+
+    This is a convenience function that combines normalize_url() and hash_url()
+    into a single operation, useful when you need both the normalized URL and
+    its hash.
+
+    Args:
+        url: The URL to normalize and hash
+        **normalize_kwargs: Additional arguments passed to normalize_url()
+
+    Returns:
+        Tuple of (normalized_url, url_hash)
+
+    Raises:
+        ValueError: If URL is invalid
+
+    Example:
+        >>> normalized, hash_value = normalize_and_hash(
+        ...     "HTTPS://Example.com/page?utm_source=fb&page=2"
+        ... )
+        >>> print(normalized)
+        'https://example.com/page?page=2'
+        >>> print(len(hash_value))
+        64
+    """
+    normalized = normalize_url(url, **normalize_kwargs)
+    url_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return normalized, url_hash
