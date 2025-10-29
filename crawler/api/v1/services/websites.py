@@ -6,8 +6,10 @@ from pydantic import AnyUrl
 
 from crawler.api.generated import (
     CreateWebsiteRequest,
-    StatusEnum as ApiStatusEnum,
     WebsiteResponse,
+)
+from crawler.api.generated import (
+    StatusEnum as ApiStatusEnum,
 )
 from crawler.core.logging import get_logger
 from crawler.db.repositories import ScheduledJobRepository, WebsiteRepository

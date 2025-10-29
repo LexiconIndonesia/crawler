@@ -9,6 +9,8 @@ from crawler.api.generated import (
     CreateSeedJobRequest,
     JobType,
     SeedJobResponse,
+)
+from crawler.api.generated import (
     StatusEnum as ApiStatusEnum,
 )
 from crawler.core.logging import get_logger

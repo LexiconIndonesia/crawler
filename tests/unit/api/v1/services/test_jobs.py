@@ -14,8 +14,10 @@ from crawler.api.generated import (
     GlobalConfig,
     MethodEnum,
     RetryConfig,
-    StatusEnum as ApiStatusEnum,
     StepTypeEnum,
+)
+from crawler.api.generated import (
+    StatusEnum as ApiStatusEnum,
 )
 from crawler.api.v1.services import JobService
 from crawler.db.generated.models import CrawlJob, JobTypeEnum, StatusEnum, Website
