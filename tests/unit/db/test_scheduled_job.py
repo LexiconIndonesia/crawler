@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
+from uuid import UUID, uuid7
 
 import pytest
 from pydantic import ValidationError
@@ -21,7 +21,7 @@ class TestScheduledJobSchemas:
     def test_scheduled_job_create_valid(self) -> None:
         """Test valid scheduled job creation."""
         data = {
-            "website_id": "123e4567-e89b-12d3-a456-426614174000",
+            "website_id": str(uuid7()),
             "cron_schedule": "0 0 * * *",
             "next_run_time": datetime.now(UTC),
             "is_active": True,
@@ -35,7 +35,7 @@ class TestScheduledJobSchemas:
     def test_scheduled_job_create_minimal(self) -> None:
         """Test scheduled job creation with minimal fields."""
         data = {
-            "website_id": "123e4567-e89b-12d3-a456-426614174000",
+            "website_id": str(uuid7()),
             "cron_schedule": "0 0 * * *",
             "next_run_time": datetime.now(UTC),
         }
@@ -46,7 +46,7 @@ class TestScheduledJobSchemas:
     def test_scheduled_job_invalid_cron_too_few_parts(self) -> None:
         """Test scheduled job with invalid cron expression (too few parts)."""
         data = {
-            "website_id": "123e4567-e89b-12d3-a456-426614174000",
+            "website_id": str(uuid7()),
             "cron_schedule": "minute hour day",  # Only 3 parts
             "next_run_time": datetime.now(UTC),
         }
@@ -58,7 +58,7 @@ class TestScheduledJobSchemas:
     def test_scheduled_job_invalid_cron_too_many_parts(self) -> None:
         """Test scheduled job with invalid cron expression (too many parts)."""
         data = {
-            "website_id": "123e4567-e89b-12d3-a456-426614174000",
+            "website_id": str(uuid7()),
             "cron_schedule": "0 0 * * * * * *",  # 8 parts - definitely invalid
             "next_run_time": datetime.now(UTC),
         }
@@ -79,7 +79,7 @@ class TestScheduledJobSchemas:
 
         for invalid_cron in invalid_crons:
             data = {
-                "website_id": "123e4567-e89b-12d3-a456-426614174000",
+                "website_id": str(uuid7()),
                 "cron_schedule": invalid_cron,
                 "next_run_time": datetime.now(UTC),
             }
@@ -98,7 +98,7 @@ class TestScheduledJobSchemas:
         ]
         for cron in valid_crons:
             data = {
-                "website_id": "123e4567-e89b-12d3-a456-426614174000",
+                "website_id": str(uuid7()),
                 "cron_schedule": cron,
                 "next_run_time": datetime.now(UTC),
             }
@@ -150,7 +150,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test that create() properly serializes job_config to JSON."""
-        website_id = "123e4567-e89b-12d3-a456-426614174000"
+        website_id = str(uuid7())
         next_run = datetime.now(UTC)
         job_config = {"max_depth": 5, "timeout": 30}
 
@@ -171,7 +171,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test that create() handles None job_config."""
-        website_id = "123e4567-e89b-12d3-a456-426614174000"
+        website_id = str(uuid7())
         next_run = datetime.now(UTC)
 
         await repository.create(
@@ -190,7 +190,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test that update() properly serializes job_config to JSON."""
-        job_id = "987fcdeb-51a2-43f1-b4e5-123456789abc"
+        job_id = str(uuid7())
         job_config = {"new_field": "value"}
 
         await repository.update(job_id=job_id, job_config=job_config)
@@ -204,7 +204,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test that get_by_id() converts string ID to UUID."""
-        job_id = "987fcdeb-51a2-43f1-b4e5-123456789abc"
+        job_id = str(uuid7())
 
         await repository.get_by_id(job_id)
 
@@ -218,7 +218,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test that get_by_id() accepts UUID objects."""
-        job_id = UUID("987fcdeb-51a2-43f1-b4e5-123456789abc")
+        job_id = uuid7()
 
         await repository.get_by_id(job_id)
 
@@ -231,7 +231,7 @@ class TestScheduledJobRepository:
         self, repository: ScheduledJobRepository, mock_querier: AsyncMock
     ) -> None:
         """Test toggle_status() calls querier correctly."""
-        job_id = "987fcdeb-51a2-43f1-b4e5-123456789abc"
+        job_id = str(uuid7())
 
         await repository.toggle_status(job_id, is_active=False)
 

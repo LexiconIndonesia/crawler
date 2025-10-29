@@ -44,7 +44,7 @@ LIMIT 1;
 SELECT * FROM crawled_page
 WHERE job_id = sqlc.arg(job_id)
 ORDER BY crawled_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountPagesByJob :one
 SELECT COUNT(*) FROM crawled_page
@@ -54,7 +54,7 @@ WHERE job_id = sqlc.arg(job_id);
 SELECT * FROM crawled_page
 WHERE website_id = sqlc.arg(website_id)
 ORDER BY crawled_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountPagesByWebsite :one
 SELECT COUNT(*) FROM crawled_page
@@ -74,7 +74,7 @@ SELECT * FROM crawled_page
 WHERE is_duplicate = true
     AND website_id = sqlc.arg(website_id)
 ORDER BY crawled_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountDuplicatePages :one
 SELECT COUNT(*) FROM crawled_page

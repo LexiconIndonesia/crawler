@@ -30,22 +30,20 @@ SCHEMA_DIR = Path(__file__).parent.parent / "sql" / "schema"
 
 
 async def create_schema(conn: AsyncConnection) -> None:
-    """Execute SQL schema files to create database tables."""
-    # Read and execute schema files in order
-    schema_files = [
-        SCHEMA_DIR / "000_migration_tracking.sql",
-        SCHEMA_DIR / "001_initial_schema.sql",
-        SCHEMA_DIR / "002_scheduled_jobs.sql",
-    ]
+    """Execute SQL schema files to create database tables.
 
+    Automatically discovers and loads all .sql files from SCHEMA_DIR in sorted order.
+    """
     # Get the raw asyncpg connection for executing multi-statement scripts
     raw_conn = await conn.get_raw_connection()
 
+    # Discover all SQL files in sorted order
+    schema_files = sorted(SCHEMA_DIR.glob("*.sql"))
+
     for schema_file in schema_files:
-        if schema_file.exists():
-            sql_content = schema_file.read_text()
-            # Use asyncpg's execute which handles multi-statement scripts
-            await raw_conn.driver_connection.execute(sql_content)
+        sql_content = schema_file.read_text()
+        # Use asyncpg's execute which handles multi-statement scripts
+        await raw_conn.driver_connection.execute(sql_content)
 
 
 async def drop_schema(conn: AsyncConnection) -> None:

@@ -11,7 +11,7 @@ INSERT INTO crawl_log (
     sqlc.arg(job_id),
     sqlc.arg(website_id),
     sqlc.arg(step_name),
-    COALESCE(sqlc.arg(log_level), 'INFO')::log_level_enum,
+    sqlc.arg(log_level),
     sqlc.arg(message),
     sqlc.arg(context),
     sqlc.arg(trace_id)
@@ -27,7 +27,7 @@ SELECT * FROM crawl_log
 WHERE job_id = sqlc.arg(job_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountLogsByJob :one
 SELECT COUNT(*) FROM crawl_log
@@ -39,7 +39,7 @@ SELECT * FROM crawl_log
 WHERE website_id = sqlc.arg(website_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountLogsByWebsite :one
 SELECT COUNT(*) FROM crawl_log
@@ -58,7 +58,7 @@ WHERE job_id = sqlc.arg(job_id)
     AND created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: GetErrorLogs :many
 SELECT * FROM crawl_log

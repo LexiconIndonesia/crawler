@@ -10,9 +10,9 @@ INSERT INTO website (
     sqlc.arg(name),
     sqlc.arg(base_url),
     sqlc.arg(config),
-    COALESCE(sqlc.arg(cron_schedule), '0 0 1,15 * *'),
+    sqlc.arg(cron_schedule),
     sqlc.arg(created_by),
-    COALESCE(sqlc.arg(status), 'active'::status_enum)
+    sqlc.arg(status)
 )
 RETURNING *;
 
@@ -28,7 +28,7 @@ WHERE name = sqlc.arg(name);
 SELECT * FROM website
 WHERE status = COALESCE(sqlc.arg(status), status)
 ORDER BY created_at DESC
-LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: CountWebsites :one
 SELECT COUNT(*) FROM website
