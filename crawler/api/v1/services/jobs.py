@@ -16,6 +16,7 @@ from crawler.api.generated import (
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
+from crawler.utils import normalize_url
 
 logger = get_logger(__name__)
 
@@ -63,6 +64,18 @@ class JobService:
             priority=request.priority,
         )
 
+        # Normalize the seed URL for consistent storage and deduplication
+        try:
+            normalized_seed_url = normalize_url(str(request.seed_url))
+            logger.debug(
+                "seed_url_normalized",
+                original_url=str(request.seed_url),
+                normalized_url=normalized_seed_url,
+            )
+        except ValueError as e:
+            logger.warning("invalid_seed_url", seed_url=str(request.seed_url), error=str(e))
+            raise ValueError(f"Invalid seed URL: {e}") from e
+
         # Load website template from database
         website = await self.website_repo.get_by_id(request.website_id)
         if not website:
@@ -97,10 +110,10 @@ class JobService:
         )
 
         # Create template-based job
-        # Convert seed_url from AnyUrl to string for database storage
+        # Use normalized seed URL for database storage
         job = await self.crawl_job_repo.create_template_based_job(
             website_id=request.website_id,
-            seed_url=str(request.seed_url),
+            seed_url=normalized_seed_url,
             variables=request.variables,
             job_type=JobTypeEnum.ONE_TIME,  # Seed submissions are always one-time jobs
             priority=request.priority,
@@ -170,6 +183,18 @@ class JobService:
             num_steps=len(request.steps),
         )
 
+        # Normalize the seed URL for consistent storage and deduplication
+        try:
+            normalized_seed_url = normalize_url(str(request.seed_url))
+            logger.debug(
+                "seed_url_normalized",
+                original_url=str(request.seed_url),
+                normalized_url=normalized_seed_url,
+            )
+        except ValueError as e:
+            logger.warning("invalid_seed_url", seed_url=str(request.seed_url), error=str(e))
+            raise ValueError(f"Invalid seed URL: {e}") from e
+
         # Build inline configuration from request
         # Convert Pydantic models to dict for JSON storage
         inline_config: dict[str, Any] = {
@@ -197,8 +222,9 @@ class JobService:
         )
 
         # Create inline config job (no website_id)
+        # Use normalized seed URL for database storage
         job = await self.crawl_job_repo.create_seed_url_submission(
-            seed_url=str(request.seed_url),
+            seed_url=normalized_seed_url,
             inline_config=inline_config,
             variables=request.variables,
             job_type=JobTypeEnum.ONE_TIME,  # Inline submissions are always one-time jobs
