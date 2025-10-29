@@ -248,6 +248,10 @@ class TestPaginationPatternDetector:
         with pytest.raises(ValueError, match="must be a non-empty string"):
             detector.detect("")
 
+        # Invalid IPv6 URL - urlparse raises ValueError directly
+        with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+            detector.detect("http://[invalid")
+
     def test_detect_with_fragment(self):
         """Test detection works with URL fragments."""
         detector = PaginationPatternDetector()
@@ -525,3 +529,135 @@ class TestPaginationIntegration:
         assert len(urls) == 5
         assert "page=11" in urls[0]
         assert "page=15" in urls[-1]
+
+
+# =============================================================================
+# Regex Edge Cases Tests (Issue #10 - Path Embedded Pattern)
+# =============================================================================
+
+
+class TestPathEmbeddedPatternEdgeCases:
+    """Test edge cases for path embedded pattern detection regex."""
+
+    def test_page_followed_by_long_number(self):
+        """Test /page123 correctly extracts 123, not just 3.
+
+        This test ensures the greedy .* in the regex doesn't incorrectly
+        match /page12 leaving only 3 for the page number.
+        """
+        detector = PaginationPatternDetector()
+        pattern = detector.detect("https://example.com/page123")
+
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 123
+        assert pattern.prefix == "/page"
+
+    def test_path_with_multiple_numbers_extracts_last(self):
+        """Test that paths with multiple numbers extract the LAST number.
+
+        This is by design - the regex finds the last number in the path,
+        assuming it's most likely to be the page number.
+        """
+        detector = PaginationPatternDetector()
+
+        # Multiple numbers in path - should get the last one
+        pattern = detector.detect("https://example.com/product-123-page-456")
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 456
+
+        # Year in path - should get page number (last number)
+        pattern = detector.detect("https://example.com/2024/archive/page123")
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 123
+
+    def test_page_numbers_within_valid_range(self):
+        """Test that page numbers within valid range (1-9999) are accepted."""
+        detector = PaginationPatternDetector()
+
+        # Test maximum valid page number
+        pattern = detector.detect("https://example.com/page9999")
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 9999
+
+        # Test middle range
+        pattern = detector.detect("https://example.com/page5000")
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 5000
+
+    def test_page_number_with_extension(self):
+        """Test page number followed by file extension."""
+        detector = PaginationPatternDetector()
+        pattern = detector.detect("https://example.com/page123.html")
+
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 123
+        assert pattern.prefix == "/page"
+        assert pattern.suffix == ".html"
+
+    def test_ambiguous_multiple_suffixes(self):
+        """Test ambiguous case: number followed by text followed by number.
+
+        In /page123abc456, this extracts 456 (the last number).
+        This might not always be correct, but it's a reasonable heuristic.
+        """
+        detector = PaginationPatternDetector()
+        pattern = detector.detect("https://example.com/page123abc456")
+
+        assert isinstance(pattern, PathEmbeddedPattern)
+        # Regex extracts the LAST number in the path
+        assert pattern.current_page == 456
+        assert pattern.prefix == "/page123abc"
+        assert pattern.suffix == ""
+
+    def test_range_validation_rejects_out_of_range(self):
+        """Test that page numbers outside reasonable range (1-9999) are rejected.
+
+        This prevents false positives from IDs, timestamps, or other large numbers
+        that are not actually page numbers.
+        """
+        detector = PaginationPatternDetector()
+
+        # Page 0 - should be rejected (below minimum)
+        pattern = detector.detect("https://example.com/page0")
+        assert pattern is None
+
+        # Page 10000 - should be rejected (above maximum)
+        pattern = detector.detect("https://example.com/page10000")
+        assert pattern is None
+
+        # Very large number (likely an ID, not a page number)
+        pattern = detector.detect("https://example.com/product1234567890")
+        assert pattern is None
+
+    def test_only_number_in_path(self):
+        """Test path that is only a number."""
+        detector = PaginationPatternDetector()
+        pattern = detector.detect("https://example.com/123")
+
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 123
+        assert pattern.prefix == "/"
+
+    def test_short_path_with_number(self):
+        """Test very short paths with numbers."""
+        detector = PaginationPatternDetector()
+
+        # Single letter + number
+        pattern = detector.detect("https://example.com/p123")
+        assert isinstance(pattern, PathEmbeddedPattern)
+        assert pattern.current_page == 123
+        assert pattern.prefix == "/p"
+
+    def test_generates_correct_urls_from_embedded_pattern(self):
+        """Test that URL generation works correctly for edge cases."""
+        detector = PaginationPatternDetector()
+
+        # Test /page123 generates /page124
+        pattern = detector.detect("https://example.com/page123")
+        url = pattern.generate_url("https://example.com/page123", 124)
+        assert url == "https://example.com/page124"
+
+        # Test /list5.html generates /list6.html
+        pattern = detector.detect("https://example.com/list5.html")
+        url = pattern.generate_url("https://example.com/list5.html", 6)
+        assert url == "https://example.com/list6.html"

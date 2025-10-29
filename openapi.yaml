@@ -838,6 +838,25 @@ components:
           description: URL template with {page} placeholder
           nullable: true
           example: "https://example.com/page/{page}"
+        min_content_length:
+          type: integer
+          description: Minimum content length to consider page non-empty (bytes)
+          minimum: 0
+          default: 100
+        max_empty_responses:
+          type: integer
+          description: Maximum consecutive empty responses before stopping pagination
+          minimum: 1
+          maximum: 10
+          default: 2
+        track_content_hashes:
+          type: boolean
+          description: Enable duplicate content detection via hashing
+          default: true
+        track_urls:
+          type: boolean
+          description: Enable circular pagination detection (URL revisit tracking)
+          default: true
 
     ActionConfig:
       type: object

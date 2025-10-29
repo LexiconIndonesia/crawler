@@ -20,8 +20,7 @@ import hashlib
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import ParseResult, parse_qs, urlencode, urlparse, urlunparse
 
 from crawler.core.logging import get_logger
 
@@ -211,10 +210,7 @@ class PaginationPatternDetector:
         if not seed_url or not isinstance(seed_url, str):
             raise ValueError("seed_url must be a non-empty string")
 
-        try:
-            parsed = urlparse(seed_url.strip())
-        except Exception as e:
-            raise ValueError(f"Invalid URL: {e}") from e
+        parsed = urlparse(seed_url.strip())
 
         if not parsed.scheme or not parsed.netloc:
             raise ValueError(f"URL must have scheme and hostname: {seed_url}")
@@ -256,7 +252,7 @@ class PaginationPatternDetector:
         logger.warning("pagination_pattern_not_detected", url=seed_url)
         return None
 
-    def _detect_query_param(self, parsed: Any) -> QueryParamPattern | None:
+    def _detect_query_param(self, parsed: ParseResult) -> QueryParamPattern | None:
         """Detect query parameter pagination pattern."""
         if not parsed.query:
             return None
@@ -295,7 +291,7 @@ class PaginationPatternDetector:
 
         return None
 
-    def _detect_path_segment(self, parsed: Any) -> PathSegmentPattern | None:
+    def _detect_path_segment(self, parsed: ParseResult) -> PathSegmentPattern | None:
         """Detect path segment pagination pattern."""
         if not parsed.path:
             return None
@@ -318,18 +314,37 @@ class PaginationPatternDetector:
 
         return None
 
-    def _detect_path_embedded(self, parsed: Any) -> PathEmbeddedPattern | None:
-        """Detect embedded number pagination pattern in path."""
+    def _detect_path_embedded(self, parsed: ParseResult) -> PathEmbeddedPattern | None:
+        r"""Detect embedded number pagination pattern in path.
+
+        Extracts the LAST sequence of digits from the path, which is most likely
+        to be the page number in cases like:
+        - /products-p5 -> extracts 5
+        - /list5.html -> extracts 5
+        - /archive2024-page3 -> extracts 3 (not 2024)
+        - /foo/page123 -> extracts 123 (not just 3)
+
+        The regex ^(.*\D)(\d+)(\D*)$ uses greedy matching (.*) to find the
+        last number in the path. This is intentional and correct behavior.
+
+        Returns:
+            PathEmbeddedPattern if a valid page number (1-9999) is found, None otherwise
+        """
         if not parsed.path:
             return None
 
-        # Look for patterns like /products-p5, /list5.html, /archive2024-page3
-        # Match: (non-digits)(digits)(optional non-digits)
+        # Quick pre-check: path must contain at least one digit
+        if not any(c.isdigit() for c in parsed.path):
+            return None
+
+        # Match: (prefix ending with non-digit)(digits)(optional suffix)
+        # The greedy .* ensures we capture the LAST number in the path
         match = re.search(r"^(.*\D)(\d+)(\D*)$", parsed.path)
         if match:
             try:
                 page_number = int(match.group(2))
                 # Only consider it pagination if number is reasonable (1-9999)
+                # This prevents false positives from IDs, timestamps, etc.
                 if 1 <= page_number <= 9999:
                     return PathEmbeddedPattern(
                         prefix=match.group(1),

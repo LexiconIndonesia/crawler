@@ -4,8 +4,7 @@ This service orchestrates pagination detection and URL generation for crawl jobs
 It integrates the pagination utilities with the crawl configuration system.
 """
 
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from crawler.api.generated import PaginationConfig
 from crawler.core.logging import get_logger
@@ -32,11 +31,17 @@ class PaginationService:
     Example:
         >>> config = PaginationConfig(enabled=True, max_pages=50)
         >>> service = PaginationService()
-        >>> urls = await service.generate_pagination_urls(
+        >>> urls = service.generate_pagination_urls(
         ...     seed_url="https://example.com/products?page=5",
         ...     config=config
         ... )
     """
+
+    # Default values for pagination configuration
+    DEFAULT_MAX_PAGES = 100
+    DEFAULT_START_PAGE = 1
+    DEFAULT_MIN_CONTENT_LENGTH = 100
+    DEFAULT_MAX_EMPTY_RESPONSES = 2
 
     def __init__(self) -> None:
         """Initialize pagination service."""
@@ -65,7 +70,9 @@ class PaginationService:
             logger.debug("pagination_disabled", seed_url=seed_url)
             return [seed_url]
 
-        max_pages = config.max_pages if config.max_pages else 100
+        max_pages = (
+            config.max_pages if config.max_pages is not None else self.DEFAULT_MAX_PAGES
+        )
 
         # Strategy 1: Use url_template if provided (explicit config)
         if config.url_template:
@@ -75,7 +82,11 @@ class PaginationService:
                 template=config.url_template,
                 max_pages=max_pages,
             )
-            start_page = config.start_page if config.start_page else 1
+            start_page = (
+                config.start_page
+                if config.start_page is not None
+                else self.DEFAULT_START_PAGE
+            )
             template_pattern = TemplatePattern(
                 current_page=start_page,
                 template=config.url_template,
@@ -139,7 +150,7 @@ class PaginationService:
         self,
         seed_url: str,
         config: PaginationConfig,
-        fetch_fn: Any,  # Callable[[str], Awaitable[tuple[int, bytes]]]
+        fetch_fn: Callable[[str], Awaitable[tuple[int, bytes]]],
     ) -> AsyncIterator[tuple[str, int, bytes]]:
         """Generate pagination URLs with live stop detection.
 
@@ -174,12 +185,24 @@ class PaginationService:
             yield seed_url, status_code, content
             return
 
-        # Initialize stop detector
+        # Initialize stop detector with config values
         stop_detector = PaginationStopDetector(
-            min_content_length=100,
-            max_empty_responses=2,
-            track_content_hashes=True,
-            track_urls=True,
+            min_content_length=(
+                config.min_content_length
+                if config.min_content_length is not None
+                else self.DEFAULT_MIN_CONTENT_LENGTH
+            ),
+            max_empty_responses=(
+                config.max_empty_responses
+                if config.max_empty_responses is not None
+                else self.DEFAULT_MAX_EMPTY_RESPONSES
+            ),
+            track_content_hashes=(
+                config.track_content_hashes
+                if config.track_content_hashes is not None
+                else True
+            ),
+            track_urls=config.track_urls if config.track_urls is not None else True,
         )
 
         # Generate URLs

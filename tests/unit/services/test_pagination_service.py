@@ -337,6 +337,106 @@ class TestPaginationServiceWithStopDetection:
         assert len(results) == 1
         assert results[0] == "https://example.com/products"
 
+    @pytest.mark.asyncio
+    async def test_generate_with_custom_stop_detection_params(self):
+        """Test pagination with custom stop detection parameters."""
+        service = PaginationService()
+        # Configure custom stop detection: higher empty threshold, no content hashing
+        config = PaginationConfig(
+            enabled=True,
+            max_pages=10,
+            min_content_length=50,  # Custom: lower threshold
+            max_empty_responses=3,  # Custom: allow 3 empty responses
+            track_content_hashes=False,  # Custom: disable duplicate detection
+            track_urls=True,  # Keep URL tracking enabled
+        )
+
+        call_count = 0
+
+        async def mock_fetch(url: str) -> tuple[int, bytes]:
+            nonlocal call_count
+            call_count += 1
+            # Return same content (would trigger duplicate if enabled)
+            return 200, b"x" * 60  # >50 bytes (meets custom min_content_length)
+
+        results = []
+        async for url, status, content in service.generate_with_stop_detection(
+            seed_url="https://example.com/page/1",
+            config=config,
+            fetch_fn=mock_fetch,
+        ):
+            results.append(url)
+
+        # Should crawl all 10 pages despite duplicate content (track_content_hashes=False)
+        assert len(results) == 10
+
+    @pytest.mark.asyncio
+    async def test_generate_with_custom_empty_threshold(self):
+        """Test custom max_empty_responses parameter."""
+        service = PaginationService()
+        # Allow 3 consecutive empty responses before stopping
+        config = PaginationConfig(
+            enabled=True,
+            max_pages=10,
+            min_content_length=100,
+            max_empty_responses=3,  # Custom: allow 3 empty
+            track_content_hashes=False,  # Disable to isolate empty test
+        )
+
+        call_count = 0
+
+        async def mock_fetch(url: str) -> tuple[int, bytes]:
+            nonlocal call_count
+            call_count += 1
+            # Return empty content
+            return 200, b"small"  # <100 bytes = empty
+
+        results = []
+        async for url, status, content in service.generate_with_stop_detection(
+            seed_url="https://example.com/page/1",
+            config=config,
+            fetch_fn=mock_fetch,
+        ):
+            results.append(url)
+
+        # Should yield 2 pages before stopping (stops on 3rd empty response)
+        assert len(results) == 2
+        assert call_count == 3  # Fetched 3 times, stopped on 3rd
+
+    @pytest.mark.asyncio
+    async def test_generate_with_custom_min_content_length(self):
+        """Test custom min_content_length parameter."""
+        service = PaginationService()
+        # Set very high minimum content length
+        config = PaginationConfig(
+            enabled=True,
+            max_pages=5,
+            min_content_length=500,  # Custom: very high threshold
+            max_empty_responses=2,
+            track_content_hashes=False,
+        )
+
+        call_count = 0
+
+        async def mock_fetch(url: str) -> tuple[int, bytes]:
+            nonlocal call_count
+            call_count += 1
+            # Return content that's "empty" by custom threshold
+            return 200, b"x" * 200  # 200 bytes < 500 bytes = empty
+
+        results = []
+        async for url, status, content in service.generate_with_stop_detection(
+            seed_url="https://example.com/page/1",
+            config=config,
+            fetch_fn=mock_fetch,
+        ):
+            results.append(url)
+
+        # Should yield 1 page before stopping (stops on 2nd "empty" response)
+        # 200 bytes < 500 threshold = empty
+        assert len(results) == 1
+        assert call_count == 2  # Fetched 2 times, stopped on 2nd
+
 
 class TestPaginationServiceEdgeCases:
     """Edge case tests for PaginationService."""
