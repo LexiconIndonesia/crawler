@@ -79,7 +79,7 @@ class QueryParamPattern(PaginationPattern):
             params[self.param_name] = [str(page_number)]
 
         # Flatten params (parse_qs returns lists)
-        params_dict = {k: v[0] if isinstance(v, list) else v for k, v in params.items()}
+        params_dict = {k: v[0] for k, v in params.items()}
         new_query = urlencode(params_dict)
 
         return urlunparse(
