@@ -70,9 +70,7 @@ class PaginationService:
             logger.debug("pagination_disabled", seed_url=seed_url)
             return [seed_url]
 
-        max_pages = (
-            config.max_pages if config.max_pages is not None else self.DEFAULT_MAX_PAGES
-        )
+        max_pages = config.max_pages if config.max_pages is not None else self.DEFAULT_MAX_PAGES
 
         # Strategy 1: Use url_template if provided (explicit config)
         if config.url_template:
@@ -83,9 +81,7 @@ class PaginationService:
                 max_pages=max_pages,
             )
             start_page = (
-                config.start_page
-                if config.start_page is not None
-                else self.DEFAULT_START_PAGE
+                config.start_page if config.start_page is not None else self.DEFAULT_START_PAGE
             )
             template_pattern = TemplatePattern(
                 current_page=start_page,
@@ -198,9 +194,7 @@ class PaginationService:
                 else self.DEFAULT_MAX_EMPTY_RESPONSES
             ),
             track_content_hashes=(
-                config.track_content_hashes
-                if config.track_content_hashes is not None
-                else True
+                config.track_content_hashes if config.track_content_hashes is not None else True
             ),
             track_urls=config.track_urls if config.track_urls is not None else True,
         )
