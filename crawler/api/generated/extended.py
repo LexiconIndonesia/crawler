@@ -8,6 +8,7 @@ from typing import Annotated
 from pydantic import Field, field_validator, model_validator
 
 from .models import (
+    CreateSeedJobRequest as _CreateSeedJobRequest,
     CreateWebsiteRequest as _CreateWebsiteRequest,
     CrawlStep as _CrawlStep,
     GlobalConfig,
@@ -18,6 +19,13 @@ from .models import (
     StepConfig as _StepConfig,
     WaitUntil,
 )
+
+
+class CreateSeedJobRequest(_CreateSeedJobRequest):
+    """Extended CreateSeedJobRequest with non-nullable priority field."""
+
+    # Override to make priority non-nullable (defaults to 5 per OpenAPI spec)
+    priority: int = 5
 
 
 class ScheduleConfig(_ScheduleConfig):

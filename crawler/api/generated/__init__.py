@@ -4,7 +4,13 @@ This module contains auto-generated Pydantic models from the OpenAPI spec.
 DO NOT EDIT MANUALLY - regenerate using: make generate-models
 """
 
-from .extended import CrawlStep, CreateWebsiteRequest, ScheduleConfig, StepConfig
+from .extended import (
+    CreateSeedJobRequest,
+    CreateWebsiteRequest,
+    CrawlStep,
+    ScheduleConfig,
+    StepConfig,
+)
 from .models import (
     ActionConfig,
     BackoffStrategy,
@@ -15,6 +21,7 @@ from .models import (
     GlobalConfig,
     HealthResponse,
     HttpMethod,
+    JobType,
     MethodEnum,
     OutputConfig,
     PaginationConfig,
@@ -22,6 +29,7 @@ from .models import (
     RetryConfig,
     RootResponse,
     ScheduleTypeEnum,
+    SeedJobResponse,
     SelectorConfig,
     Status,
     StatusEnum,
@@ -44,6 +52,8 @@ __all__ = [
     # Request/Response Models
     "CreateWebsiteRequest",
     "WebsiteResponse",
+    "CreateSeedJobRequest",
+    "SeedJobResponse",
     "RootResponse",
     "HealthResponse",
     "ErrorResponse",
@@ -67,6 +77,7 @@ __all__ = [
     "StepTypeEnum",
     "MethodEnum",
     "BrowserTypeEnum",
+    "JobType",
     "BackoffStrategy",
     "HttpMethod",
     "WaitUntil",

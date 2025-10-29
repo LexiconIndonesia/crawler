@@ -32,6 +32,8 @@ tags:
     description: General application endpoints (health, root, metrics)
   - name: Websites
     description: Website configuration and management
+  - name: Jobs
+    description: Crawl job creation and management
   - name: Monitoring
     description: Monitoring and observability endpoints
 
@@ -282,6 +284,108 @@ paths:
                   value:
                     detail: "Internal server error: database connection failed"
                     error_code: "INTERNAL_ERROR"
+
+  /api/v1/jobs/seed:
+    post:
+      tags:
+        - Jobs
+      summary: Submit a seed URL for crawling using an existing website template
+      description: |
+        Create a one-time crawl job using an existing website template configuration.
+
+        This endpoint:
+        1. Validates the seed URL and website_id
+        2. Loads the website configuration from database
+        3. Optionally accepts variable substitutions
+        4. Creates a crawl job with pending status
+        5. Returns job ID and status for tracking
+
+        The job will use the website template's configuration including:
+        - Crawl/scrape steps
+        - Selectors for data extraction
+        - Global settings (rate limits, timeouts, retries)
+        - Browser configuration if needed
+
+        Variables provided in the request will override template variables.
+      operationId: createSeedJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeedJobRequest'
+            examples:
+              simple_seed:
+                summary: Simple seed URL with template
+                value:
+                  website_id: "550e8400-e29b-41d4-a716-446655440000"
+                  seed_url: "https://example.com/articles/2025/technology"
+                  variables:
+                    category: "technology"
+                    year: "2025"
+              seed_with_priority:
+                summary: Seed URL with custom priority
+                value:
+                  website_id: "550e8400-e29b-41d4-a716-446655440000"
+                  seed_url: "https://example.com/breaking-news"
+                  priority: 9
+      responses:
+        '201':
+          description: Crawl job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedJobResponse'
+              examples:
+                created:
+                  value:
+                    id: "770e8400-e29b-41d4-a716-446655440000"
+                    website_id: "550e8400-e29b-41d4-a716-446655440000"
+                    seed_url: "https://example.com/articles/2025/technology"
+                    status: "pending"
+                    job_type: "one_time"
+                    priority: 5
+                    scheduled_at: null
+                    variables:
+                      category: "technology"
+                      year: "2025"
+                    created_at: "2025-10-29T10:00:00Z"
+                    updated_at: "2025-10-29T10:00:00Z"
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_website:
+                  summary: Website not found
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+                invalid_url:
+                  summary: Invalid seed URL
+                  value:
+                    detail: "seed_url must be a valid URL starting with http:// or https://"
+                    error_code: "INVALID_URL"
+                    field: "seed_url"
+                inactive_website:
+                  summary: Website is inactive
+                  value:
+                    detail: "Website 'Example Site' is inactive and cannot be used"
+                    error_code: "WEBSITE_INACTIVE"
+        '422':
+          description: Unprocessable Entity (validation error in request body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   schemas:
@@ -869,6 +973,102 @@ components:
           description: Associated scheduled job ID
           nullable: true
           example: "660e8400-e29b-41d4-a716-446655440000"
+
+    CreateSeedJobRequest:
+      type: object
+      required:
+        - website_id
+        - seed_url
+      properties:
+        website_id:
+          type: string
+          format: uuid
+          description: ID of the website template to use for configuration
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        seed_url:
+          type: string
+          description: Starting URL for the crawl job
+          minLength: 1
+          maxLength: 2048
+          format: uri
+          example: "https://example.com/articles/2025/technology"
+        variables:
+          type: object
+          description: Variables for substitution in URLs and configurations (overrides template variables)
+          additionalProperties: true
+          example:
+            category: "technology"
+            year: "2025"
+            api_key: "YOUR_API_KEY"
+        priority:
+          type: integer
+          description: Job priority (1=lowest, 10=highest)
+          minimum: 1
+          maximum: 10
+          default: 5
+
+    SeedJobResponse:
+      type: object
+      required:
+        - id
+        - website_id
+        - seed_url
+        - status
+        - job_type
+        - priority
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Crawl job ID
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        website_id:
+          type: string
+          format: uuid
+          description: Website template ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        seed_url:
+          type: string
+          format: uri
+          description: Starting URL for crawl
+          example: "https://example.com/articles/2025/technology"
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        job_type:
+          type: string
+          enum: [one_time, scheduled, recurring]
+          description: Job type
+          example: "one_time"
+        priority:
+          type: integer
+          description: Job priority
+          example: 5
+        scheduled_at:
+          type: string
+          format: date-time
+          description: Scheduled execution time
+          nullable: true
+          example: null
+        variables:
+          type: object
+          description: Variables used for this job
+          additionalProperties: true
+          nullable: true
+          example:
+            category: "technology"
+            year: "2025"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2025-10-29T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-10-29T10:00:00Z"
 
   securitySchemes:
     BearerAuth:

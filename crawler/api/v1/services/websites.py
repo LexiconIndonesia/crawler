@@ -70,7 +70,7 @@ class WebsiteService:
             name=request.name,
             base_url=str(request.base_url),
             config=config,
-            cron_schedule=request.schedule.cron,
+            cron_schedule=request.schedule.cron or "0 0 1,15 * *",
         )
 
         if not website:
