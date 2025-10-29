@@ -4,8 +4,11 @@ from datetime import datetime
 
 from pydantic import AnyUrl
 
-from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
-from crawler.api.schemas import StatusEnum as ApiStatusEnum
+from crawler.api.generated import (
+    CreateWebsiteRequest,
+    StatusEnum as ApiStatusEnum,
+    WebsiteResponse,
+)
 from crawler.core.logging import get_logger
 from crawler.db.repositories import ScheduledJobRepository, WebsiteRepository
 

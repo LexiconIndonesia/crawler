@@ -5,9 +5,9 @@ from fastapi import APIRouter, status
 from crawler.api.generated import (
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
+    ErrorResponse,
     SeedJobResponse,
 )
-from crawler.api.schemas import ErrorResponse
 from crawler.api.v1.dependencies import JobServiceDep
 from crawler.api.v1.handlers import create_seed_job_handler, create_seed_job_inline_handler
 
