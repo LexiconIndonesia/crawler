@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from crawler.db.generated import crawl_job, models
-from crawler.db.generated.models import StatusEnum
+from crawler.db.generated.models import JobTypeEnum, StatusEnum
 
 from .base import to_uuid
 
@@ -29,11 +29,11 @@ class CrawlJobRepository:
         self,
         seed_url: str,
         website_id: str | UUID | None = None,
-        job_type: Any | None = None,
+        job_type: JobTypeEnum = JobTypeEnum.ONE_TIME,
         inline_config: dict[str, Any] | None = None,
-        priority: Any | None = None,
+        priority: int = 5,
         scheduled_at: datetime | None = None,
-        max_retries: Any | None = None,
+        max_retries: int = 3,
         metadata: dict[str, Any] | None = None,
         variables: dict[str, Any] | None = None,
     ) -> models.CrawlJob | None:
@@ -43,14 +43,18 @@ class CrawlJobRepository:
         to the appropriate specialized creation method based on the provided
         parameters.
 
+        **Important**: Exactly one of `website_id` or `inline_config` must be
+        provided (mutually exclusive). This determines which job creation method
+        is used.
+
         Args:
             seed_url: Seed URL to start crawling (required)
-            website_id: Optional website ID for template-based jobs
-            job_type: Optional job type (uses 'one_time' default if None)
-            inline_config: Optional inline config dict (will be serialized to JSON)
-            priority: Optional priority (uses 5 default if None)
+            website_id: Website ID for template-based jobs (mutually exclusive with inline_config)
+            job_type: Job type enum (defaults to ONE_TIME)
+            inline_config: Inline config dict for one-off jobs (mutually exclusive with website_id)
+            priority: Priority level (defaults to 5)
             scheduled_at: Optional scheduled time
-            max_retries: Optional max retries (uses 3 default if None)
+            max_retries: Maximum retry attempts (defaults to 3)
             metadata: Optional metadata dict (will be serialized to JSON)
             variables: Optional variables dict (will be serialized to JSON)
 
@@ -58,13 +62,12 @@ class CrawlJobRepository:
             Created CrawlJob model or None
 
         Raises:
-            ValueError: If both website_id and inline_config are provided,
-                       or if neither is provided.
+            ValueError: If both `website_id` and `inline_config` are provided,
+                       or if neither is provided. Exactly one must be specified.
 
         Note:
-            Exactly one of website_id or inline_config must be provided.
-            This method dispatches to create_template_based_job() or
-            create_seed_url_submission() based on the provided parameters.
+            - If `website_id` is provided → dispatches to `create_template_based_job()`
+            - If `inline_config` is provided → dispatches to `create_seed_url_submission()`
         """
         # Validate mutual exclusivity at application level
         has_website_id = website_id is not None
@@ -72,16 +75,22 @@ class CrawlJobRepository:
 
         if has_website_id and has_inline_config:
             raise ValueError(
-                "Cannot specify both website_id and inline_config. "
-                "Use create_template_based_job() for template-based jobs "
-                "or create_seed_url_submission() for inline config jobs."
+                "Cannot specify both 'website_id' and 'inline_config' (mutually exclusive). "
+                "Choose one approach:\n"
+                "  • For jobs using a website template, call: "
+                "create_template_based_job(website_id=..., seed_url=...)\n"
+                "  • For one-off jobs with inline config, call: "
+                "create_seed_url_submission(seed_url=..., inline_config=...)"
             )
 
         if not has_website_id and not has_inline_config:
             raise ValueError(
-                "Must specify either website_id or inline_config. "
-                "Use create_template_based_job() for template-based jobs "
-                "or create_seed_url_submission() for inline config jobs."
+                "Must specify exactly one of 'website_id' or 'inline_config'. "
+                "Choose the appropriate method:\n"
+                "  • For jobs using a website template → "
+                "create_template_based_job(website_id=..., seed_url=...)\n"
+                "  • For one-off jobs with custom config → "
+                "create_seed_url_submission(seed_url=..., inline_config=...)"
             )
 
         # Dispatch to appropriate specialized method
@@ -228,10 +237,10 @@ class CrawlJobRepository:
         seed_url: str,
         inline_config: dict[str, Any],
         variables: dict[str, Any] | None = None,
-        job_type: Any | None = None,
-        priority: Any | None = None,
+        job_type: JobTypeEnum = JobTypeEnum.ONE_TIME,
+        priority: int = 5,
         scheduled_at: datetime | None = None,
-        max_retries: Any | None = None,
+        max_retries: int = 3,
         metadata: dict[str, Any] | None = None,
     ) -> models.CrawlJob | None:
         """Create a job with inline configuration (seed URL submission without website template).
@@ -240,10 +249,10 @@ class CrawlJobRepository:
             seed_url: Seed URL to start crawling
             inline_config: Inline configuration dict (required, will be serialized to JSON)
             variables: Optional variables dict (will be serialized to JSON)
-            job_type: Optional job type (uses 'one_time' default if None)
-            priority: Optional priority (uses 5 default if None)
+            job_type: Job type enum (defaults to ONE_TIME)
+            priority: Priority level (defaults to 5)
             scheduled_at: Optional scheduled time
-            max_retries: Optional max retries (uses 3 default if None)
+            max_retries: Maximum retry attempts (defaults to 3)
             metadata: Optional metadata dict (will be serialized to JSON)
 
         Returns:
@@ -255,16 +264,20 @@ class CrawlJobRepository:
         # Validate that inline_config is provided
         if not inline_config:
             raise ValueError(
-                "inline_config is required for seed URL submission. "
-                "Provide configuration inline or use create_template_based_job() "
-                "to create a job with a website template."
+                "Missing required parameter 'inline_config' for seed URL submission. "
+                "You must provide crawl configuration. Choose one approach:\n"
+                "  • Provide inline_config with crawl settings:\n"
+                "    Example: inline_config={'method': 'api', 'max_depth': 3, 'timeout': 30}\n"
+                "  • Or use a website template instead:\n"
+                "    Call create_template_based_job(website_id=..., seed_url=...) "
+                "to use pre-configured settings"
             )
 
         return await self._querier.create_seed_url_submission(
             seed_url=seed_url,
             inline_config=json.dumps(inline_config),
             variables=json.dumps(variables) if variables else None,
-            job_type=job_type,
+            job_type=job_type.value,
             priority=priority,
             scheduled_at=scheduled_at,
             max_retries=max_retries,
@@ -276,10 +289,10 @@ class CrawlJobRepository:
         website_id: str | UUID,
         seed_url: str,
         variables: dict[str, Any] | None = None,
-        job_type: Any | None = None,
-        priority: Any | None = None,
+        job_type: JobTypeEnum = JobTypeEnum.ONE_TIME,
+        priority: int = 5,
         scheduled_at: datetime | None = None,
-        max_retries: Any | None = None,
+        max_retries: int = 3,
         metadata: dict[str, Any] | None = None,
     ) -> models.CrawlJob | None:
         """Create a job using a website template configuration.
@@ -288,10 +301,10 @@ class CrawlJobRepository:
             website_id: Website ID (required)
             seed_url: Seed URL to start crawling
             variables: Optional variables dict (will be serialized to JSON)
-            job_type: Optional job type (uses 'one_time' default if None)
-            priority: Optional priority (uses 5 default if None)
+            job_type: Job type enum (defaults to ONE_TIME)
+            priority: Priority level (defaults to 5)
             scheduled_at: Optional scheduled time
-            max_retries: Optional max retries (uses 3 default if None)
+            max_retries: Maximum retry attempts (defaults to 3)
             metadata: Optional metadata dict (will be serialized to JSON)
 
         Returns:
@@ -301,7 +314,7 @@ class CrawlJobRepository:
             website_id=to_uuid(website_id),
             seed_url=seed_url,
             variables=json.dumps(variables) if variables else None,
-            job_type=job_type,
+            job_type=job_type.value,
             priority=priority,
             scheduled_at=scheduled_at,
             max_retries=max_retries,

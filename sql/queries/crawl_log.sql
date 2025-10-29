@@ -11,7 +11,7 @@ INSERT INTO crawl_log (
     sqlc.arg(job_id),
     sqlc.arg(website_id),
     sqlc.arg(step_name),
-    COALESCE(sqlc.arg(log_level), 'INFO')::log_level_enum,
+    sqlc.arg(log_level),
     sqlc.arg(message),
     sqlc.arg(context),
     sqlc.arg(trace_id)

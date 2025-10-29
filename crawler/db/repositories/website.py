@@ -29,9 +29,9 @@ class WebsiteRepository:
         name: str,
         base_url: str,
         config: dict[str, Any],
-        cron_schedule: str | None = None,
+        cron_schedule: str = "0 0 1,15 * *",
         created_by: str | None = None,
-        status: Any | None = None,
+        status: StatusEnum = StatusEnum.ACTIVE,
     ) -> models.Website | None:
         """Create a new website.
 
@@ -39,9 +39,9 @@ class WebsiteRepository:
             name: Website name
             base_url: Base URL
             config: Configuration dict (will be serialized to JSON)
-            cron_schedule: Optional cron schedule (uses default if None)
+            cron_schedule: Cron schedule (defaults to bi-weekly: 1st and 15th at midnight)
             created_by: Optional creator identifier
-            status: Optional status (uses 'active' default if None)
+            status: Status enum (defaults to ACTIVE)
 
         Returns:
             Created Website model or None
@@ -52,7 +52,7 @@ class WebsiteRepository:
             config=json.dumps(config),
             cron_schedule=cron_schedule,
             created_by=created_by,
-            status=status,
+            status=status.value,
         )
 
     async def get_by_id(self, website_id: str | UUID) -> models.Website | None:

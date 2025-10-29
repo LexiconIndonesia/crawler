@@ -115,10 +115,10 @@ INSERT INTO crawl_job (
     sqlc.arg(seed_url),
     sqlc.arg(inline_config),
     sqlc.arg(variables),
-    COALESCE(sqlc.arg(job_type), 'one_time'::job_type_enum),
-    COALESCE(sqlc.arg(priority), 5),
+    sqlc.arg(job_type),
+    sqlc.arg(priority),
     sqlc.arg(scheduled_at),
-    COALESCE(sqlc.arg(max_retries), 3),
+    sqlc.arg(max_retries),
     sqlc.arg(metadata)
 )
 RETURNING *;
@@ -138,10 +138,10 @@ INSERT INTO crawl_job (
     sqlc.arg(website_id),
     sqlc.arg(seed_url),
     sqlc.arg(variables),
-    COALESCE(sqlc.arg(job_type), 'one_time'::job_type_enum),
-    COALESCE(sqlc.arg(priority), 5),
+    sqlc.arg(job_type),
+    sqlc.arg(priority),
     sqlc.arg(scheduled_at),
-    COALESCE(sqlc.arg(max_retries), 3),
+    sqlc.arg(max_retries),
     sqlc.arg(metadata)
 )
 RETURNING *;

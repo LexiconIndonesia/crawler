@@ -47,10 +47,10 @@ INSERT INTO crawl_job (
     :p1,
     :p2,
     :p3,
-    COALESCE(:p4, 'one_time'\\:\\:job_type_enum),
-    COALESCE(:p5, 5),
+    :p4,
+    :p5,
     :p6,
-    COALESCE(:p7, 3),
+    :p7,
     :p8
 )
 RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
@@ -71,10 +71,10 @@ INSERT INTO crawl_job (
     :p1,
     :p2,
     :p3,
-    COALESCE(:p4, 'one_time'\\:\\:job_type_enum),
-    COALESCE(:p5, 5),
+    :p4,
+    :p5,
     :p6,
-    COALESCE(:p7, 3),
+    :p7,
     :p8
 )
 RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
@@ -226,7 +226,7 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_seed_url_submission(self, *, seed_url: str, inline_config: Optional[Any], variables: Optional[Any], job_type: Optional[Any], priority: Optional[Any], scheduled_at: Optional[datetime.datetime], max_retries: Optional[Any], metadata: Optional[Any]) -> Optional[models.CrawlJob]:
+    async def create_seed_url_submission(self, *, seed_url: str, inline_config: Optional[Any], variables: Optional[Any], job_type: models.JobTypeEnum, priority: int, scheduled_at: Optional[datetime.datetime], max_retries: int, metadata: Optional[Any]) -> Optional[models.CrawlJob]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_SEED_URL_SUBMISSION), {
             "p1": seed_url,
             "p2": inline_config,
@@ -263,7 +263,7 @@ class AsyncQuerier:
             updated_at=row[20],
         )
 
-    async def create_template_based_job(self, *, website_id: Optional[uuid.UUID], seed_url: str, variables: Optional[Any], job_type: Optional[Any], priority: Optional[Any], scheduled_at: Optional[datetime.datetime], max_retries: Optional[Any], metadata: Optional[Any]) -> Optional[models.CrawlJob]:
+    async def create_template_based_job(self, *, website_id: Optional[uuid.UUID], seed_url: str, variables: Optional[Any], job_type: models.JobTypeEnum, priority: int, scheduled_at: Optional[datetime.datetime], max_retries: int, metadata: Optional[Any]) -> Optional[models.CrawlJob]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_TEMPLATE_BASED_JOB), {
             "p1": website_id,
             "p2": seed_url,

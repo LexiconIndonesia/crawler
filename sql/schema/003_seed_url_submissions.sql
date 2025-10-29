@@ -23,9 +23,10 @@ ALTER TABLE crawl_job
 -- Add check constraint: exactly one of website_id or inline_config must be present (XOR)
 -- This ensures jobs always have configuration (either from website template or inline)
 -- and prevents ambiguous configurations where both are set
+-- Using num_nonnulls() makes the intent crystal clear: exactly 1 must be non-null
 ALTER TABLE crawl_job
     ADD CONSTRAINT ck_crawl_job_config_source CHECK (
-        (website_id IS NULL) != (inline_config IS NULL)
+        num_nonnulls(website_id, inline_config) = 1
     );
 
 -- Add GIN index on inline_config for queries that search within configuration

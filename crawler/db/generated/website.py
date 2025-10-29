@@ -29,9 +29,9 @@ INSERT INTO website (
     :p1,
     :p2,
     :p3,
-    COALESCE(:p4, '0 0 1,15 * *'),
+    :p4,
     :p5,
-    COALESCE(:p6, 'active'\\:\\:status_enum)
+    :p6
 )
 RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
 """
@@ -97,7 +97,7 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[Any], created_by: Optional[str], status: Optional[Any]) -> Optional[models.Website]:
+    async def create_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[str], created_by: Optional[str], status: models.StatusEnum) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_WEBSITE), {
             "p1": name,
             "p2": base_url,

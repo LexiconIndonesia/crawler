@@ -45,14 +45,14 @@ class TestWebsiteRepository:
         config = {"method": "api", "max_depth": 5}
         result = await repo.create(name="test", base_url="https://example.com", config=config)
 
-        # Verify config was JSON serialized in the call
+        # Verify config was JSON serialized in the call and defaults were applied
         repo._querier.create_website.assert_called_once_with(
             name="test",
             base_url="https://example.com",
             config=json.dumps(config),
-            cron_schedule=None,
+            cron_schedule="0 0 1,15 * *",  # Default bi-weekly schedule
             created_by=None,
-            status=None,
+            status="active",  # Default status enum value
         )
         assert result == mock_website
 

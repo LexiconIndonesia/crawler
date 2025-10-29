@@ -79,7 +79,7 @@ class TestWebsiteRepository:
         """Test counting websites."""
         await website_repo.create(name="count-test-1", base_url="https://test1.com", config={})
         await website_repo.create(
-            name="count-test-2", base_url="https://test2.com", config={}, status="active"
+            name="count-test-2", base_url="https://test2.com", config={}, status=StatusEnum.ACTIVE
         )
 
         count = await website_repo.count()

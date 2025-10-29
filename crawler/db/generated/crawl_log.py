@@ -40,7 +40,7 @@ INSERT INTO crawl_log (
     :p1,
     :p2,
     :p3,
-    COALESCE(:p4, 'INFO')\\:\\:log_level_enum,
+    :p4,
     :p5,
     :p6,
     :p7

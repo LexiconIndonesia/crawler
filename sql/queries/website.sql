@@ -10,9 +10,9 @@ INSERT INTO website (
     sqlc.arg(name),
     sqlc.arg(base_url),
     sqlc.arg(config),
-    COALESCE(sqlc.arg(cron_schedule), '0 0 1,15 * *'),
+    sqlc.arg(cron_schedule),
     sqlc.arg(created_by),
-    COALESCE(sqlc.arg(status), 'active'::status_enum)
+    sqlc.arg(status)
 )
 RETURNING *;
 

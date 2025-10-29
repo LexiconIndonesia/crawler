@@ -5,6 +5,8 @@ Application-level validation is tested here, with database constraint as backup.
 """
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
@@ -42,8 +44,13 @@ class TestCrawlJobConstraint:
                 inline_config={"method": "browser"},  # AND inline_config - NOT ALLOWED!
             )
 
-        # Verify the error message explains the issue
-        assert "Cannot specify both website_id and inline_config" in str(exc_info.value)
+        # Verify the error message explains the issue and provides guidance
+        error_msg = str(exc_info.value)
+        assert "Cannot specify both" in error_msg
+        assert "website_id" in error_msg
+        assert "inline_config" in error_msg
+        assert "create_template_based_job" in error_msg
+        assert "create_seed_url_submission" in error_msg
 
     async def test_cannot_have_neither_website_id_nor_inline_config(
         self, db_session: AsyncSession
@@ -66,8 +73,13 @@ class TestCrawlJobConstraint:
                 # This violates the constraint!
             )
 
-        # Verify the error message explains the issue
-        assert "Must specify either website_id or inline_config" in str(exc_info.value)
+        # Verify the error message explains the issue and provides guidance
+        error_msg = str(exc_info.value)
+        assert "Must specify" in error_msg
+        assert "website_id" in error_msg
+        assert "inline_config" in error_msg
+        assert "create_template_based_job" in error_msg
+        assert "create_seed_url_submission" in error_msg
 
     async def test_can_have_website_id_only(self, db_session: AsyncSession) -> None:
         """Test that having only website_id is valid."""
@@ -148,3 +160,90 @@ class TestCrawlJobConstraint:
         assert job is not None
         assert job.website_id is None  # Should not have website_id
         assert job.inline_config == {"method": "browser"}
+
+    async def test_database_constraint_prevents_both_configs(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that the database XOR constraint prevents both website_id and inline_config.
+
+        This test bypasses application-level validation to verify the database
+        constraint (ck_crawl_job_config_source) is enforced at the DB level.
+        """
+        conn = await db_session.connection()
+        website_repo = WebsiteRepository(conn)
+
+        # Create a website to get a valid UUID
+        website = await website_repo.create(
+            name="db-constraint-test",
+            base_url="https://test.com",
+            config={"method": "api"},
+        )
+
+        # Try to insert a row with BOTH website_id AND inline_config using raw SQL
+        # This bypasses Python validation to test the database constraint directly
+        with pytest.raises(IntegrityError) as exc_info:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO crawl_job (
+                        seed_url,
+                        website_id,
+                        inline_config,
+                        job_type,
+                        priority,
+                        max_retries
+                    ) VALUES (
+                        'https://test.com',
+                        :website_id,
+                        '{"method": "browser"}'::jsonb,
+                        'one_time',
+                        5,
+                        3
+                    )
+                    """
+                ),
+                {"website_id": website.id},
+            )
+            await conn.commit()
+
+        # Verify it's the XOR constraint that failed
+        assert "ck_crawl_job_config_source" in str(exc_info.value)
+
+    async def test_database_constraint_prevents_neither_config(
+        self, db_session: AsyncSession
+    ) -> None:
+        """Test that the database XOR constraint prevents neither website_id nor inline_config.
+
+        This test bypasses application-level validation to verify the database
+        constraint (ck_crawl_job_config_source) is enforced at the DB level.
+        """
+        conn = await db_session.connection()
+
+        # Try to insert a row with NEITHER website_id NOR inline_config using raw SQL
+        # This bypasses Python validation to test the database constraint directly
+        with pytest.raises(IntegrityError) as exc_info:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO crawl_job (
+                        seed_url,
+                        website_id,
+                        inline_config,
+                        job_type,
+                        priority,
+                        max_retries
+                    ) VALUES (
+                        'https://test.com',
+                        NULL,
+                        NULL,
+                        'one_time',
+                        5,
+                        3
+                    )
+                    """
+                )
+            )
+            await conn.commit()
+
+        # Verify it's the XOR constraint that failed
+        assert "ck_crawl_job_config_source" in str(exc_info.value)

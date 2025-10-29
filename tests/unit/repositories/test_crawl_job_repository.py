@@ -409,7 +409,9 @@ class TestCrawlJobValidation:
             )
 
         error_msg = str(exc_info.value)
-        assert "Cannot specify both website_id and inline_config" in error_msg
+        assert "Cannot specify both" in error_msg
+        assert "website_id" in error_msg
+        assert "inline_config" in error_msg
         assert "create_template_based_job" in error_msg
         assert "create_seed_url_submission" in error_msg
 
@@ -425,7 +427,9 @@ class TestCrawlJobValidation:
             )
 
         error_msg = str(exc_info.value)
-        assert "Must specify either website_id or inline_config" in error_msg
+        assert "Must specify" in error_msg
+        assert "website_id" in error_msg
+        assert "inline_config" in error_msg
         assert "create_template_based_job" in error_msg
         assert "create_seed_url_submission" in error_msg
 
@@ -443,7 +447,10 @@ class TestCrawlJobValidation:
             )
 
         error_msg = str(exc_info.value)
-        assert "inline_config is required" in error_msg
+        assert "inline_config" in error_msg
+        assert "required" in error_msg.lower()
+        assert "create_template_based_job" in error_msg
+        assert "Example:" in error_msg  # Should provide example
 
     async def test_seed_url_submission_raises_when_inline_config_empty(
         self,
@@ -459,4 +466,7 @@ class TestCrawlJobValidation:
             )
 
         error_msg = str(exc_info.value)
-        assert "inline_config is required" in error_msg
+        assert "inline_config" in error_msg
+        assert "required" in error_msg.lower()
+        assert "create_template_based_job" in error_msg
+        assert "Example:" in error_msg  # Should provide example
