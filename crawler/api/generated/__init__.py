@@ -4,12 +4,17 @@ This module contains auto-generated Pydantic models from the OpenAPI spec.
 DO NOT EDIT MANUALLY - regenerate using: make generate-models
 """
 
-from .extended import CrawlStep, CreateWebsiteRequest, ScheduleConfig, StepConfig
+from .extended import (
+    CreateSeedJobRequest,
+    CreateWebsiteRequest,
+    CrawlStep,
+    ScheduleConfig,
+    StepConfig,
+)
 from .models import (
     ActionConfig,
     BackoffStrategy,
     BrowserTypeEnum,
-    CreateSeedJobRequest,
     DetailItem,
     Environment,
     ErrorResponse,

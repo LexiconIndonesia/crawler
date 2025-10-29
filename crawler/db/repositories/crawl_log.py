@@ -52,7 +52,7 @@ class CrawlLogRepository:
             job_id=to_uuid(job_id),
             website_id=to_uuid(website_id),
             step_name=step_name,
-            log_level=log_level.value,
+            log_level=log_level,
             message=message,
             context=json.dumps(context) if context else None,
             trace_id=to_uuid_optional(trace_id),

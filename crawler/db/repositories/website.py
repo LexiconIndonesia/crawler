@@ -52,7 +52,7 @@ class WebsiteRepository:
             config=json.dumps(config),
             cron_schedule=cron_schedule,
             created_by=created_by,
-            status=status.value,
+            status=status,
         )
 
     async def get_by_id(self, website_id: str | UUID) -> models.Website | None:

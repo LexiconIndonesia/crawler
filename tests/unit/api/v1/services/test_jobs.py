@@ -1,7 +1,7 @@
 """Unit tests for JobService (dependency injection)."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid7
 
 import pytest
@@ -147,9 +147,7 @@ class TestJobService:
         job_service.crawl_job_repo.create_template_based_job.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_create_seed_job_creation_fails(
-        self, job_service, sample_request, mock_website
-    ):
+    async def test_create_seed_job_creation_fails(self, job_service, sample_request, mock_website):
         """Test seed job creation fails when repository returns None."""
         # Arrange
         job_service.website_repo.get_by_id.return_value = mock_website
