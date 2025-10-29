@@ -337,3 +337,229 @@ class TestCreateWebsiteEndpoint:
         data = response.json()
         assert data["next_run_time"] is None
         assert data["scheduled_job_id"] is None
+
+
+@pytest.mark.asyncio
+class TestCreateSeedJobInlineEndpoint:
+    """Tests for POST /api/v1/jobs/seed-inline endpoint."""
+
+    async def test_create_seed_job_inline_minimal(self, test_client: AsyncClient) -> None:
+        """Test creating an inline config seed job with minimal configuration."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape_article",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {
+                        "title": "h1.title",
+                        "content": ".article-body",
+                    },
+                }
+            ],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["seed_url"] == "https://example.com/articles"
+        assert data["website_id"] is None  # Inline jobs have no website_id
+        assert data["status"] == "pending"
+        assert data["job_type"] == "one_time"
+        assert data["priority"] == 5  # Default priority
+        assert data["scheduled_at"] is None
+        assert "id" in data
+        assert "created_at" in data
+        assert "updated_at" in data
+
+    async def test_create_seed_job_inline_with_custom_priority(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test creating an inline config seed job with custom priority."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape_article",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1.title"},
+                }
+            ],
+            "priority": 9,
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["priority"] == 9
+
+    async def test_create_seed_job_inline_with_variables(self, test_client: AsyncClient) -> None:
+        """Test creating an inline config seed job with variables."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape_article",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1.title"},
+                }
+            ],
+            "variables": {
+                "api_key": "test_key_123",
+                "category": "technology",
+            },
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["variables"]["api_key"] == "test_key_123"
+        assert data["variables"]["category"] == "technology"
+
+    async def test_create_seed_job_inline_with_global_config(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test creating an inline config seed job with custom global configuration."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape_article",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1.title"},
+                }
+            ],
+            "global_config": {
+                "rate_limit": {
+                    "requests_per_second": 3.0,
+                    "concurrent_pages": 8,
+                },
+                "timeout": {
+                    "http_request": 45,
+                },
+            },
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["website_id"] is None
+
+    async def test_create_seed_job_inline_with_browser_step(self, test_client: AsyncClient) -> None:
+        """Test creating an inline config seed job with browser automation."""
+        payload = {
+            "seed_url": "https://dynamic.example.com/products",
+            "steps": [
+                {
+                    "name": "crawl_products",
+                    "type": "crawl",
+                    "method": "browser",
+                    "browser_type": "playwright",
+                    "config": {
+                        "wait_until": "networkidle",
+                        "actions": [
+                            {
+                                "type": "wait",
+                                "selector": ".product-list",
+                                "timeout": 5000,
+                            }
+                        ],
+                    },
+                    "selectors": {"product_urls": ".product-card a"},
+                }
+            ],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["seed_url"] == "https://dynamic.example.com/products"
+        assert data["status"] == "pending"
+
+    async def test_create_seed_job_inline_duplicate_step_names(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test creating an inline config seed job with duplicate step names fails."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "duplicate_step",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1.title"},
+                },
+                {
+                    "name": "duplicate_step",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"content": ".content"},
+                },
+            ],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 422  # Validation error
+
+        error = response.json()
+        assert "Step names must be unique" in str(error)
+
+    async def test_create_seed_job_inline_invalid_url(self, test_client: AsyncClient) -> None:
+        """Test creating an inline config seed job with invalid URL fails."""
+        payload = {
+            "seed_url": "not-a-valid-url",
+            "steps": [
+                {
+                    "name": "scrape",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1"},
+                }
+            ],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 422  # Validation error
+
+    async def test_create_seed_job_inline_no_steps(self, test_client: AsyncClient) -> None:
+        """Test creating an inline config seed job without steps fails."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 422  # Validation error
+
+    async def test_create_seed_job_inline_browser_without_type(
+        self, test_client: AsyncClient
+    ) -> None:
+        """Test creating an inline config seed job with browser method but no browser_type fails."""
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape",
+                    "type": "scrape",
+                    "method": "browser",
+                    # Missing browser_type
+                    "selectors": {"title": "h1"},
+                }
+            ],
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 422  # Validation error
+
+        error = response.json()
+        assert "browser_type" in str(error).lower()

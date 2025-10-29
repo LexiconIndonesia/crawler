@@ -387,6 +387,144 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/jobs/seed-inline:
+    post:
+      tags:
+        - Jobs
+      summary: Submit a seed URL for crawling with inline configuration
+      description: |
+        Create a one-time crawl job with full inline configuration (Mode B - no template).
+
+        This endpoint:
+        1. Validates the seed URL and inline configuration
+        2. Validates crawl steps and selectors
+        3. Creates a crawl job with embedded configuration
+        4. Returns job ID and status for tracking
+
+        Unlike the template-based endpoint, this allows ad-hoc crawls without
+        creating a website configuration first. The configuration is provided
+        inline and stored with the job.
+
+        Use cases:
+        - One-off data collection tasks
+        - Testing crawl configurations before creating a template
+        - Dynamic crawling with programmatically generated configs
+        - External integrations that generate configurations on-the-fly
+      operationId: createSeedJobInline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeedJobInlineRequest'
+            examples:
+              simple_inline:
+                summary: Simple inline crawl with HTTP method
+                value:
+                  seed_url: "https://example.com/articles"
+                  steps:
+                    - name: "scrape_article"
+                      type: "scrape"
+                      method: "http"
+                      config:
+                        url: "https://example.com/articles"
+                      selectors:
+                        title: "h1.title"
+                        content: ".article-body"
+                      output:
+                        main_content_field: "content"
+                  global_config:
+                    rate_limit:
+                      requests_per_second: 2.0
+                    timeout:
+                      http_request: 30
+                  priority: 5
+              browser_inline:
+                summary: Browser-based inline crawl with Playwright
+                value:
+                  seed_url: "https://dynamic.example.com/products"
+                  steps:
+                    - name: "crawl_products"
+                      type: "crawl"
+                      method: "browser"
+                      browser_type: "playwright"
+                      config:
+                        url: "https://dynamic.example.com/products"
+                        wait_until: "networkidle"
+                        actions:
+                          - type: "wait"
+                            selector: ".product-list"
+                            timeout: 5000
+                      selectors:
+                        product_urls: ".product-card a"
+                      output:
+                        urls_field: "product_urls"
+                  global_config:
+                    rate_limit:
+                      requests_per_second: 1.0
+                      concurrent_pages: 3
+                  priority: 7
+                  variables:
+                    api_key: "test_key_123"
+      responses:
+        '201':
+          description: Crawl job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedJobResponse'
+              examples:
+                created:
+                  value:
+                    id: "880e8400-e29b-41d4-a716-446655440000"
+                    website_id: null
+                    seed_url: "https://example.com/articles"
+                    status: "pending"
+                    job_type: "one_time"
+                    priority: 5
+                    scheduled_at: null
+                    variables:
+                      api_key: "test_key_123"
+                    created_at: "2025-10-29T10:00:00Z"
+                    updated_at: "2025-10-29T10:00:00Z"
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_url:
+                  summary: Invalid seed URL
+                  value:
+                    detail: "seed_url must be a valid URL starting with http:// or https://"
+                    error_code: "INVALID_URL"
+                    field: "seed_url"
+                invalid_config:
+                  summary: Invalid configuration
+                  value:
+                    detail: "Invalid step configuration: missing required field 'method'"
+                    error_code: "INVALID_CONFIGURATION"
+                    field: "steps"
+                empty_steps:
+                  summary: Empty steps array
+                  value:
+                    detail: "At least one crawl step is required"
+                    error_code: "VALIDATION_ERROR"
+                    field: "steps"
+        '422':
+          description: Unprocessable Entity (validation error in request body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     # ============================================================================
@@ -1011,7 +1149,6 @@ components:
       type: object
       required:
         - id
-        - website_id
         - seed_url
         - status
         - job_type
@@ -1027,7 +1164,8 @@ components:
         website_id:
           type: string
           format: uuid
-          description: Website template ID
+          description: Website template ID (null for inline config jobs)
+          nullable: true
           example: "550e8400-e29b-41d4-a716-446655440000"
         seed_url:
           type: string
@@ -1069,6 +1207,41 @@ components:
           format: date-time
           description: Last update timestamp
           example: "2025-10-29T10:00:00Z"
+
+    CreateSeedJobInlineRequest:
+      type: object
+      required:
+        - seed_url
+        - steps
+      properties:
+        seed_url:
+          type: string
+          description: Starting URL for the crawl job
+          minLength: 1
+          maxLength: 2048
+          format: uri
+          example: "https://example.com/articles"
+        steps:
+          type: array
+          description: List of crawl/scrape steps to execute
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CrawlStep'
+        global_config:
+          $ref: '#/components/schemas/GlobalConfig'
+        variables:
+          type: object
+          description: Variables for substitution in URLs and configurations
+          additionalProperties: true
+          example:
+            api_key: "YOUR_API_KEY"
+            category: "technology"
+        priority:
+          type: integer
+          description: Job priority (1=lowest, 10=highest)
+          minimum: 1
+          maximum: 10
+          default: 5
 
   securitySchemes:
     BearerAuth:

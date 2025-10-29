@@ -7,7 +7,14 @@ from uuid import UUID, uuid7
 import pytest
 from pydantic import AnyUrl
 
-from crawler.api.generated import CreateSeedJobRequest
+from crawler.api.generated import (
+    CrawlStep,
+    CreateSeedJobInlineRequest,
+    CreateSeedJobRequest,
+    GlobalConfig,
+    MethodEnum,
+    StepTypeEnum,
+)
 from crawler.api.schemas import StatusEnum as ApiStatusEnum
 from crawler.api.v1.services import JobService
 from crawler.db.generated.models import CrawlJob, JobTypeEnum, StatusEnum, Website
@@ -211,3 +218,169 @@ class TestJobService:
         # Verify repository was called with None variables
         call_kwargs = job_service.crawl_job_repo.create_template_based_job.call_args.kwargs
         assert call_kwargs["variables"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_inline_success(self, job_service):
+        """Test successful inline config seed job creation."""
+        # Arrange
+        inline_request = CreateSeedJobInlineRequest(
+            seed_url=AnyUrl("https://example.com/articles"),
+            steps=[
+                CrawlStep(
+                    name="scrape_article",
+                    type=StepTypeEnum.scrape,
+                    method=MethodEnum.http,
+                    selectors={"title": "h1.title", "content": ".article-body"},
+                )
+            ],
+            global_config=GlobalConfig(),
+            variables={"api_key": "test_key_123"},
+            priority=7,
+        )
+
+        mock_inline_job = CrawlJob(
+            id=uuid7(),
+            website_id=None,  # Inline jobs have no website_id
+            seed_url="https://example.com/articles",
+            job_type=JobTypeEnum.ONE_TIME,
+            status=StatusEnum.PENDING,
+            priority=7,
+            scheduled_at=None,
+            started_at=None,
+            completed_at=None,
+            cancelled_at=None,
+            cancelled_by=None,
+            cancellation_reason=None,
+            error_message=None,
+            retry_count=0,
+            max_retries=3,
+            metadata=None,
+            variables={"api_key": "test_key_123"},
+            progress=None,
+            inline_config={"steps": [], "global_config": {}},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        job_service.crawl_job_repo.create_seed_url_submission.return_value = mock_inline_job
+
+        # Act
+        result = await job_service.create_seed_job_inline(inline_request)
+
+        # Assert
+        assert result.id == mock_inline_job.id
+        assert result.website_id is None  # Inline jobs have no website_id
+        assert str(result.seed_url) == str(inline_request.seed_url)
+        assert result.status == ApiStatusEnum.pending
+        assert result.priority == 7
+        assert result.variables == {"api_key": "test_key_123"}
+
+        # Verify repository was called correctly
+        job_service.crawl_job_repo.create_seed_url_submission.assert_called_once()
+        call_kwargs = job_service.crawl_job_repo.create_seed_url_submission.call_args.kwargs
+        assert call_kwargs["seed_url"] == "https://example.com/articles"
+        assert "inline_config" in call_kwargs
+        assert call_kwargs["priority"] == 7
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_inline_with_default_priority(self, job_service):
+        """Test inline config seed job creation uses default priority."""
+        # Arrange
+        inline_request = CreateSeedJobInlineRequest(
+            seed_url=AnyUrl("https://example.com/articles"),
+            steps=[
+                CrawlStep(
+                    name="scrape_article",
+                    type=StepTypeEnum.scrape,
+                    method=MethodEnum.http,
+                    selectors={"title": "h1.title"},
+                )
+            ],
+            # No explicit priority - should default to 5
+        )
+
+        assert inline_request.priority == 5  # Verify Pydantic default
+
+        mock_inline_job = CrawlJob(
+            id=uuid7(),
+            website_id=None,
+            seed_url="https://example.com/articles",
+            job_type=JobTypeEnum.ONE_TIME,
+            status=StatusEnum.PENDING,
+            priority=5,
+            scheduled_at=None,
+            started_at=None,
+            completed_at=None,
+            cancelled_at=None,
+            cancelled_by=None,
+            cancellation_reason=None,
+            error_message=None,
+            retry_count=0,
+            max_retries=3,
+            metadata=None,
+            variables=None,
+            progress=None,
+            inline_config={"steps": [], "global_config": {}},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        job_service.crawl_job_repo.create_seed_url_submission.return_value = mock_inline_job
+
+        # Act
+        result = await job_service.create_seed_job_inline(inline_request)
+
+        # Assert
+        assert result.priority == 5
+
+        # Verify repository was called with default priority
+        call_kwargs = job_service.crawl_job_repo.create_seed_url_submission.call_args.kwargs
+        assert call_kwargs["priority"] == 5
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_inline_creation_fails(self, job_service):
+        """Test inline config seed job creation fails when repository returns None."""
+        # Arrange
+        inline_request = CreateSeedJobInlineRequest(
+            seed_url=AnyUrl("https://example.com/articles"),
+            steps=[
+                CrawlStep(
+                    name="scrape_article",
+                    type=StepTypeEnum.scrape,
+                    method=MethodEnum.http,
+                    selectors={"title": "h1.title"},
+                )
+            ],
+        )
+
+        job_service.crawl_job_repo.create_seed_url_submission.return_value = None
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="Failed to create crawl job"):
+            await job_service.create_seed_job_inline(inline_request)
+
+        # Verify repository was called
+        job_service.crawl_job_repo.create_seed_url_submission.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_inline_validates_steps(self):
+        """Test that inline config request validates step names are unique."""
+        # Arrange - Create request with duplicate step names
+        with pytest.raises(ValueError, match="Step names must be unique"):
+            CreateSeedJobInlineRequest(
+                seed_url=AnyUrl("https://example.com/articles"),
+                steps=[
+                    CrawlStep(
+                        name="duplicate_step",
+                        type=StepTypeEnum.scrape,
+                        method=MethodEnum.http,
+                        selectors={"title": "h1.title"},
+                    ),
+                    CrawlStep(
+                        name="duplicate_step",
+                        type=StepTypeEnum.scrape,
+                        method=MethodEnum.http,
+                        selectors={"content": ".content"},
+                    ),
+                ],
+            )

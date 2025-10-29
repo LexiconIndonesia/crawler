@@ -208,13 +208,17 @@ async def test_db_schema():
     """Set up database schema once for all integration tests."""
     engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
-    # Create schema
+    # Drop existing schema first to ensure clean state
+    async with engine.begin() as conn:
+        await drop_schema(conn)
+
+    # Create fresh schema
     async with engine.begin() as conn:
         await create_schema(conn)
 
     yield
 
-    # Drop schema
+    # Drop schema after tests
     async with engine.begin() as conn:
         await drop_schema(conn)
 

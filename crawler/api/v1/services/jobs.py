@@ -1,8 +1,15 @@
 """Job service with business logic."""
 
+from typing import Any
+
 from pydantic import AnyUrl
 
-from crawler.api.generated import CreateSeedJobRequest, JobType, SeedJobResponse
+from crawler.api.generated import (
+    CreateSeedJobInlineRequest,
+    CreateSeedJobRequest,
+    JobType,
+    SeedJobResponse,
+)
 from crawler.api.schemas import StatusEnum as ApiStatusEnum
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
@@ -109,6 +116,88 @@ class JobService:
         return SeedJobResponse(
             id=job.id,
             website_id=job.website_id,
+            seed_url=AnyUrl(job.seed_url),
+            status=api_status,
+            job_type=job_type,
+            priority=job.priority,
+            scheduled_at=job.scheduled_at,
+            variables=job.variables,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
+
+    async def create_seed_job_inline(self, request: CreateSeedJobInlineRequest) -> SeedJobResponse:
+        """Create a new crawl job with inline configuration.
+
+        This method:
+        1. Validates the inline configuration
+        2. Creates an inline config job (no website template)
+        3. Returns the job details
+
+        Args:
+            request: Seed job creation request with inline configuration
+
+        Returns:
+            Created seed job response
+
+        Raises:
+            ValueError: If configuration is invalid
+            RuntimeError: If job creation fails
+        """
+        logger.info(
+            "creating_seed_job_inline",
+            seed_url=str(request.seed_url),
+            priority=request.priority,
+            num_steps=len(request.steps),
+        )
+
+        # Build inline configuration from request
+        # Convert Pydantic models to dict for JSON storage
+        inline_config: dict[str, Any] = {
+            "steps": [step.model_dump(mode="json", exclude_none=True) for step in request.steps],
+            "global_config": request.global_config.model_dump(mode="json", exclude_none=True),
+        }
+
+        logger.debug(
+            "inline_config_prepared",
+            seed_url=str(request.seed_url),
+            config_keys=list(inline_config.keys()),
+            steps_count=len(inline_config["steps"]),
+        )
+
+        # Create inline config job (no website_id)
+        job = await self.crawl_job_repo.create_seed_url_submission(
+            seed_url=str(request.seed_url),
+            inline_config=inline_config,
+            variables=request.variables,
+            job_type=JobTypeEnum.ONE_TIME,  # Inline submissions are always one-time jobs
+            priority=request.priority,
+            scheduled_at=None,  # Inline jobs execute immediately (not scheduled)
+            max_retries=3,  # Default retry count
+            metadata=None,
+        )
+
+        if not job:
+            logger.error(
+                "job_creation_failed",
+                seed_url=str(request.seed_url),
+            )
+            raise RuntimeError("Failed to create crawl job")
+
+        logger.info(
+            "seed_job_inline_created",
+            job_id=str(job.id),
+            seed_url=str(request.seed_url),
+            priority=job.priority,
+        )
+
+        # Build response - convert database enum to API enum
+        api_status = ApiStatusEnum(job.status.value)
+        job_type = JobType(job.job_type.value)
+
+        return SeedJobResponse(
+            id=job.id,
+            website_id=None,  # Inline config jobs don't have website_id
             seed_url=AnyUrl(job.seed_url),
             status=api_status,
             job_type=job_type,

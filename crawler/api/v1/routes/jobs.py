@@ -2,10 +2,14 @@
 
 from fastapi import APIRouter, status
 
-from crawler.api.generated import CreateSeedJobRequest, SeedJobResponse
+from crawler.api.generated import (
+    CreateSeedJobInlineRequest,
+    CreateSeedJobRequest,
+    SeedJobResponse,
+)
 from crawler.api.schemas import ErrorResponse
 from crawler.api.v1.dependencies import JobServiceDep
-from crawler.api.v1.handlers import create_seed_job_handler
+from crawler.api.v1.handlers import create_seed_job_handler, create_seed_job_inline_handler
 
 router = APIRouter()
 
@@ -89,3 +93,85 @@ async def create_seed_job(
         HTTPException: If validation fails or website not found
     """
     return await create_seed_job_handler(request, job_service)
+
+
+@router.post(
+    "/seed-inline",
+    response_model=SeedJobResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit a seed URL for crawling with inline configuration",
+    operation_id="createSeedJobInline",
+    description="""
+    Create a one-time crawl job with full inline configuration (Mode B - no template).
+
+    This endpoint:
+    1. Validates the seed URL and inline configuration
+    2. Validates crawl steps and selectors
+    3. Creates a crawl job with embedded configuration
+    4. Returns job ID and status for tracking
+
+    Unlike the template-based endpoint, this allows ad-hoc crawls without
+    creating a website configuration first. The configuration is provided
+    inline and stored with the job.
+
+    Use cases:
+    - One-off data collection tasks
+    - Testing crawl configurations before creating a template
+    - Dynamic crawling with programmatically generated configs
+    - External integrations that generate configurations on-the-fly
+    """,
+    responses={
+        201: {"description": "Crawl job created successfully"},
+        400: {
+            "description": "Validation error",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "invalid_url": {
+                            "value": {
+                                "detail": "seed_url must be a valid URL starting with http:// or "
+                                "https://",
+                                "error_code": "INVALID_URL",
+                                "field": "seed_url",
+                            }
+                        },
+                        "invalid_config": {
+                            "value": {
+                                "detail": "Invalid step configuration: missing required field "
+                                "'method'",
+                                "error_code": "INVALID_CONFIGURATION",
+                                "field": "steps",
+                            }
+                        },
+                        "empty_steps": {
+                            "value": {
+                                "detail": "At least one crawl step is required",
+                                "error_code": "VALIDATION_ERROR",
+                                "field": "steps",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        422: {"description": "Validation error (invalid request body)"},
+    },
+)
+async def create_seed_job_inline(
+    request: CreateSeedJobInlineRequest,
+    job_service: JobServiceDep,
+) -> SeedJobResponse:
+    """Create a new crawl job with inline configuration.
+
+    Args:
+        request: Seed job creation request with inline configuration
+        job_service: Injected job service
+
+    Returns:
+        Created crawl job with ID and status
+
+    Raises:
+        HTTPException: If validation fails or configuration is invalid
+    """
+    return await create_seed_job_inline_handler(request, job_service)

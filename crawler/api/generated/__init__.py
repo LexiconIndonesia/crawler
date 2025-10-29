@@ -5,6 +5,7 @@ DO NOT EDIT MANUALLY - regenerate using: make generate-models
 """
 
 from .extended import (
+    CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     CreateWebsiteRequest,
     CrawlStep,
@@ -53,6 +54,7 @@ __all__ = [
     "CreateWebsiteRequest",
     "WebsiteResponse",
     "CreateSeedJobRequest",
+    "CreateSeedJobInlineRequest",
     "SeedJobResponse",
     "RootResponse",
     "HealthResponse",
