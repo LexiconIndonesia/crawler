@@ -32,12 +32,12 @@ async def create_seed_job_handler(
     Raises:
         HTTPException: If validation fails or operation fails
     """
-    logger.info(
-        "create_seed_job_request",
-        website_id=str(request.website_id),
-        seed_url=str(request.seed_url),
-        priority=request.priority,
-    )
+    log_context = {
+        "website_id": str(request.website_id),
+        "seed_url": str(request.seed_url),
+        "priority": request.priority,
+    }
+    logger.info("create_seed_job_request", **log_context)
 
     try:
         # Delegate to service layer (transaction managed by get_db dependency)
@@ -45,12 +45,7 @@ async def create_seed_job_handler(
 
     except ValueError as e:
         # Business validation error (e.g., website not found, inactive website)
-        logger.warning(
-            "validation_error",
-            error=str(e),
-            website_id=str(request.website_id),
-            seed_url=str(request.seed_url),
-        )
+        logger.warning("validation_error", error=str(e), **log_context)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -58,13 +53,7 @@ async def create_seed_job_handler(
 
     except RuntimeError as e:
         # Service operation error - log details but return generic message
-        logger.error(
-            "service_error",
-            error=str(e),
-            website_id=str(request.website_id),
-            seed_url=str(request.seed_url),
-            exc_info=True,
-        )
+        logger.error("service_error", error=str(e), exc_info=True, **log_context)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while creating the crawl job",
@@ -72,13 +61,7 @@ async def create_seed_job_handler(
 
     except Exception as e:
         # Unexpected error - log with full stack trace but return generic message
-        logger.error(
-            "unexpected_error",
-            error=str(e),
-            website_id=str(request.website_id),
-            seed_url=str(request.seed_url),
-            exc_info=True,
-        )
+        logger.error("unexpected_error", error=str(e), exc_info=True, **log_context)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred",

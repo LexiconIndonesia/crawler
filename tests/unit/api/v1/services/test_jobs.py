@@ -165,18 +165,25 @@ class TestJobService:
 
     @pytest.mark.asyncio
     async def test_create_seed_job_with_default_priority(
-        self, job_service, sample_request, mock_website, mock_crawl_job
+        self, job_service, sample_website_id, mock_website, mock_crawl_job
     ):
         """Test seed job creation uses default priority when not specified."""
         # Arrange
-        sample_request.priority = None  # No priority specified
-        mock_crawl_job.priority = 5  # Default priority
+        # Create a request object without priority to test Pydantic's default value handling
+        request_without_priority = CreateSeedJobRequest(
+            website_id=sample_website_id,
+            seed_url=AnyUrl("https://example.com/articles/2025"),
+            variables={"year": "2025", "category": "tech"},
+        )
+        assert request_without_priority.priority == 5  # Verify Pydantic default
+
+        mock_crawl_job.priority = 5  # Ensure mock job reflects default priority
 
         job_service.website_repo.get_by_id.return_value = mock_website
         job_service.crawl_job_repo.create_template_based_job.return_value = mock_crawl_job
 
         # Act
-        result = await job_service.create_seed_job(sample_request)
+        result = await job_service.create_seed_job(request_without_priority)
 
         # Assert
         assert result.priority == 5  # Default priority applied

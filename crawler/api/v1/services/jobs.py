@@ -77,7 +77,7 @@ class JobService:
             seed_url=str(request.seed_url),
             variables=request.variables,
             job_type=JobTypeEnum.ONE_TIME,  # Seed submissions are always one-time jobs
-            priority=request.priority if request.priority is not None else 5,
+            priority=request.priority,
             scheduled_at=None,  # Seed jobs execute immediately (not scheduled)
             max_retries=3,  # Default retry count
             metadata=None,
