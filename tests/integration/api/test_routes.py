@@ -454,6 +454,43 @@ class TestCreateSeedJobInlineEndpoint:
         assert data["status"] == "pending"
         assert data["website_id"] is None
 
+    async def test_create_seed_job_inline_with_custom_retry_config(
+        self, test_client: AsyncClient, crawl_job_repo
+    ) -> None:
+        """Test creating an inline config seed job with custom retry configuration.
+
+        Verifies that max_retries is sourced from global_config.retry.max_attempts.
+        """
+        payload = {
+            "seed_url": "https://example.com/articles",
+            "steps": [
+                {
+                    "name": "scrape_article",
+                    "type": "scrape",
+                    "method": "http",
+                    "selectors": {"title": "h1.title"},
+                }
+            ],
+            "global_config": {
+                "retry": {
+                    "max_attempts": 8,
+                    "backoff_strategy": "linear",
+                }
+            },
+        }
+
+        response = await test_client.post("/api/v1/jobs/seed-inline", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert data["status"] == "pending"
+        assert data["website_id"] is None
+
+        # Verify max_retries was set correctly in the database
+        job = await crawl_job_repo.get_by_id(data["id"])
+        assert job is not None
+        assert job.max_retries == 8  # Should use custom retry config
+
     async def test_create_seed_job_inline_with_browser_step(self, test_client: AsyncClient) -> None:
         """Test creating an inline config seed job with browser automation."""
         payload = {

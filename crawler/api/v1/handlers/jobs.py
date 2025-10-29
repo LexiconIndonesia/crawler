@@ -4,19 +4,19 @@ This module contains HTTP handlers that coordinate between FastAPI routes
 and business logic services using dependency injection.
 """
 
-from fastapi import HTTPException, status
-
 from crawler.api.generated import (
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     SeedJobResponse,
 )
+from crawler.api.v1.decorators import handle_service_errors
 from crawler.api.v1.services import JobService
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
+@handle_service_errors(operation="creating the crawl job")
 async def create_seed_job_handler(
     request: CreateSeedJobRequest,
     job_service: JobService,
@@ -24,7 +24,7 @@ async def create_seed_job_handler(
     """Handle seed job creation with HTTP error translation.
 
     This handler validates the request, delegates business logic to the service,
-    and translates service exceptions to HTTP responses.
+    and translates service exceptions to HTTP responses via the decorator.
 
     Args:
         request: Seed job creation request
@@ -43,35 +43,11 @@ async def create_seed_job_handler(
     }
     logger.info("create_seed_job_request", **log_context)
 
-    try:
-        # Delegate to service layer (transaction managed by get_db dependency)
-        return await job_service.create_seed_job(request)
-
-    except ValueError as e:
-        # Business validation error (e.g., website not found, inactive website)
-        logger.warning("validation_error", error=str(e), **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-    except RuntimeError as e:
-        # Service operation error - log details but return generic message
-        logger.error("service_error", error=str(e), exc_info=True, **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the crawl job",
-        ) from e
-
-    except Exception as e:
-        # Unexpected error - log with full stack trace but return generic message
-        logger.error("unexpected_error", error=str(e), exc_info=True, **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred",
-        ) from e
+    # Delegate to service layer (error handling done by decorator)
+    return await job_service.create_seed_job(request)
 
 
+@handle_service_errors(operation="creating the crawl job")
 async def create_seed_job_inline_handler(
     request: CreateSeedJobInlineRequest,
     job_service: JobService,
@@ -79,7 +55,7 @@ async def create_seed_job_inline_handler(
     """Handle seed job creation with inline configuration.
 
     This handler validates the request, delegates business logic to the service,
-    and translates service exceptions to HTTP responses.
+    and translates service exceptions to HTTP responses via the decorator.
 
     Args:
         request: Seed job creation request with inline configuration
@@ -98,30 +74,5 @@ async def create_seed_job_inline_handler(
     }
     logger.info("create_seed_job_inline_request", **log_context)
 
-    try:
-        # Delegate to service layer (transaction managed by get_db dependency)
-        return await job_service.create_seed_job_inline(request)
-
-    except ValueError as e:
-        # Business validation error (e.g., invalid configuration)
-        logger.warning("validation_error", error=str(e), **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-    except RuntimeError as e:
-        # Service operation error - log details but return generic message
-        logger.error("service_error", error=str(e), exc_info=True, **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the crawl job",
-        ) from e
-
-    except Exception as e:
-        # Unexpected error - log with full stack trace but return generic message
-        logger.error("unexpected_error", error=str(e), exc_info=True, **log_context)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred",
-        ) from e
+    # Delegate to service layer (error handling done by decorator)
+    return await job_service.create_seed_job_inline(request)

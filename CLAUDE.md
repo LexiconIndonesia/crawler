@@ -136,11 +136,27 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
   - `handlers/` - HTTP request handlers (coordinate routes and services)
   - `services/` - Business logic services (domain rules, no HTTP concerns)
   - `dependencies.py` - API v1-specific DI (builds on core dependencies)
+  - `decorators.py` - Reusable decorators for consistent error handling
 - **Benefits**:
   - **Testability**: Each layer can be tested independently
   - **Maintainability**: Changes isolated to appropriate layers
   - **Scalability**: Easy to add new endpoints following the same pattern
   - **Type Safety**: Full type hints and dependency injection throughout
+
+**Error Handling Decorator** (`crawler/api/v1/decorators.py`)
+- **`@handle_service_errors(operation="...")`**: Centralized exception handling for all API handlers
+- **Exception Mapping**:
+  - `ValueError` → 400 Bad Request (business validation errors like "not found", "already exists")
+  - `RuntimeError` → 500 Internal Server Error (service operation failures)
+  - `Exception` → 500 Internal Server Error (unexpected errors)
+  - `HTTPException` → Re-raised as-is (already handled by handler pre-validation)
+- **Features**:
+  - Consistent structured logging with handler name and error context
+  - Full exception chaining for debugging (`from e`)
+  - Configurable error messages via `operation` parameter
+  - Type-safe with `ParamSpec` and `TypeVar` for async functions
+- **Usage**: Apply to all handler functions to ensure consistent error handling
+- **Benefits**: DRY principle, single place for error handling changes, consistent API error responses
 
 **Database Layer** (`crawler/db/`)
 - **SQL schema as single source of truth**: `sql/schema/*.sql` defines all tables and types
@@ -297,30 +313,33 @@ async def create_resource(
 
 **4. Create Handler** (`crawler/api/v1/handlers/resources.py`)
 ```python
-from fastapi import HTTPException, status
 from crawler.api.generated import CreateResourceRequest, ResourceResponse
+from crawler.api.v1.decorators import handle_service_errors
 from crawler.api.v1.services import ResourceService
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+@handle_service_errors(operation="creating the resource")
 async def create_resource_handler(
     request: CreateResourceRequest,
     resource_service: ResourceService,
 ) -> ResourceResponse:
-    """Handle resource creation with HTTP error translation."""
+    """Handle resource creation with HTTP error translation.
+
+    Error handling is done by the @handle_service_errors decorator which:
+    - Converts ValueError → 400 Bad Request
+    - Converts RuntimeError → 500 Internal Server Error
+    - Converts Exception → 500 Internal Server Error
+    - Logs all errors with context
+    """
     logger.info("create_resource_request", resource_name=request.name)
 
-    try:
-        return await resource_service.create_resource(request)
-    except ValueError as e:
-        # Business validation error
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        # Unexpected error
-        logger.error("unexpected_error", error=str(e), exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # Delegate to service layer (error handling done by decorator)
+    return await resource_service.create_resource(request)
 ```
+
+**Important**: Always use the `@handle_service_errors` decorator on handlers to ensure consistent error handling across all API endpoints. The decorator centralizes exception handling, reduces code duplication, and ensures consistent logging.
 
 **5. Create Service** (`crawler/api/v1/services/resources.py`)
 ```python

@@ -77,6 +77,23 @@ class JobService:
             )
             raise ValueError(f"Website '{website.name}' is inactive and cannot be used")
 
+        # Extract max_retries from website config if available
+        max_retries = 3  # Default
+        if isinstance(website.config, dict):
+            global_config = website.config.get("global_config", {})
+            if isinstance(global_config, dict):
+                retry_config = global_config.get("retry", {})
+                if isinstance(retry_config, dict):
+                    max_attempts = retry_config.get("max_attempts")
+                    if max_attempts is not None:
+                        max_retries = max_attempts
+
+        logger.debug(
+            "max_retries_set_from_template",
+            website_id=str(request.website_id),
+            max_retries=max_retries,
+        )
+
         # Create template-based job
         # Convert seed_url from AnyUrl to string for database storage
         job = await self.crawl_job_repo.create_template_based_job(
@@ -86,7 +103,7 @@ class JobService:
             job_type=JobTypeEnum.ONE_TIME,  # Seed submissions are always one-time jobs
             priority=request.priority,
             scheduled_at=None,  # Seed jobs execute immediately (not scheduled)
-            max_retries=3,  # Default retry count
+            max_retries=max_retries,
             metadata=None,
         )
 
@@ -165,6 +182,18 @@ class JobService:
             steps_count=len(inline_config["steps"]),
         )
 
+        # Extract max_retries from global_config.retry.max_attempts if available
+        max_retries = 3  # Default
+        if request.global_config.retry and request.global_config.retry.max_attempts is not None:
+            max_retries = request.global_config.retry.max_attempts
+
+        logger.debug(
+            "max_retries_set",
+            seed_url=str(request.seed_url),
+            max_retries=max_retries,
+            from_config=request.global_config.retry is not None,
+        )
+
         # Create inline config job (no website_id)
         job = await self.crawl_job_repo.create_seed_url_submission(
             seed_url=str(request.seed_url),
@@ -173,7 +202,7 @@ class JobService:
             job_type=JobTypeEnum.ONE_TIME,  # Inline submissions are always one-time jobs
             priority=request.priority,
             scheduled_at=None,  # Inline jobs execute immediately (not scheduled)
-            max_retries=3,  # Default retry count
+            max_retries=max_retries,
             metadata=None,
         )
 

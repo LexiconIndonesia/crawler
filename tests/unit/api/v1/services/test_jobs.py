@@ -13,6 +13,7 @@ from crawler.api.generated import (
     CreateSeedJobRequest,
     GlobalConfig,
     MethodEnum,
+    RetryConfig,
     StepTypeEnum,
 )
 from crawler.api.schemas import StatusEnum as ApiStatusEnum
@@ -384,3 +385,104 @@ class TestJobService:
                     ),
                 ],
             )
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_inline_with_custom_retry_config(self, job_service):
+        """Test that inline config seed job uses max_attempts from global_config.retry."""
+        # Arrange
+        inline_request = CreateSeedJobInlineRequest(
+            seed_url=AnyUrl("https://example.com/articles"),
+            steps=[
+                CrawlStep(
+                    name="scrape_article",
+                    type=StepTypeEnum.scrape,
+                    method=MethodEnum.http,
+                    selectors={"title": "h1.title"},
+                )
+            ],
+            global_config=GlobalConfig(retry=RetryConfig(max_attempts=7)),
+            priority=5,
+        )
+
+        mock_inline_job = CrawlJob(
+            id=uuid7(),
+            website_id=None,
+            seed_url="https://example.com/articles",
+            job_type=JobTypeEnum.ONE_TIME,
+            status=StatusEnum.PENDING,
+            priority=5,
+            scheduled_at=None,
+            started_at=None,
+            completed_at=None,
+            cancelled_at=None,
+            cancelled_by=None,
+            cancellation_reason=None,
+            error_message=None,
+            retry_count=0,
+            max_retries=7,  # Should use custom retry config
+            metadata=None,
+            variables=None,
+            progress=None,
+            inline_config={"steps": [], "global_config": {"retry": {"max_attempts": 7}}},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+
+        job_service.crawl_job_repo.create_seed_url_submission.return_value = mock_inline_job
+
+        # Act
+        result = await job_service.create_seed_job_inline(inline_request)
+
+        # Assert
+        assert result.id == mock_inline_job.id
+
+        # Verify repository was called with custom max_retries from global_config.retry.max_attempts
+        call_kwargs = job_service.crawl_job_repo.create_seed_url_submission.call_args.kwargs
+        assert call_kwargs["max_retries"] == 7
+
+    @pytest.mark.asyncio
+    async def test_create_seed_job_with_custom_retry_config(
+        self, job_service, sample_website_id, mock_crawl_job
+    ):
+        """Test that template-based seed job uses max_attempts from website config."""
+        # Arrange
+        request = CreateSeedJobRequest(
+            website_id=sample_website_id,
+            seed_url=AnyUrl("https://example.com/articles/2025"),
+            variables={"year": "2025"},
+            priority=5,
+        )
+
+        mock_website_with_retry = Website(
+            id=sample_website_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={
+                "global_config": {
+                    "retry": {
+                        "max_attempts": 5,
+                        "backoff_strategy": "exponential",
+                    }
+                }
+            },
+            status=StatusEnum.ACTIVE,
+            cron_schedule="0 0 * * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+        )
+
+        mock_crawl_job.max_retries = 5
+
+        job_service.website_repo.get_by_id.return_value = mock_website_with_retry
+        job_service.crawl_job_repo.create_template_based_job.return_value = mock_crawl_job
+
+        # Act
+        result = await job_service.create_seed_job(request)
+
+        # Assert
+        assert result.id == mock_crawl_job.id
+
+        # Verify repository was called with max_retries from website config
+        call_kwargs = job_service.crawl_job_repo.create_template_based_job.call_args.kwargs
+        assert call_kwargs["max_retries"] == 5
