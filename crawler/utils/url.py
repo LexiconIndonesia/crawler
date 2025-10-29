@@ -92,6 +92,7 @@ def normalize_url(
     - Converting hostname to lowercase (scheme is always lowercase per RFC 3986)
     - Removing fragments (e.g., #section)
     - Preserving semantic parameters (page, category, id, etc.)
+    - Using only the first value for parameters that appear multiple times
 
     Args:
         url: The URL to normalize
@@ -156,8 +157,9 @@ def normalize_url(
             }
 
         # Convert lists to single values (take first value)
+        # parse_qs always returns lists, so we take the first element
         # This handles ?param=value1&param=value2 -> param=value1
-        params_dict = {k: v[0] if isinstance(v, list) else v for k, v in params.items()}
+        params_dict = {k: v[0] for k, v in params.items()}
 
         # Sort parameters if enabled
         if sort_params:
