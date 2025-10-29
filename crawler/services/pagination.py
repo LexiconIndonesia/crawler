@@ -42,9 +42,7 @@ class PaginationService:
         """Initialize pagination service."""
         self.detector = PaginationPatternDetector()
 
-    def generate_pagination_urls(
-        self, seed_url: str, config: PaginationConfig
-    ) -> list[str]:
+    def generate_pagination_urls(self, seed_url: str, config: PaginationConfig) -> list[str]:
         """Generate all pagination URLs from seed URL.
 
         This method:
@@ -78,11 +76,11 @@ class PaginationService:
                 max_pages=max_pages,
             )
             start_page = config.start_page if config.start_page else 1
-            pattern = TemplatePattern(
+            template_pattern = TemplatePattern(
                 current_page=start_page,
                 template=config.url_template,
             )
-            generator = PaginationURLGenerator(seed_url, pattern, max_pages=max_pages)
+            generator = PaginationURLGenerator(seed_url, template_pattern, max_pages=max_pages)
 
             # Generate all URLs from template (including start page)
             # Template defines the URL structure, so we generate from start_page to max_pages
@@ -95,16 +93,16 @@ class PaginationService:
             return urls
 
         # Strategy 2: Auto-detect pattern from seed URL
-        pattern = self.detector.detect(seed_url)
-        if pattern:
+        detected_pattern = self.detector.detect(seed_url)
+        if detected_pattern:
             logger.info(
                 "pagination_pattern_detected",
                 seed_url=seed_url,
-                pattern_type=type(pattern).__name__,
-                current_page=pattern.current_page,
+                pattern_type=type(detected_pattern).__name__,
+                current_page=detected_pattern.current_page,
                 max_pages=max_pages,
             )
-            generator = PaginationURLGenerator(seed_url, pattern, max_pages=max_pages)
+            generator = PaginationURLGenerator(seed_url, detected_pattern, max_pages=max_pages)
             # Include seed URL + all generated URLs
             remaining_urls = generator.generate_all()
             urls = [seed_url] + remaining_urls
@@ -112,7 +110,7 @@ class PaginationService:
                 "pagination_urls_generated_from_detection",
                 seed_url=seed_url,
                 total_urls=len(urls),
-                pattern_type=type(pattern).__name__,
+                pattern_type=type(detected_pattern).__name__,
             )
             return urls
 
@@ -242,9 +240,7 @@ class PaginationService:
             total_pages_crawled=len(urls),
         )
 
-    def should_use_selector_based_pagination(
-        self, seed_url: str, config: PaginationConfig
-    ) -> bool:
+    def should_use_selector_based_pagination(self, seed_url: str, config: PaginationConfig) -> bool:
         """Determine if selector-based pagination should be used.
 
         Selector-based pagination is slower but necessary when:
@@ -279,9 +275,7 @@ class PaginationService:
 
         return False
 
-    def get_pagination_strategy(
-        self, seed_url: str, config: PaginationConfig
-    ) -> str:
+    def get_pagination_strategy(self, seed_url: str, config: PaginationConfig) -> str:
         """Get the pagination strategy that will be used.
 
         Args:

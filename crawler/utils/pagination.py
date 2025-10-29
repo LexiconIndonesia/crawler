@@ -220,38 +220,38 @@ class PaginationPatternDetector:
             raise ValueError(f"URL must have scheme and hostname: {seed_url}")
 
         # Strategy 1: Check query parameters
-        pattern = self._detect_query_param(parsed)
-        if pattern:
+        query_pattern = self._detect_query_param(parsed)
+        if query_pattern:
             logger.info(
                 "pagination_pattern_detected",
                 type="query_param",
-                param_name=pattern.param_name,
-                current_page=pattern.current_page,
+                param_name=query_pattern.param_name,
+                current_page=query_pattern.current_page,
             )
-            return pattern
+            return query_pattern
 
         # Strategy 2: Check path segments
-        pattern = self._detect_path_segment(parsed)
-        if pattern:
+        path_pattern = self._detect_path_segment(parsed)
+        if path_pattern:
             logger.info(
                 "pagination_pattern_detected",
                 type="path_segment",
-                segment_index=pattern.segment_index,
-                current_page=pattern.current_page,
+                segment_index=path_pattern.segment_index,
+                current_page=path_pattern.current_page,
             )
-            return pattern
+            return path_pattern
 
         # Strategy 3: Check embedded numbers in path
-        pattern = self._detect_path_embedded(parsed)
-        if pattern:
+        embedded_pattern = self._detect_path_embedded(parsed)
+        if embedded_pattern:
             logger.info(
                 "pagination_pattern_detected",
                 type="path_embedded",
-                prefix=pattern.prefix,
-                suffix=pattern.suffix,
-                current_page=pattern.current_page,
+                prefix=embedded_pattern.prefix,
+                suffix=embedded_pattern.suffix,
+                current_page=embedded_pattern.current_page,
             )
-            return pattern
+            return embedded_pattern
 
         logger.warning("pagination_pattern_not_detected", url=seed_url)
         return None

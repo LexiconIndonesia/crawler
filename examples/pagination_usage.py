@@ -113,7 +113,7 @@ def example_5_offset_based():
 
     print(f"Seed URL: {seed_url}")
     print("The service detects this is offset-based and calculates correctly:")
-    print(f"  - Page 3 (offset=40) is the seed")
+    print("  - Page 3 (offset=40) is the seed")
     print(f"Generated {len(urls)} URLs:")
     for i, url in enumerate(urls, 3):  # Start from page 3
         offset = url.split("offset=")[1].split("&")[0] if "offset=" in url else "?"
@@ -148,9 +148,7 @@ async def example_6_with_stop_detection():
         fetch_fn=mock_fetch,
     ):
         pages_crawled += 1
-        print(
-            f"  ✓ Crawled: {url} (status: {status_code}, size: {len(content)} bytes)"
-        )
+        print(f"  ✓ Crawled: {url} (status: {status_code}, size: {len(content)} bytes)")
 
     print(f"\nStopped after {pages_crawled} pages (detected 404)")
 

@@ -155,9 +155,7 @@ class TestPaginationService:
     def test_should_use_selector_based_pagination_with_pattern(self):
         """Test that selector-based is not used when pattern detected."""
         service = PaginationService()
-        config = PaginationConfig(
-            enabled=True, selector="a.next", type="next_button"
-        )
+        config = PaginationConfig(enabled=True, selector="a.next", type="next_button")
 
         # URL has detectable pattern
         should_use_selector = service.should_use_selector_based_pagination(
@@ -169,9 +167,7 @@ class TestPaginationService:
     def test_should_use_selector_based_pagination_no_pattern(self):
         """Test that selector-based is used when no pattern detected."""
         service = PaginationService()
-        config = PaginationConfig(
-            enabled=True, selector="a.next", type="next_button"
-        )
+        config = PaginationConfig(enabled=True, selector="a.next", type="next_button")
 
         # URL has no detectable pattern
         should_use_selector = service.should_use_selector_based_pagination(
@@ -209,9 +205,7 @@ class TestPaginationService:
     def test_get_pagination_strategy_template(self):
         """Test strategy detection with template."""
         service = PaginationService()
-        config = PaginationConfig(
-            enabled=True, url_template="https://example.com/page/{page}"
-        )
+        config = PaginationConfig(enabled=True, url_template="https://example.com/page/{page}")
 
         strategy = service.get_pagination_strategy(
             seed_url="https://example.com/products", config=config

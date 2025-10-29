@@ -29,9 +29,7 @@ class TestQueryParamPattern:
     def test_page_with_multiple_params(self):
         """Test page parameter with other query parameters."""
         pattern = QueryParamPattern(param_name="page", current_page=2)
-        url = pattern.generate_url(
-            "https://example.com/search?q=test&page=2&sort=date", 3
-        )
+        url = pattern.generate_url("https://example.com/search?q=test&page=2&sort=date", 3)
         assert "page=3" in url
         assert "q=test" in url
         assert "sort=date" in url
@@ -112,9 +110,7 @@ class TestPathEmbeddedPattern:
 
     def test_complex_embedded_pattern(self):
         """Test /archive2024-page3 pattern."""
-        pattern = PathEmbeddedPattern(
-            prefix="/archive2024-page", current_page=3, suffix=""
-        )
+        pattern = PathEmbeddedPattern(prefix="/archive2024-page", current_page=3, suffix="")
         url = pattern.generate_url("https://example.com/archive2024-page3", 4)
         assert url == "https://example.com/archive2024-page4"
 
@@ -129,9 +125,7 @@ class TestTemplatePattern:
 
     def test_simple_template(self):
         """Test simple {page} template."""
-        pattern = TemplatePattern(
-            current_page=1, template="https://example.com/page/{page}"
-        )
+        pattern = TemplatePattern(current_page=1, template="https://example.com/page/{page}")
         url = pattern.generate_url("", 5)
         assert url == "https://example.com/page/5"
 
@@ -365,9 +359,7 @@ class TestPaginationStopDetector:
 
     def test_empty_content_stops_after_threshold(self):
         """Test that consecutive empty responses stop pagination."""
-        detector = PaginationStopDetector(
-            min_content_length=100, max_empty_responses=2
-        )
+        detector = PaginationStopDetector(min_content_length=100, max_empty_responses=2)
 
         # First empty response
         result1 = detector.check_response(200, b"", "https://example.com/page/1")
@@ -380,9 +372,7 @@ class TestPaginationStopDetector:
 
     def test_empty_content_resets_on_valid_response(self):
         """Test that empty counter resets with valid content."""
-        detector = PaginationStopDetector(
-            min_content_length=100, max_empty_responses=2
-        )
+        detector = PaginationStopDetector(min_content_length=100, max_empty_responses=2)
 
         # Empty response
         detector.check_response(200, b"", "https://example.com/page/1")
@@ -429,15 +419,11 @@ class TestPaginationStopDetector:
         detector = PaginationStopDetector(track_urls=True)
 
         # First visit
-        result1 = detector.check_response(
-            200, b"content", "https://example.com/page/1"
-        )
+        result1 = detector.check_response(200, b"content", "https://example.com/page/1")
         assert result1.should_stop is False
 
         # Revisit same URL - should stop
-        result2 = detector.check_response(
-            200, b"different content", "https://example.com/page/1"
-        )
+        result2 = detector.check_response(200, b"different content", "https://example.com/page/1")
         assert result2.should_stop is True
         assert "circular" in result2.reason.lower()
 
