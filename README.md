@@ -190,20 +190,38 @@ crawler/
 │   │   │   ├── models.py      # ❌ AUTO-GENERATED - never edit (git-ignored)
 │   │   │   ├── extended.py    # ✅ Custom validators (version controlled)
 │   │   │   └── __init__.py    # ✅ Re-exports extended models (version controlled)
-│   │   ├── v1/           # API version 1
-│   │   │   ├── routes/   # V1 endpoint implementations
-│   │   │   ├── services/ # V1 business logic
-│   │   │   └── handlers/ # V1 request handlers
+│   │   ├── v1/           # API version 1 (modular layered architecture)
+│   │   │   ├── routes/   # 📍 Route layer: endpoint registration, OpenAPI docs
+│   │   │   │   └── websites.py    # Website endpoint definitions
+│   │   │   ├── handlers/ # 🔄 Handler layer: HTTP coordination, error translation
+│   │   │   │   └── websites.py    # Website request handlers
+│   │   │   ├── services/ # 💼 Service layer: business logic, domain rules
+│   │   │   │   └── websites.py    # Website business logic
+│   │   │   ├── dependencies.py   # V1-specific dependency injection
+│   │   │   └── router.py         # Router registration
 │   │   ├── schemas/      # Common schemas (HealthResponse, ErrorResponse)
-│   │   └── routes.py     # Base routes (health, metrics)
-│   ├── core/              # Core functionality (logging, metrics)
+│   │   ├── routes.py     # Base routes (health, metrics)
+│   │   └── validators.py # API validation utilities
+│   ├── core/              # Core functionality
+│   │   ├── dependencies.py  # 🎯 Centralized DI (single source of truth)
+│   │   ├── logging.py       # Structured logging
+│   │   └── metrics.py       # Prometheus metrics
 │   ├── db/                # Database layer
 │   │   ├── generated/    # sqlc-generated queries (do not edit)
-│   │   ├── repositories.py  # Repository pattern for DB access
+│   │   ├── repositories/ # 📦 Modular repository pattern (one file per entity)
+│   │   │   ├── __init__.py       # Repository exports
+│   │   │   ├── base.py           # Shared utilities
+│   │   │   ├── website.py        # WebsiteRepository
+│   │   │   ├── crawl_job.py      # CrawlJobRepository
+│   │   │   ├── scheduled_job.py  # ScheduledJobRepository
+│   │   │   ├── crawled_page.py   # CrawledPageRepository
+│   │   │   ├── content_hash.py   # ContentHashRepository
+│   │   │   └── crawl_log.py      # CrawlLogRepository
 │   │   └── session.py    # Database session management
+│   ├── cache/             # Redis cache utilities
 │   ├── models/            # Domain models
 │   ├── schemas/           # Pydantic schemas (domain models, not DB models)
-│   ├── services/          # Business logic services
+│   ├── services/          # Infrastructure services (cache, storage, Redis ops)
 │   └── utils/             # Utility functions
 ├── sql/                   # SQL queries and schema
 │   ├── queries/          # sqlc query definitions
@@ -230,6 +248,83 @@ crawler/
 └── docker-compose.yml   # Service orchestration
 ```
 
+### Architecture Overview
+
+The project follows a **modular layered architecture** with clear separation of concerns:
+
+#### Layered Architecture (API v1)
+
+```
+HTTP Request
+    ↓
+┌─────────────────────────────────────────┐
+│ Route Layer (crawler/api/v1/routes/)   │  Endpoint registration, OpenAPI docs
+│   - Thin, minimal logic                 │
+│   - Response models                     │
+└─────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────┐
+│ Handler Layer (crawler/api/v1/handlers/)│  HTTP coordination, error translation
+│   - Request validation                  │
+│   - Service coordination                │
+│   - Exception → HTTP response           │
+└─────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────┐
+│ Service Layer (crawler/api/v1/services/)│  Business logic, domain rules
+│   - Domain logic                        │
+│   - Transaction management              │
+│   - NO HTTP awareness                   │
+└─────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────┐
+│ Repository Layer (crawler/db/repos/)    │  Database operations
+│   - Type-safe sqlc queries              │
+│   - JSON serialization                  │
+│   - Parameter mapping                   │
+└─────────────────────────────────────────┘
+    ↓
+Database
+```
+
+#### Centralized Dependency Injection
+
+All dependencies are managed through `crawler/core/dependencies.py`:
+
+- **Single source of truth** for dependency injection
+- **Type aliases** for consistent injection patterns: `DBSessionDep`, `RedisDep`, `CacheServiceDep`, etc.
+- **Service factories** that create properly configured instances
+- **Reusable**: API v1 dependencies build on core dependencies
+
+Example:
+```python
+# In routes
+from crawler.api.v1.dependencies import WebsiteServiceDep
+
+@router.post("")
+async def create_website(
+    request: CreateWebsiteRequest,
+    website_service: WebsiteServiceDep,  # Automatically injected
+) -> WebsiteResponse:
+    return await create_website_handler(request, website_service)
+```
+
+#### Modular Repository Pattern
+
+Each database entity has its own repository file for better organization:
+
+- `repositories/base.py` - Shared utilities
+- `repositories/website.py` - Website operations
+- `repositories/crawl_job.py` - Crawl job operations
+- `repositories/scheduled_job.py` - Scheduled job operations
+- And more...
+
+Benefits:
+- **Easy to find**: One entity = one file
+- **Easy to maintain**: Changes isolated to specific files
+- **Easy to test**: Mock individual repositories
+- **Type-safe**: sqlc generates Pydantic models from SQL
+
 ### Working with Database
 
 This project uses **sqlc** for type-safe database queries. SQL schema files are the **single source of truth**:
@@ -237,30 +332,61 @@ This project uses **sqlc** for type-safe database queries. SQL schema files are 
 **Schema Management:**
 1. **Define schema** in `sql/schema/*.sql` (tables, indexes, types)
 2. **Write queries** in `sql/queries/*.sql` (with sqlc annotations)
-3. **Run `sqlc generate`** to generate type-safe Python code
-4. **Use repositories** in `crawler/db/repositories.py`
+3. **Run `make sqlc-generate`** to generate type-safe Python code
+4. **Create repository** in `crawler/db/repositories/` (one file per entity)
+5. **Use repositories** in services via dependency injection
+
+**Modular Repository Structure:**
+
+Each entity has its own repository file in `crawler/db/repositories/`:
+
+```
+crawler/db/repositories/
+├── __init__.py          # Exports all repositories
+├── base.py              # Shared utilities (to_uuid, etc.)
+├── website.py           # WebsiteRepository
+├── crawl_job.py         # CrawlJobRepository
+├── scheduled_job.py     # ScheduledJobRepository
+├── crawled_page.py      # CrawledPageRepository
+├── content_hash.py      # ContentHashRepository
+└── crawl_log.py         # CrawlLogRepository
+```
 
 **Key Points:**
-- No Python table definitions needed - sqlc generates Pydantic models from SQL
-- All database structure defined in SQL files only
-- Generated code in `crawler/db/generated/` (never edit manually)
-- Tests automatically create and clean up schema from SQL files
+- **Modular**: One repository per entity for better organization
+- **Type-safe**: sqlc generates Pydantic models from SQL
+- **No Python table definitions**: All structure defined in SQL files only
+- **Auto-generated code**: `crawler/db/generated/` (never edit manually)
+- **Dependency injection**: Repositories injected into services
+- **Transaction management**: Handled automatically by session context
 
-**Example Usage:**
+**Example Usage (in a service):**
 ```python
-from crawler.db import get_db
+# In a service class (recommended pattern)
 from crawler.db.repositories import WebsiteRepository
 
-async with get_db() as session:
-    async with session.begin():
-        repo = WebsiteRepository(session.connection())
-        website = await repo.create(
-            name="example",
-            base_url="https://example.com",
+class WebsiteService:
+    def __init__(self, website_repo: WebsiteRepository):
+        self.website_repo = website_repo
+
+    async def create_website(self, name: str, base_url: str) -> Website:
+        return await self.website_repo.create(
+            name=name,
+            base_url=base_url,
             config={}
         )
-        # Returns Pydantic model with type safety
-        print(website.id, website.name)
+```
+
+**Direct Usage (not recommended - use services instead):**
+```python
+from crawler.core.dependencies import DBSessionDep
+from crawler.db.repositories import WebsiteRepository
+
+async def my_function(db: DBSessionDep):
+    conn = await db.connection()
+    repo = WebsiteRepository(conn)
+    website = await repo.create(name="example", base_url="https://example.com", config={})
+    print(website.id, website.name)  # Pydantic model with type safety
 ```
 
 **Scheduled Jobs:**

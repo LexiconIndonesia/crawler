@@ -112,7 +112,8 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 **FastAPI Application** (`main.py`, `crawler/api/`)
 - Application factory pattern with `create_app()`
 - Lifespan context manager for startup/shutdown
-- API routes defined in `crawler/api/routes.py`
+- API routes defined in `crawler/api/routes.py` (base routes)
+- API v1 routes in modular structure under `crawler/api/v1/`
 - CORS middleware enabled for all origins
 
 **Configuration** (`config/settings.py`)
@@ -121,39 +122,122 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 - Cached with `@lru_cache` decorator (`get_settings()`)
 - Environment-aware: development/staging/production
 
+**Centralized Dependency Injection** (`crawler/core/dependencies.py`)
+- **Single source of truth** for all dependency injection across the application
+- **Core dependencies**: Settings, Database sessions, Redis clients
+- **Service factories**: Create service instances with proper dependency injection
+- **Type aliases**: `SettingsDep`, `DBSessionDep`, `RedisDep`, `CacheServiceDep`, etc.
+- **Consistent patterns**: All dependencies follow the same injection pattern
+- **Reusable**: API v1 dependencies build on top of core dependencies
+
+**Modular API v1 Architecture** (`crawler/api/v1/`)
+- **Clear separation of concerns** with layered architecture:
+  - `routes/` - FastAPI route definitions (thin, endpoint registration only)
+  - `handlers/` - HTTP request handlers (coordinate routes and services)
+  - `services/` - Business logic services (domain rules, no HTTP concerns)
+  - `dependencies.py` - API v1-specific DI (builds on core dependencies)
+- **Benefits**:
+  - **Testability**: Each layer can be tested independently
+  - **Maintainability**: Changes isolated to appropriate layers
+  - **Scalability**: Easy to add new endpoints following the same pattern
+  - **Type Safety**: Full type hints and dependency injection throughout
+
 **Database Layer** (`crawler/db/`)
 - **SQL schema as single source of truth**: `sql/schema/*.sql` defines all tables and types
 - **sqlc** generates type-safe Python code from SQL queries
-- **Repository pattern** provides clean interfaces over sqlc-generated code
+- **Modular repository pattern**: Each entity has its own repository file
 - SQLAlchemy 2.0 for connections and sessions only (asyncpg driver)
 - Async session factory in `session.py`, connection pooling via settings
 - SQL queries in `sql/queries/*.sql`, schema in `sql/schema/*.sql`
 - Generated code in `crawler/db/generated/` (never edit manually)
-- Repositories in `crawler/db/repositories.py` handle JSON serialization and parameter mapping
+- **Repository structure**:
+  - `repositories/base.py` - Shared utilities for all repositories
+  - `repositories/website.py` - Website-specific operations
+  - `repositories/crawl_job.py` - Crawl job operations
+  - `repositories/scheduled_job.py` - Scheduled job operations
+  - `repositories/crawled_page.py` - Crawled page operations
+  - `repositories/content_hash.py` - Content hash operations
+  - `repositories/crawl_log.py` - Crawl log operations
+- Each repository handles JSON serialization and parameter mapping
 - **Core tables**: `website`, `crawl_job`, `crawled_page`, `content_hash`, `crawl_log`, `scheduled_job`
 - **Scheduled jobs**: Websites can have default cron schedules; `scheduled_job` table tracks recurring crawls with `is_active` flag for pausing
 
 **Services** (`crawler/services/`)
 - `CacheService`: Redis-based caching for URL deduplication and rate limiting
 - `StorageService`: GCS for raw HTML storage with base64-encoded credentials
+- `URLDeduplicationCache`: Deduplicate URLs to avoid re-crawling
+- `RateLimiter`: Redis-based rate limiting for crawl requests
+- `JobProgressCache`: Track crawl job progress in Redis
+- `BrowserPoolStatus`: Monitor browser pool status
+- `JobCancellationFlag`: Manage job cancellation signals
 - All services use async/await patterns
+- All services injected via centralized dependency system
 
 **Observability** (`crawler/core/`)
 - `logging.py`: structlog for structured JSON logging
 - `metrics.py`: Prometheus metrics (HTTP, crawler tasks, browser, queue, DB, cache)
+- `dependencies.py`: Centralized dependency injection system
 - Metrics exposed at `/metrics` endpoint
 - Health check at `/health` with DB connection verification
 
 ### Data Flow Patterns
 
 1. **Configuration Loading**: Settings loaded once via `get_settings()` LRU cache
-2. **Database Access**:
-   - Use `Depends(get_db)` for SQLAlchemy sessions (legacy patterns)
-   - Use repository classes with `AsyncConnection` for sqlc queries (preferred)
+2. **Dependency Injection Flow**:
+   - Import type aliases from `crawler.core.dependencies` (e.g., `DBSessionDep`, `RedisDep`)
+   - FastAPI automatically injects dependencies based on type annotations
+   - Services receive their dependencies through constructors
+   - Repositories receive database connections from services
+3. **Database Access**:
+   - Use centralized `DBSessionDep` from `crawler.core.dependencies`
+   - Repository classes use `AsyncConnection` for sqlc queries
    - All queries return type-safe Pydantic models
-3. **Logging**: Get logger with `get_logger(__name__)`, logs structured JSON
-4. **Storage**: Base64-encoded GCS credentials decoded and used to create service account
-5. **Caching**: Redis async client for URL deduplication and rate limiting
+   - Transactions managed automatically by session context
+4. **Logging**: Get logger with `get_logger(__name__)`, logs structured JSON
+5. **Storage**: Base64-encoded GCS credentials decoded and used to create service account
+6. **Caching**: Redis services injected via centralized dependencies
+
+### Modular Architecture Pattern (API v1)
+
+The application follows a **layered architecture** with clear separation of concerns:
+
+```
+HTTP Request
+    ↓
+[Route Layer] (crawler/api/v1/routes/*.py)
+    - Registers FastAPI endpoints
+    - Defines OpenAPI documentation
+    - Specifies response models
+    - MINIMAL logic (just routing)
+    ↓
+[Handler Layer] (crawler/api/v1/handlers/*.py)
+    - Validates HTTP requests
+    - Coordinates service calls
+    - Translates exceptions to HTTP responses
+    - Handles HTTP-specific concerns
+    ↓
+[Service Layer] (crawler/api/v1/services/*.py)
+    - Implements business logic
+    - Enforces domain rules
+    - Manages transactions
+    - NO HTTP awareness
+    ↓
+[Repository Layer] (crawler/db/repositories/*.py)
+    - Database operations only
+    - Type-safe sqlc-generated queries
+    - JSON serialization
+    - Parameter mapping
+    ↓
+Database
+```
+
+**Key Principles**:
+
+1. **Single Responsibility**: Each layer has one clear purpose
+2. **Dependency Direction**: Dependencies flow downward (routes → handlers → services → repositories)
+3. **Testing**: Each layer can be tested independently with mocked dependencies
+4. **Reusability**: Services can be used by multiple handlers; repositories by multiple services
+5. **Type Safety**: Full type hints throughout all layers
 
 ### Key Design Decisions
 
@@ -168,27 +252,154 @@ make encode-gcs FILE=path/to/creds.json  # Encode GCS credentials to base64
 
 ### Adding a New API Endpoint
 
-**Important**: All API models must be imported from `crawler.api.generated`, not from any other location.
+**Important**: Follow the modular layered architecture. All API models must be imported from `crawler.api.generated`.
 
-1. Define schema in `openapi.yaml` first (contract-first approach)
-2. Run `make generate-models` to generate Pydantic models
-3. Define route in `crawler/api/v1/routes/*.py` or `crawler/api/routes.py`
-4. Import models: `from crawler.api.generated import YourRequestModel, YourResponseModel`
-5. Use repository classes for database access (see "Working with Database" below)
-6. Add metrics tracking if needed (import from `crawler.core.metrics`)
-7. Use structured logging: `logger.info("event_name", key=value)`
+#### Step-by-Step Guide:
 
-**Import Examples**:
+**1. Define API Contract** (`openapi.yaml`)
+```yaml
+# Define request/response schemas in openapi.yaml
+paths:
+  /api/v1/resources:
+    post:
+      summary: Create a resource
+      operationId: createResource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceRequest'
+```
+
+**2. Generate Models**
+```bash
+make generate-models  # Generates Pydantic models from OpenAPI spec
+```
+
+**3. Create Route** (`crawler/api/v1/routes/resources.py`)
+```python
+from fastapi import APIRouter, status
+from crawler.api.generated import CreateResourceRequest, ResourceResponse
+from crawler.api.v1.dependencies import ResourceServiceDep
+from crawler.api.v1.handlers import create_resource_handler
+
+router = APIRouter()
+
+@router.post("", response_model=ResourceResponse, status_code=status.HTTP_201_CREATED)
+async def create_resource(
+    request: CreateResourceRequest,
+    resource_service: ResourceServiceDep,
+) -> ResourceResponse:
+    """Create a new resource."""
+    return await create_resource_handler(request, resource_service)
+```
+
+**4. Create Handler** (`crawler/api/v1/handlers/resources.py`)
+```python
+from fastapi import HTTPException, status
+from crawler.api.generated import CreateResourceRequest, ResourceResponse
+from crawler.api.v1.services import ResourceService
+from crawler.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+async def create_resource_handler(
+    request: CreateResourceRequest,
+    resource_service: ResourceService,
+) -> ResourceResponse:
+    """Handle resource creation with HTTP error translation."""
+    logger.info("create_resource_request", resource_name=request.name)
+
+    try:
+        return await resource_service.create_resource(request)
+    except ValueError as e:
+        # Business validation error
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        # Unexpected error
+        logger.error("unexpected_error", error=str(e), exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+```
+
+**5. Create Service** (`crawler/api/v1/services/resources.py`)
+```python
+from crawler.api.generated import CreateResourceRequest, ResourceResponse
+from crawler.db.repositories import ResourceRepository
+from crawler.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+class ResourceService:
+    """Service for resource business logic."""
+
+    def __init__(self, resource_repo: ResourceRepository):
+        self.resource_repo = resource_repo
+
+    async def create_resource(self, request: CreateResourceRequest) -> ResourceResponse:
+        """Create resource with business logic validation."""
+        # Validate business rules
+        existing = await self.resource_repo.get_by_name(request.name)
+        if existing:
+            raise ValueError(f"Resource '{request.name}' already exists")
+
+        # Create resource
+        resource = await self.resource_repo.create(name=request.name, ...)
+
+        logger.info("resource_created", resource_id=str(resource.id))
+        return ResourceResponse.model_validate(resource)
+```
+
+**6. Add Dependency Provider** (`crawler/api/v1/dependencies.py`)
+```python
+from typing import Annotated
+from fastapi import Depends
+from crawler.api.v1.services import ResourceService
+from crawler.core.dependencies import DBSessionDep
+from crawler.db.repositories import ResourceRepository
+
+async def get_resource_service(db: DBSessionDep) -> ResourceService:
+    """Get resource service with injected dependencies."""
+    conn = await db.connection()
+    resource_repo = ResourceRepository(conn)
+    return ResourceService(resource_repo=resource_repo)
+
+ResourceServiceDep = Annotated[ResourceService, Depends(get_resource_service)]
+```
+
+**7. Create Repository** (if needed - see "Working with Database" below)
+
+**8. Register Router** (`crawler/api/v1/router.py`)
+```python
+from crawler.api.v1.routes import resources
+
+api_v1_router.include_router(resources.router, prefix="/resources", tags=["Resources"])
+```
+
+**Import Pattern Examples**:
 ```python
 # ✅ CORRECT: Import from crawler.api.generated
-from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
+from crawler.api.generated import CreateResourceRequest, ResourceResponse
+
+# ✅ CORRECT: Import dependencies from core
+from crawler.core.dependencies import DBSessionDep, RedisDep
+
+# ✅ CORRECT: Import type aliases from v1 dependencies
+from crawler.api.v1.dependencies import ResourceServiceDep
 
 # ❌ INCORRECT: Don't import from models.py directly
-from crawler.api.generated.models import CreateWebsiteRequest
+from crawler.api.generated.models import CreateResourceRequest
 
 # ✅ CORRECT: For common schemas (non-OpenAPI models)
 from crawler.api.schemas import ErrorResponse, HealthResponse
 ```
+
+**Key Points**:
+- **Routes**: Thin, just endpoint registration and OpenAPI docs
+- **Handlers**: HTTP concerns, error translation, no business logic
+- **Services**: Business logic, domain rules, transaction management
+- **Dependencies**: Use centralized DI from `crawler.core.dependencies`
+- **Repositories**: Database operations only (see "Working with Database")
 
 ### Adding a New Service
 1. Create service class in `crawler/services/`
@@ -199,38 +410,112 @@ from crawler.api.schemas import ErrorResponse, HealthResponse
 
 ### Working with Database
 
-**Adding New Queries**:
-1. Write SQL query in `sql/queries/*.sql` following sqlc syntax
-2. Run `sqlc generate` to generate Python code
-3. Import generated queries in `crawler/db/repositories.py`
-4. Add repository method wrapping the generated query
-5. Use repository in your routes/services
+The project uses a **modular repository pattern** with each entity having its own repository file in `crawler/db/repositories/`.
+
+**Repository Structure**:
+```
+crawler/db/repositories/
+├── __init__.py          # Exports all repositories
+├── base.py              # Shared utilities (to_uuid, etc.)
+├── website.py           # WebsiteRepository
+├── crawl_job.py         # CrawlJobRepository
+├── scheduled_job.py     # ScheduledJobRepository
+├── crawled_page.py      # CrawledPageRepository
+├── content_hash.py      # ContentHashRepository
+└── crawl_log.py         # CrawlLogRepository
+```
+
+**Adding a New Repository**:
+
+1. **Write SQL queries** in `sql/queries/your_entity.sql`:
+```sql
+-- name: CreateYourEntity :one
+INSERT INTO your_entity (name, config) VALUES ($1, $2) RETURNING *;
+
+-- name: GetYourEntityByID :one
+SELECT * FROM your_entity WHERE id = $1;
+```
+
+2. **Generate type-safe code**:
+```bash
+make sqlc-generate  # or: sqlc generate
+```
+
+3. **Create repository file** `crawler/db/repositories/your_entity.py`:
+```python
+from sqlalchemy.ext.asyncio import AsyncConnection
+from crawler.db.generated import queries
+from crawler.db.generated.models import YourEntity
+from crawler.db.repositories.base import to_uuid
+
+class YourEntityRepository:
+    """Repository for your_entity table operations."""
+
+    def __init__(self, conn: AsyncConnection):
+        self.conn = conn
+
+    async def create(self, name: str, config: dict) -> YourEntity:
+        """Create a new entity."""
+        return await queries.create_your_entity(
+            self.conn, name=name, config=config
+        )
+
+    async def get_by_id(self, entity_id: str) -> YourEntity | None:
+        """Get entity by ID."""
+        return await queries.get_your_entity_by_id(
+            self.conn, id=to_uuid(entity_id)
+        )
+```
+
+4. **Export from `__init__.py`**:
+```python
+from crawler.db.repositories.your_entity import YourEntityRepository
+
+__all__ = ["YourEntityRepository", ...]
+```
+
+5. **Use in services** via dependency injection (see "Adding a New API Endpoint")
 
 **Schema Changes**:
 1. Add new table or modify schema in `sql/schema/*.sql` (single source of truth)
 2. Create new SQL migration file in `sql/schema/` with next version number
 3. Add sqlc queries in `sql/queries/*.sql` for the new table
-4. Run `sqlc generate` to generate type-safe Python models and queries
-5. Add repository methods in `crawler/db/repositories.py` if needed
-6. Update tests to verify new functionality
+4. Run `make sqlc-generate` to generate type-safe Python models and queries
+5. Create new repository file in `crawler/db/repositories/`
+6. Export repository in `crawler/db/repositories/__init__.py`
+7. Update tests to verify new functionality
 
 **Note**: SQL schema files are the only place to define database structure. No Python table definitions needed - sqlc generates Pydantic models directly from SQL queries.
 
-**Using Repositories**:
+**Using Repositories in Services**:
 ```python
-from crawler.db import get_db
+# In a service (dependency injection pattern)
 from crawler.db.repositories import WebsiteRepository
 
-async with get_db() as session:
-    async with session.begin():
-        repo = WebsiteRepository(session.connection())
-        website = await repo.create(
-            name="example",
-            base_url="https://example.com",
+class WebsiteService:
+    def __init__(self, website_repo: WebsiteRepository):
+        self.website_repo = website_repo
+
+    async def create_website(self, name: str, base_url: str) -> Website:
+        # Repository handles all database operations
+        return await self.website_repo.create(
+            name=name,
+            base_url=base_url,
             config={}
         )
-        # Returns Pydantic model with type safety
-        print(website.id, website.name)
+```
+
+**Using Repositories Directly** (not recommended - use services instead):
+```python
+from crawler.core.dependencies import DBSessionDep
+from crawler.db.repositories import WebsiteRepository
+
+async def my_function(db: DBSessionDep):
+    conn = await db.connection()
+    repo = WebsiteRepository(conn)
+    website = await repo.create(name="example", base_url="https://example.com", config={})
+    # Returns Pydantic model with type safety
+    print(website.id, website.name)
 ```
 
 ### Working with Scheduled Jobs
