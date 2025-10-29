@@ -2,8 +2,7 @@
 
 from fastapi import APIRouter, status
 
-from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
-from crawler.api.schemas import ErrorResponse
+from crawler.api.generated import CreateWebsiteRequest, ErrorResponse, WebsiteResponse
 from crawler.api.v1.dependencies import WebsiteServiceDep
 from crawler.api.v1.handlers import create_website_handler
 

@@ -309,6 +309,39 @@ async def create_website(
     return await create_website_handler(request, website_service)
 ```
 
+#### Error Handling Decorator
+
+All API handlers use the `@handle_service_errors` decorator for consistent exception handling:
+
+**Location**: `crawler/api/v1/decorators.py`
+
+**Benefits**:
+- **DRY Principle**: Error handling logic defined once
+- **Consistency**: All API endpoints return errors in the same format
+- **Maintainability**: Changes to error handling only needed in one place
+- **Logging**: Automatic structured logging of all errors
+
+**Exception Mapping**:
+- `ValueError` → **400 Bad Request** (business validation: "not found", "already exists")
+- `RuntimeError` → **500 Internal Server Error** (service operation failures)
+- `Exception` → **500 Internal Server Error** (unexpected errors)
+- `HTTPException` → **Re-raised as-is** (pre-validation errors)
+
+Example:
+```python
+# In handlers
+from crawler.api.v1.decorators import handle_service_errors
+
+@handle_service_errors(operation="creating the website")
+async def create_website_handler(
+    request: CreateWebsiteRequest,
+    website_service: WebsiteService,
+) -> WebsiteResponse:
+    logger.info("create_website_request", name=request.name)
+    # Error handling automatic via decorator
+    return await website_service.create_website(request)
+```
+
 #### Modular Repository Pattern
 
 Each database entity has its own repository file for better organization:

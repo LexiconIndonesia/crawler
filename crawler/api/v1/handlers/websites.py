@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException, status
 
 from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
+from crawler.api.v1.decorators import handle_service_errors
 from crawler.api.v1.services import WebsiteService
 from crawler.api.validators import validate_and_calculate_next_run
 from crawler.core.logging import get_logger
@@ -16,6 +17,7 @@ from crawler.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+@handle_service_errors(operation="creating the website")
 async def create_website_handler(
     request: CreateWebsiteRequest,
     website_service: WebsiteService,
@@ -23,7 +25,7 @@ async def create_website_handler(
     """Handle website creation with configuration and scheduling.
 
     This handler validates the request, delegates business logic to the service,
-    and translates service exceptions to HTTP responses.
+    and translates service exceptions to HTTP responses via the decorator.
 
     Args:
         request: Website creation request with configuration
@@ -53,30 +55,5 @@ async def create_website_handler(
 
     next_run_time = result if isinstance(result, datetime) else datetime.now(UTC)
 
-    try:
-        # Delegate to service layer (transaction managed by get_db dependency)
-        return await website_service.create_website(request, next_run_time)
-
-    except ValueError as e:
-        # Business validation error (e.g., duplicate name)
-        logger.warning("validation_error", error=str(e), website_name=request.name)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-
-    except RuntimeError as e:
-        # Service operation error - log details but return generic message
-        logger.error("service_error", error=str(e), website_name=request.name, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the website",
-        ) from e
-
-    except Exception as e:
-        # Unexpected error - log with full stack trace but return generic message
-        logger.error("unexpected_error", error=str(e), website_name=request.name, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred",
-        ) from e
+    # Delegate to service layer (error handling done by decorator)
+    return await website_service.create_website(request, next_run_time)

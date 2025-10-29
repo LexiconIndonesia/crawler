@@ -3,22 +3,63 @@
 This module extends the auto-generated models with custom business logic validators.
 """
 
-from typing import Annotated
+from typing import Annotated, TypeVar
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .models import (
-    CreateSeedJobRequest as _CreateSeedJobRequest,
-    CreateWebsiteRequest as _CreateWebsiteRequest,
     CrawlStep as _CrawlStep,
+)
+from .models import (
+    CreateSeedJobInlineRequest as _CreateSeedJobInlineRequest,
+)
+from .models import (
+    CreateSeedJobRequest as _CreateSeedJobRequest,
+)
+from .models import (
+    CreateWebsiteRequest as _CreateWebsiteRequest,
+)
+from .models import (
     GlobalConfig,
     HttpMethod,
     MethodEnum,
-    ScheduleConfig as _ScheduleConfig,
     ScheduleTypeEnum,
-    StepConfig as _StepConfig,
     WaitUntil,
 )
+from .models import (
+    ScheduleConfig as _ScheduleConfig,
+)
+from .models import (
+    StepConfig as _StepConfig,
+)
+
+# Type variable for mixin self-reference
+T = TypeVar("T", bound=BaseModel)
+
+
+class StepNamesValidationMixin(BaseModel):
+    """Mixin for validating step names are unique.
+
+    This mixin provides a shared validator for models that have a `steps` field
+    containing a list of CrawlStep objects. It ensures all step names are unique.
+
+    Usage:
+        class MyRequest(StepNamesValidationMixin, _MyRequest):
+            steps: list[CrawlStep]
+    """
+
+    @model_validator(mode="after")
+    def validate_step_names_unique(self: T) -> T:
+        """Validate step names are unique across all steps.
+
+        Raises:
+            ValueError: If duplicate step names are found
+        """
+        if hasattr(self, "steps"):
+            step_names = [step.name for step in self.steps]
+            if len(step_names) != len(set(step_names)):
+                raise ValueError("Step names must be unique")
+        return self
 
 
 class CreateSeedJobRequest(_CreateSeedJobRequest):
@@ -57,8 +98,11 @@ class CrawlStep(_CrawlStep):
         return self
 
 
-class CreateWebsiteRequest(_CreateWebsiteRequest):
-    """Extended CreateWebsiteRequest with custom validators."""
+class CreateWebsiteRequest(StepNamesValidationMixin, _CreateWebsiteRequest):
+    """Extended CreateWebsiteRequest with custom validators.
+
+    Inherits step name validation from StepNamesValidationMixin.
+    """
 
     # Override with default values to match original behavior
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
@@ -79,10 +123,29 @@ class CreateWebsiteRequest(_CreateWebsiteRequest):
             raise ValueError("base_url must start with http:// or https://")
         return v
 
-    @model_validator(mode="after")
-    def validate_step_names_unique(self) -> "CreateWebsiteRequest":
-        """Validate step names are unique."""
-        step_names = [step.name for step in self.steps]
-        if len(step_names) != len(set(step_names)):
-            raise ValueError("Step names must be unique")
-        return self
+
+class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineRequest):
+    """Extended CreateSeedJobInlineRequest with custom validators.
+
+    Inherits step name validation from StepNamesValidationMixin.
+    """
+
+    # Override to make priority non-nullable (defaults to 5 per OpenAPI spec)
+    priority: int = 5
+    # Override with default value for global_config
+    global_config: GlobalConfig = Field(default_factory=GlobalConfig)
+    # Use extended CrawlStep with validators
+    steps: Annotated[
+        list[CrawlStep],
+        Field(description="List of crawl/scrape steps to execute", min_length=1),
+    ]
+
+    @field_validator("seed_url")
+    @classmethod
+    def validate_seed_url(cls, v: str) -> str:
+        """Validate seed_url is a valid URL."""
+        # Convert AnyUrl to string if needed
+        url_str = str(v) if not isinstance(v, str) else v
+        if not url_str.startswith(("http://", "https://")):
+            raise ValueError("seed_url must start with http:// or https://")
+        return v

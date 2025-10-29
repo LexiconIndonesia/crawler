@@ -10,9 +10,9 @@ from crawler.api.generated import (
     CrawlStep,
     CreateWebsiteRequest,
     MethodEnum,
+    StatusEnum,
     StepTypeEnum,
 )
-from crawler.api.schemas import StatusEnum
 from crawler.api.v1.services import WebsiteService
 from crawler.db.generated.models import Website
 
