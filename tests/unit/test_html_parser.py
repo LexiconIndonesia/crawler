@@ -220,6 +220,19 @@ class TestHTMLParserService:
         )
         assert result == "https://cdn.example.com/image.jpg"
 
+    def test_resolve_relative_url_invalid_base(self, html_parser: HTMLParserService) -> None:
+        """Test resolving URL with invalid base URL raises exception."""
+        import pytest
+
+        # urljoin is more forgiving than expected, but some cases still fail
+        # Test with None as base URL
+        with pytest.raises(ValueError, match="Failed to resolve URL"):
+            html_parser.resolve_relative_url("/article", None)
+
+        # Test with a malformed URL that causes urljoin to fail
+        with pytest.raises(ValueError, match="Failed to resolve URL"):
+            html_parser.resolve_relative_url("/article", "http://[invalid-ipv6")
+
     def test_extract_data_attribute(self, html_parser: HTMLParserService, sample_html: str) -> None:
         """Test extracting data attributes."""
         results = html_parser.extract_data(
@@ -272,3 +285,148 @@ class TestHTMLParserService:
         assert metadata is not None
         assert metadata["title"] is None
         assert metadata["preview"] is None
+
+    def test_extract_url_metadata_with_parent_scope(
+        self, html_parser: HTMLParserService
+    ) -> None:
+        """Test that metadata extraction is correctly scoped to parent container."""
+        html_with_multiple_items = """
+        <div class="container">
+            <article class="article">
+                <h3 class="title">First Article</h3>
+                <p class="preview">First preview text</p>
+                <a href="/article/1" class="link">Read more</a>
+            </article>
+            <article class="article">
+                <h3 class="title">Second Article</h3>
+                <p class="preview">Second preview text</p>
+                <a href="/article/2" class="link">Read more</a>
+            </article>
+        </div>
+        """
+
+        soup = html_parser.parse_html(html_with_multiple_items)
+
+        # Get both article links
+        first_link = soup.select("article")[0].select_one(".link")
+        second_link = soup.select("article")[1].select_one(".link")
+
+        # Extract metadata for each link with parent scoping
+        first_metadata = html_parser.extract_url_metadata(
+            soup, first_link,
+            metadata_fields={"title": ".title", "preview": ".preview"},
+            parent_selector="article"
+        )
+
+        second_metadata = html_parser.extract_url_metadata(
+            soup, second_link,
+            metadata_fields={"title": ".title", "preview": ".preview"},
+            parent_selector="article"
+        )
+
+        # Verify each link got its own metadata
+        assert first_metadata["title"] == "First Article"
+        assert first_metadata["preview"] == "First preview text"
+
+        assert second_metadata["title"] == "Second Article"
+        assert second_metadata["preview"] == "Second preview text"
+
+        # Test without parent selector - would get wrong metadata in real scenarios
+        first_metadata_no_scope = html_parser.extract_url_metadata(
+            soup, first_link,
+            metadata_fields={"title": ".title", "preview": ".preview"},
+            parent_selector=None
+        )
+
+        # Without scoping, it gets the first match from the entire document
+        assert first_metadata_no_scope["title"] == "First Article"  # First match globally
+        assert first_metadata_no_scope["preview"] == "First preview text"  # First match globally
+
+    def test_parse_html_raw(self, html_parser: HTMLParserService, sample_html: str) -> None:
+        """Test parsing HTML into raw lxml tree."""
+        tree = html_parser.parse_html_raw(sample_html)
+
+        # Tree should be an lxml Element
+        assert tree.tag == "html"
+
+        # Can use XPath on the tree
+        titles = tree.xpath("//h3[@class='article-title']/text()")
+        assert len(titles) == 3
+        assert "First Article" in titles
+        assert "Second Article" in titles
+        assert "Third Article" in titles
+
+    def test_apply_xpath_with_parsed_tree(
+        self, html_parser: HTMLParserService, sample_html: str
+    ) -> None:
+        """Test applying XPath to pre-parsed tree (optimization)."""
+        # Parse once
+        tree = html_parser.parse_html_raw(sample_html)
+
+        # Apply multiple XPath expressions without re-parsing
+        titles = html_parser.apply_xpath(tree, "//h3[@class='article-title']")
+        links = html_parser.apply_xpath(tree, "//a[@class='article-link']", attribute="href")
+
+        assert len(titles) == 3
+        assert "First Article" in titles
+        assert len(links) == 2
+        assert "/article/1" in links
+        assert "/article/2" in links
+
+    def test_extract_data_from_parsed_css(
+        self, html_parser: HTMLParserService, sample_html: str
+    ) -> None:
+        """Test extracting data from pre-parsed BeautifulSoup object."""
+        soup = html_parser.parse_html(sample_html)
+
+        # Extract multiple items without re-parsing
+        titles = html_parser.extract_data_from_parsed(
+            soup, ".article-title", result_type="array"
+        )
+        first_link = html_parser.extract_data_from_parsed(
+            soup, ".article-link", attribute="href"
+        )
+
+        assert len(titles) == 3
+        assert "First Article" in titles
+        assert first_link == "/article/1"
+
+    def test_extract_data_from_parsed_xpath(
+        self, html_parser: HTMLParserService, sample_html: str
+    ) -> None:
+        """Test extracting data from pre-parsed lxml tree using XPath."""
+        tree = html_parser.parse_html_raw(sample_html)
+
+        # Extract multiple items without re-parsing
+        titles = html_parser.extract_data_from_parsed(
+            tree, "//h3[@class='article-title']/text()", selector_type="xpath", result_type="array"
+        )
+        first_link = html_parser.extract_data_from_parsed(
+            tree, "//a[@class='article-link']/@href", selector_type="xpath"
+        )
+
+        assert len(titles) == 3
+        assert "First Article" in titles
+        assert first_link == "/article/1"
+
+    def test_xpath_text_extraction_with_nested_elements(
+        self, html_parser: HTMLParserService
+    ) -> None:
+        """Test XPath text extraction includes text from child elements."""
+        html_with_nested = """
+        <div class="content">
+            <p>This is <b>bold</b> text</p>
+            <div>Some <i>italic</i> and <span>span</span> content</div>
+        </div>
+        """
+
+        # Test XPath extraction includes all text
+        tree = html_parser.parse_html_raw(html_with_nested)
+
+        # Extract text from elements with nested content
+        p_text = html_parser.apply_xpath(tree, "//p")
+        inner_div_text = html_parser.apply_xpath(tree, "//div[@class='content']/div")
+
+        # Should include text from all child elements
+        assert "This is bold text" in p_text
+        assert "Some italic and span content" in inner_div_text

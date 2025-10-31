@@ -202,6 +202,49 @@ class URLDeduplicationCache:
             logger.error("url_dedup_delete_url_error", url=url, error=str(e))
             return False
 
+    async def exists_batch(self, url_hashes: list[str]) -> set[str]:
+        """Check if multiple URL hashes exist in cache (batch operation).
+
+        This method is more efficient than checking each hash individually
+        as it uses a single Redis MGET command.
+
+        Args:
+            url_hashes: List of SHA256 hashes to check.
+
+        Returns:
+            Set of URL hashes that exist in the cache.
+        """
+        if not url_hashes:
+            return set()
+
+        try:
+            # Create Redis keys for all hashes
+            keys = [self._make_key(url_hash) for url_hash in url_hashes]
+
+            # Use MGET to check all keys in one network round trip
+            values = await self.redis.mget(keys)
+
+            # Collect hashes that have values (exist in cache)
+            existing_hashes = {
+                url_hash for url_hash, value in zip(url_hashes, values) if value is not None
+            }
+
+            logger.debug("url_dedup_batch_check",
+                        checked_count=len(url_hashes),
+                        existing_count=len(existing_hashes))
+            return existing_hashes
+
+        except Exception as e:
+            logger.error("url_dedup_batch_check_error",
+                        hash_count=len(url_hashes),
+                        error=str(e))
+            # Fall back to individual checks if batch fails
+            existing = set()
+            for url_hash in url_hashes:
+                if await self.exists(url_hash):
+                    existing.add(url_hash)
+            return existing
+
 
 class JobCancellationFlag:
     """Redis-based job cancellation flags.

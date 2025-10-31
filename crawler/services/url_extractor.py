@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from crawler.api.generated import SelectorConfig
 from crawler.api.generated.models import Type2
 from crawler.core.logging import get_logger
@@ -58,6 +60,7 @@ class URLExtractorService:
         metadata_selectors: dict[str, str] | None = None,
         deduplicate: bool = True,
         job_id: str | None = None,
+        container_selector: str | None = None,
     ) -> list[ExtractedURL]:
         """Extract detail page URLs from list page HTML.
 
@@ -65,9 +68,13 @@ class URLExtractorService:
             html_content: HTML content of the list page
             base_url: Base URL for resolving relative URLs
             url_selector: Selector for extracting URLs (string or SelectorConfig)
-            metadata_selectors: Optional dict of field_name -> CSS_selector for metadata
+            metadata_selectors: Optional dict of field_name -> CSS_selector for metadata.
+                              These selectors are applied within each container scope.
             deduplicate: If True, deduplicate URLs within this extraction
             job_id: Optional job ID for deduplication cache tracking
+            container_selector: Optional CSS selector for item containers (e.g., "article").
+                              URLs and metadata are extracted within each container
+                              to ensure correct association. Recommended for list pages.
 
         Returns:
             List of ExtractedURL objects with normalized URLs and metadata
@@ -81,17 +88,13 @@ class URLExtractorService:
                 url_selector="a.link",
             )
 
-            # Full SelectorConfig with href attribute
-            config = SelectorConfig(
-                selector="a.article-link",
-                attribute="href",
-                type="array"
-            )
+            # Extract with containers for correct metadata association
             urls = await extractor.extract_urls(
                 html_content=html,
                 base_url="https://example.com",
-                url_selector=config,
-                metadata_selectors={"title": "h3.article-title"},
+                url_selector="a.article-link",
+                metadata_selectors={"title": "h3.article-title", "preview": "p.preview"},
+                container_selector="article"  # Each article contains its own link and metadata
             )
             ```
         """
@@ -103,67 +106,158 @@ class URLExtractorService:
         )
 
         # Parse selector configuration
-        selector, attribute, result_type, selector_type = self._parse_selector_config(url_selector)
-
-        # Extract URLs using selector
-        raw_urls = self.html_parser.extract_data(
-            content=html_content,
-            selector=selector,
-            attribute=attribute,
-            selector_type=selector_type,
-            result_type=result_type,
+        url_selector_str, url_attribute, result_type, selector_type = self._parse_selector_config(
+            url_selector
         )
 
-        # Normalize to list
-        if isinstance(raw_urls, str):
-            raw_urls = [raw_urls]
-        elif raw_urls is None:
-            raw_urls = []
+        # Parse HTML once for efficiency
+        soup = self.html_parser.parse_html(html_content)
 
-        logger.debug("urls_extracted_raw", count=len(raw_urls))
-
-        # Process each URL
+        # Extract URLs and metadata from containers
         extracted_urls: list[ExtractedURL] = []
         seen_hashes: set[str] = set()  # For within-extraction deduplication
+        url_info_list: list[tuple[str, str, str, str, dict[str, Any]]] = []
+        raw_count = 0  # Track count of raw URLs/items processed
 
-        for raw_url in raw_urls:
-            if not raw_url or not isinstance(raw_url, str):
-                continue
+        if container_selector:
+            # Container-based extraction: Process each container separately
+            # This ensures correct metadata association
+            containers = self.html_parser.select_elements(
+                soup, container_selector, select_all=True
+            )
+            raw_count = len(containers)
+            logger.debug("containers_found", count=raw_count)
 
-            # Resolve relative URLs
-            absolute_url = self.html_parser.resolve_relative_url(raw_url, base_url)
+            for container_element in containers:
+                # Extract URL from this container
+                container_soup = BeautifulSoup(str(container_element), "lxml")
+                raw_url = self.html_parser.extract_data_from_parsed(
+                    container_soup,
+                    url_selector_str,
+                    attribute=url_attribute or "href",  # Default to href if no attribute specified
+                    selector_type=selector_type,
+                    result_type="single",
+                )
 
-            # Normalize and hash
-            try:
-                normalized = normalize_url(absolute_url)
-                url_hash = hash_url(absolute_url, normalize=True)
-            except ValueError as e:
-                logger.warning("url_normalization_failed", url=absolute_url, error=str(e))
-                continue
-
-            # Skip if duplicate within this extraction
-            if deduplicate and url_hash in seen_hashes:
-                logger.debug("url_duplicate_within_extraction", url=normalized)
-                continue
-
-            # Check deduplication cache if available
-            if deduplicate and self.dedup_cache:
-                if await self.dedup_cache.exists(url_hash):
-                    logger.debug("url_duplicate_in_cache", url=normalized)
+                if not raw_url or not isinstance(raw_url, str):
                     continue
 
-            # Extract metadata (if selectors provided)
-            metadata: dict[str, Any] = {}
-            if metadata_selectors:
-                for field_name, meta_selector in metadata_selectors.items():
-                    value = self.html_parser.extract_data(
-                        content=html_content,
-                        selector=meta_selector,
-                        attribute=None,
-                        result_type="single",
+                # Resolve relative URLs
+                absolute_url = self.html_parser.resolve_relative_url(raw_url, base_url)
+
+                # Normalize and hash
+                try:
+                    normalized = normalize_url(absolute_url)
+                    url_hash = hash_url(absolute_url, normalize=True)
+                except ValueError as e:
+                    logger.warning("url_normalization_failed", url=absolute_url, error=str(e))
+                    continue
+
+                # Skip if duplicate within this extraction
+                if deduplicate and url_hash in seen_hashes:
+                    logger.debug("url_duplicate_within_extraction", url=normalized)
+                    continue
+
+                # Extract metadata from within this container
+                metadata: dict[str, Any] = {}
+                if metadata_selectors:
+                    for field_name, meta_selector in metadata_selectors.items():
+                        value = self.html_parser.extract_data_from_parsed(
+                            container_soup,
+                            meta_selector,
+                            attribute=None,
+                            result_type="single",
+                        )
+                        if value:
+                            metadata[field_name] = value
+
+                # Store URL info with metadata
+                url_info_list.append((raw_url, absolute_url, normalized, url_hash, metadata))
+                seen_hashes.add(url_hash)
+        else:
+            # Fallback: Extract URLs from entire document (legacy behavior - less accurate)
+            logger.warning(
+                "extracting_urls_without_container",
+                message="Document-wide extraction. Use container_selector for accurate metadata.",
+            )
+
+            raw_urls = self.html_parser.extract_data_from_parsed(
+                soup,
+                url_selector_str,
+                attribute=url_attribute,
+                selector_type=selector_type,
+                result_type="array",
+            )
+
+            # Normalize to list
+            if isinstance(raw_urls, str):
+                raw_urls = [raw_urls]
+            elif raw_urls is None:
+                raw_urls = []
+
+            raw_count = len(raw_urls)
+
+            for raw_url in raw_urls:
+                if not raw_url or not isinstance(raw_url, str):
+                    continue
+
+                # Resolve relative URLs
+                absolute_url = self.html_parser.resolve_relative_url(raw_url, base_url)
+
+                # Normalize and hash
+                try:
+                    normalized = normalize_url(absolute_url)
+                    url_hash = hash_url(absolute_url, normalize=True)
+                except ValueError as e:
+                    logger.warning("url_normalization_failed", url=absolute_url, error=str(e))
+                    continue
+
+                # Skip if duplicate within this extraction
+                if deduplicate and url_hash in seen_hashes:
+                    logger.debug("url_duplicate_within_extraction", url=normalized)
+                    continue
+
+                # Extract metadata (WARNING: This will get first match from entire page)
+                metadata: dict[str, Any] = {}
+                if metadata_selectors:
+                    logger.warning(
+                        "metadata_extraction_document_wide",
+                        message="All URLs get metadata from first match. Use container_selector.",
                     )
-                    if value:
-                        metadata[field_name] = value
+                    for field_name, meta_selector in metadata_selectors.items():
+                        value = self.html_parser.extract_data_from_parsed(
+                            soup,
+                            meta_selector,
+                            attribute=None,
+                            result_type="single",
+                        )
+                        if value:
+                            metadata[field_name] = value
+
+                # Store URL info with metadata
+                url_info_list.append((raw_url, absolute_url, normalized, url_hash, metadata))
+                seen_hashes.add(url_hash)
+
+        logger.debug("urls_extracted_before_dedup", count=len(url_info_list))
+
+        # Batch check for duplicates in cache if deduplication is enabled
+        cached_duplicates: set[str] = set()
+        if deduplicate and self.dedup_cache and url_info_list:
+            # Extract all URL hashes for batch check
+            url_hashes_to_check = [url_hash for _, _, _, url_hash, _ in url_info_list]
+            cached_duplicates = await self.dedup_cache.exists_batch(url_hashes_to_check)
+            logger.debug(
+                "url_batch_dedup_check",
+                total_urls=len(url_hashes_to_check),
+                cached_duplicates=len(cached_duplicates),
+            )
+
+        # Process URLs that are not duplicates
+        for raw_url, absolute_url, normalized, url_hash, metadata in url_info_list:
+            # Skip if found in cache
+            if url_hash in cached_duplicates:
+                logger.debug("url_duplicate_in_cache", url=normalized)
+                continue
 
             # Create extracted URL object
             extracted = ExtractedURL(
@@ -175,10 +269,6 @@ class URLExtractorService:
                 metadata=metadata if metadata else None,
             )
             extracted_urls.append(extracted)
-
-            # Track for within-extraction deduplication
-            if deduplicate:
-                seen_hashes.add(url_hash)
 
             # Store in deduplication cache if available
             if deduplicate and self.dedup_cache and job_id:
@@ -194,7 +284,7 @@ class URLExtractorService:
         logger.info(
             "urls_extracted",
             base_url=base_url,
-            raw_count=len(raw_urls),
+            raw_count=raw_count,
             unique_count=len(extracted_urls),
         )
 

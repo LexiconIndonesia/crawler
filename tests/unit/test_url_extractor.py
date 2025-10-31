@@ -213,8 +213,8 @@ class TestURLExtractorService:
 
         assert len(results) == 4
 
-        # Cache should have been called to check existence
-        assert url_extractor_with_cache.dedup_cache.exists.call_count == 4
+        # Batch check should have been called once for all URLs
+        assert url_extractor_with_cache.dedup_cache.exists_batch.call_count == 1
         # Cache should have been called to store URLs
         assert url_extractor_with_cache.dedup_cache.set.call_count == 4
 
@@ -227,12 +227,14 @@ class TestURLExtractorService:
         # Calculate the hash for the first URL to simulate it being cached
         first_url_hash = hash_url("https://example.com/article/1", normalize=True)
 
-        # Mock cache to say first URL already exists
-        async def mock_exists(url_hash: str) -> bool:
+        # Mock batch exists to return the first URL as already cached
+        async def mock_exists_batch(url_hashes: list[str]) -> set[str]:
             # Simulate first URL being cached
-            return url_hash == first_url_hash
+            return {first_url_hash}
 
-        url_extractor_with_cache.dedup_cache.exists = AsyncMock(side_effect=mock_exists)
+        url_extractor_with_cache.dedup_cache.exists_batch = AsyncMock(
+            side_effect=mock_exists_batch
+        )
 
         results = await url_extractor_with_cache.extract_urls(
             html_content=sample_list_html,
@@ -244,9 +246,16 @@ class TestURLExtractorService:
 
         # Should skip the cached URL (first article)
         assert len(results) == 3  # 4 total - 1 cached = 3
+
+        # Verify batch check was called
+        assert url_extractor_with_cache.dedup_cache.exists_batch.call_count == 1
+
+        # Verify the URLs don't include the cached one
         urls = [url.normalized_url for url in results]
         assert "https://example.com/article/1" not in urls
         assert "https://example.com/article/2" in urls
+        assert "https://example.com/article/3" in urls
+        assert "https://example.com/article/4" in urls
 
     async def test_extract_urls_no_deduplication(self, url_extractor: URLExtractorService) -> None:
         """Test extraction without deduplication."""
@@ -443,3 +452,43 @@ class TestURLExtractorService:
         assert "category=tech" in normalized
         # Tracking params should be removed
         assert "utm_source" not in normalized
+
+    async def test_extract_urls_with_containers(
+        self, url_extractor: URLExtractorService
+    ) -> None:
+        """Test extracting URLs with containers for correct metadata association."""
+        html = """
+        <div class="article-list">
+            <article class="post">
+                <h2 class="title">First Article</h2>
+                <p class="preview">First article preview</p>
+                <a href="/article/1" class="link">Read more</a>
+            </article>
+            <article class="post">
+                <h2 class="title">Second Article</h2>
+                <p class="preview">Second article preview</p>
+                <a href="/article/2" class="link">Read more</a>
+            </article>
+        </div>
+        """
+
+        results = await url_extractor.extract_urls(
+            html_content=html,
+            base_url="https://example.com",
+            url_selector="a.link",
+            metadata_selectors={"title": ".title", "preview": ".preview"},
+            container_selector="article",
+        )
+
+        # Verify each URL got its own metadata
+        assert len(results) == 2
+
+        # First article
+        assert results[0].url == "https://example.com/article/1"
+        assert results[0].title == "First Article"
+        assert results[0].preview == "First article preview"
+
+        # Second article
+        assert results[1].url == "https://example.com/article/2"
+        assert results[1].title == "Second Article"
+        assert results[1].preview == "Second article preview"
