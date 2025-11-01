@@ -232,9 +232,7 @@ class TestURLExtractorService:
             # Simulate first URL being cached
             return {first_url_hash}
 
-        url_extractor_with_cache.dedup_cache.exists_batch = AsyncMock(
-            side_effect=mock_exists_batch
-        )
+        url_extractor_with_cache.dedup_cache.exists_batch = AsyncMock(side_effect=mock_exists_batch)
 
         results = await url_extractor_with_cache.extract_urls(
             html_content=sample_list_html,
@@ -453,9 +451,7 @@ class TestURLExtractorService:
         # Tracking params should be removed
         assert "utm_source" not in normalized
 
-    async def test_extract_urls_with_containers(
-        self, url_extractor: URLExtractorService
-    ) -> None:
+    async def test_extract_urls_with_containers(self, url_extractor: URLExtractorService) -> None:
         """Test extracting URLs with containers for correct metadata association."""
         html = """
         <div class="article-list">

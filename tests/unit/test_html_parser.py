@@ -286,9 +286,7 @@ class TestHTMLParserService:
         assert metadata["title"] is None
         assert metadata["preview"] is None
 
-    def test_extract_url_metadata_with_parent_scope(
-        self, html_parser: HTMLParserService
-    ) -> None:
+    def test_extract_url_metadata_with_parent_scope(self, html_parser: HTMLParserService) -> None:
         """Test that metadata extraction is correctly scoped to parent container."""
         html_with_multiple_items = """
         <div class="container">
@@ -313,15 +311,17 @@ class TestHTMLParserService:
 
         # Extract metadata for each link with parent scoping
         first_metadata = html_parser.extract_url_metadata(
-            soup, first_link,
+            soup,
+            first_link,
             metadata_fields={"title": ".title", "preview": ".preview"},
-            parent_selector="article"
+            parent_selector="article",
         )
 
         second_metadata = html_parser.extract_url_metadata(
-            soup, second_link,
+            soup,
+            second_link,
             metadata_fields={"title": ".title", "preview": ".preview"},
-            parent_selector="article"
+            parent_selector="article",
         )
 
         # Verify each link got its own metadata
@@ -333,9 +333,10 @@ class TestHTMLParserService:
 
         # Test without parent selector - would get wrong metadata in real scenarios
         first_metadata_no_scope = html_parser.extract_url_metadata(
-            soup, first_link,
+            soup,
+            first_link,
             metadata_fields={"title": ".title", "preview": ".preview"},
-            parent_selector=None
+            parent_selector=None,
         )
 
         # Without scoping, it gets the first match from the entire document
@@ -380,12 +381,8 @@ class TestHTMLParserService:
         soup = html_parser.parse_html(sample_html)
 
         # Extract multiple items without re-parsing
-        titles = html_parser.extract_data_from_parsed(
-            soup, ".article-title", result_type="array"
-        )
-        first_link = html_parser.extract_data_from_parsed(
-            soup, ".article-link", attribute="href"
-        )
+        titles = html_parser.extract_data_from_parsed(soup, ".article-title", result_type="array")
+        first_link = html_parser.extract_data_from_parsed(soup, ".article-link", attribute="href")
 
         assert len(titles) == 3
         assert "First Article" in titles

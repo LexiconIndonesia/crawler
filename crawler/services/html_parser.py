@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 from lxml import etree  # type: ignore[import-untyped]
 
 from crawler.core.logging import get_logger
@@ -150,7 +151,7 @@ class HTMLParserService:
         soup: BeautifulSoup,
         selector: str,
         select_all: bool = False,
-    ) -> list[Any]:
+    ) -> list[Tag]:
         """Select HTML elements using CSS selector.
 
         This method returns the actual BeautifulSoup Tag objects, not extracted values.
@@ -170,7 +171,8 @@ class HTMLParserService:
         """
         try:
             if select_all:
-                elements = soup.select(selector)
+                # Convert ResultSet to list to ensure consistent return type
+                elements = list(soup.select(selector))
             else:
                 element = soup.select_one(selector)
                 elements = [element] if element else []
@@ -420,15 +422,15 @@ class HTMLParserService:
                     current = link_element
                     while current and current.parent:
                         # Simple selector matching for common cases
-                        if parent_selector.startswith('.'):
+                        if parent_selector.startswith("."):
                             # Class selector
                             class_name = parent_selector[1:]
-                            if current.has_attr('class') and class_name in current['class']:
+                            if current.has_attr("class") and class_name in current["class"]:
                                 search_scope = current
                                 break
-                        elif parent_selector.startswith('#'):
+                        elif parent_selector.startswith("#"):
                             # ID selector
-                            if current.get('id') == parent_selector[1:]:
+                            if current.get("id") == parent_selector[1:]:
                                 search_scope = current
                                 break
                         else:

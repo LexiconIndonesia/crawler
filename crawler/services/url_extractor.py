@@ -122,9 +122,7 @@ class URLExtractorService:
         if container_selector:
             # Container-based extraction: Process each container separately
             # This ensures correct metadata association
-            containers = self.html_parser.select_elements(
-                soup, container_selector, select_all=True
-            )
+            containers = self.html_parser.select_elements(soup, container_selector, select_all=True)
             raw_count = len(containers)
             logger.debug("containers_found", count=raw_count)
 
@@ -218,7 +216,7 @@ class URLExtractorService:
                     continue
 
                 # Extract metadata (WARNING: This will get first match from entire page)
-                metadata: dict[str, Any] = {}
+                metadata = {}
                 if metadata_selectors:
                     logger.warning(
                         "metadata_extraction_document_wide",

@@ -8,6 +8,7 @@ Provides specialized Redis data structures for:
 - Job progress caching
 """
 
+import builtins
 import json
 from typing import Any, cast
 
@@ -202,7 +203,7 @@ class URLDeduplicationCache:
             logger.error("url_dedup_delete_url_error", url=url, error=str(e))
             return False
 
-    async def exists_batch(self, url_hashes: list[str]) -> set[str]:
+    async def exists_batch(self, url_hashes: list[str]) -> builtins.set[str]:
         """Check if multiple URL hashes exist in cache (batch operation).
 
         This method is more efficient than checking each hash individually
@@ -229,15 +230,15 @@ class URLDeduplicationCache:
                 url_hash for url_hash, value in zip(url_hashes, values) if value is not None
             }
 
-            logger.debug("url_dedup_batch_check",
-                        checked_count=len(url_hashes),
-                        existing_count=len(existing_hashes))
+            logger.debug(
+                "url_dedup_batch_check",
+                checked_count=len(url_hashes),
+                existing_count=len(existing_hashes),
+            )
             return existing_hashes
 
         except Exception as e:
-            logger.error("url_dedup_batch_check_error",
-                        hash_count=len(url_hashes),
-                        error=str(e))
+            logger.error("url_dedup_batch_check_error", hash_count=len(url_hashes), error=str(e))
             # Fall back to individual checks if batch fails
             existing = set()
             for url_hash in url_hashes:
