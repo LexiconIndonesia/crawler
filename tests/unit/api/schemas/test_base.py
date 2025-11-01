@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from crawler.api.generated import (
     ActionConfig,
+    BackoffStrategy,
     BrowserTypeEnum,
     CrawlStep,
     CreateWebsiteRequest,
@@ -376,7 +377,11 @@ class TestRetryConfig:
         config = RetryConfig()
 
         assert config.max_attempts == 3
-        assert config.backoff_strategy == "exponential"
+        # use_enum_values converts enum to string in model instance
+        assert (
+            config.backoff_strategy == "exponential"
+            or config.backoff_strategy == BackoffStrategy.exponential
+        )
         assert config.backoff_base == 2.0
         assert config.initial_delay == 1
         assert config.max_delay == 300
@@ -385,13 +390,16 @@ class TestRetryConfig:
         """Test RetryConfig with custom values."""
         config = RetryConfig(
             max_attempts=5,
-            backoff_strategy="linear",
+            backoff_strategy=BackoffStrategy.linear,
             initial_delay=2,
             max_delay=600,
         )
 
         assert config.max_attempts == 5
-        assert config.backoff_strategy.value == "linear"
+        # use_enum_values converts enum to string in model instance
+        assert (
+            config.backoff_strategy == "linear" or config.backoff_strategy == BackoffStrategy.linear
+        )
         assert config.initial_delay == 2
         assert config.max_delay == 600
 

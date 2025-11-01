@@ -3,7 +3,7 @@
 This module extends the auto-generated models with custom business logic validators.
 """
 
-from typing import Annotated, TypeVar
+from typing import Annotated, TypeVar, List
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -20,9 +20,11 @@ from .models import (
     CreateWebsiteRequest as _CreateWebsiteRequest,
 )
 from .models import (
-    GlobalConfig,
+    BackoffStrategy,
+    GlobalConfig as _GlobalConfig,
     HttpMethod,
     MethodEnum,
+    RetryConfig as _RetryConfig,
     ScheduleTypeEnum,
     WaitUntil,
 )
@@ -61,6 +63,7 @@ class StepNamesValidationMixin(BaseModel):
                 raise ValueError("Step names must be unique")
         return self
 
+    
 
 class CreateSeedJobRequest(_CreateSeedJobRequest):
     """Extended CreateSeedJobRequest with non-nullable priority field."""
@@ -76,12 +79,34 @@ class ScheduleConfig(_ScheduleConfig):
     type: ScheduleTypeEnum = ScheduleTypeEnum.recurring
 
 
+class RetryConfig(_RetryConfig):
+    """Extended RetryConfig with proper enum defaults to fix serialization warnings."""
+
+    # Override to use enum defaults instead of string literals
+    backoff_strategy: BackoffStrategy | None = BackoffStrategy.exponential
+
+    model_config = {
+        "use_enum_values": True,  # Serialize enums as their values
+    }
+
+
 class StepConfig(_StepConfig):
     """Extended StepConfig with proper enum defaults to fix serialization warnings."""
 
     # Override to use enum defaults instead of string literals
     http_method: HttpMethod | None = HttpMethod.GET
     wait_until: WaitUntil | None = WaitUntil.networkidle
+
+    model_config = {
+        "use_enum_values": True,  # Serialize enums as their values
+    }
+
+
+class GlobalConfig(_GlobalConfig):
+    """Extended GlobalConfig with proper enum defaults to fix serialization warnings."""
+
+    # Override retry field to use extended RetryConfig with proper enum defaults
+    retry: RetryConfig | None = None
 
 
 class CrawlStep(_CrawlStep):
@@ -107,11 +132,10 @@ class CreateWebsiteRequest(StepNamesValidationMixin, _CreateWebsiteRequest):
     # Override with default values to match original behavior
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     global_config: GlobalConfig = Field(default_factory=GlobalConfig)
-    # Use extended CrawlStep with validators
-    steps: Annotated[
-        list[CrawlStep],
-        Field(description="List of crawl/scrape steps to execute", min_length=1),
-    ]
+    # Use extended CrawlStep with validators and proper enum serialization
+    steps: list[CrawlStep] = Field(
+        description="List of crawl/scrape steps to execute", min_length=1
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -122,6 +146,14 @@ class CreateWebsiteRequest(StepNamesValidationMixin, _CreateWebsiteRequest):
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("base_url must start with http:// or https://")
         return v
+
+    @model_validator(mode="after")
+    def validate_browser_type(self) -> "CreateWebsiteRequest":
+        """Validate browser_type is set when method is browser."""
+        for step in self.steps:
+            if step.method == MethodEnum.browser and step.browser_type is None:
+                raise ValueError("browser_type is required when method is 'browser'")
+        return self
 
 
 class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineRequest):
@@ -134,11 +166,10 @@ class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineR
     priority: int = 5
     # Override with default value for global_config
     global_config: GlobalConfig = Field(default_factory=GlobalConfig)
-    # Use extended CrawlStep with validators
-    steps: Annotated[
-        list[CrawlStep],
-        Field(description="List of crawl/scrape steps to execute", min_length=1),
-    ]
+    # Use extended CrawlStep with validators and proper enum serialization
+    steps: list[CrawlStep] = Field(
+        description="List of crawl/scrape steps to execute", min_length=1
+    )
 
     @field_validator("seed_url")
     @classmethod
@@ -149,3 +180,13 @@ class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineR
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("seed_url must start with http:// or https://")
         return v
+
+    @model_validator(mode="after")
+    def validate_browser_type(self) -> "CreateSeedJobInlineRequest":
+        """Validate browser_type is set when method is browser."""
+        for step in self.steps:
+            if step.method == MethodEnum.browser and step.browser_type is None:
+                raise ValueError("browser_type is required when method is 'browser'")
+        return self
+
+    
