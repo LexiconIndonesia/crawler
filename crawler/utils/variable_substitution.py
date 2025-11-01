@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, TypeVar
 
 from crawler.core.logging import get_logger
@@ -74,17 +73,6 @@ class TypeConversionError(VariableError):
         super().__init__(message, variable)
 
 
-class VariableType(Enum):
-    """Supported variable types for conversion."""
-
-    STRING = "string"
-    INTEGER = "integer"
-    BOOLEAN = "boolean"
-    FLOAT = "float"
-    LIST = "list"
-    DICT = "dict"
-
-
 @dataclass
 class VariableContext:
     """Context for variable resolution."""
@@ -117,13 +105,9 @@ class VariableContext:
             step_input={**self.step_input, **other.step_input},
             pagination_state={**self.pagination_state, **other.pagination_state},
             metadata={**self.metadata, **other.metadata},
-            strict_mode=other.strict_mode
-            if other.strict_mode != self.strict_mode
-            else self.strict_mode,
+            strict_mode=other.strict_mode,
             max_recursion_depth=min(self.max_recursion_depth, other.max_recursion_depth),
-            allow_env_fallback=other.allow_env_fallback
-            if other.allow_env_fallback != self.allow_env_fallback
-            else self.allow_env_fallback,
+            allow_env_fallback=other.allow_env_fallback,
         )
 
 
@@ -519,10 +503,7 @@ class VariableResolver:
 
                 # Attempt type conversion
                 if convert_types:
-                    try:
-                        value = self._convert_type(substituted)
-                    except TypeConversionError:
-                        value = substituted
+                    value = self._convert_type(substituted)
                 else:
                     value = substituted
 
@@ -572,10 +553,7 @@ class VariableResolver:
             if isinstance(item, str):
                 substituted = self.substitute(item, context, convert_types=convert_types)
                 if convert_types:
-                    try:
-                        item = self._convert_type(substituted)
-                    except TypeConversionError:
-                        item = substituted
+                    item = self._convert_type(substituted)
                 else:
                     item = substituted
 

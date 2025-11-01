@@ -202,11 +202,18 @@ result = resolver.substitute_in_dict(data, context, convert_types=True)
 
 ### Supported Conversions
 
-- **Boolean**: `"true"`, `"false"`, `"1"`, `"0"`, `"yes"`, `"no"`
+**Automatic type conversion** (when `convert_types=True`):
+
+- **Boolean**: `"true"`, `"false"` → `True`, `False`
 - **Integer**: Whole numbers, handles `"3.0"` → `3`
-- **Float**: Decimal numbers
-- **List**: Comma-separated strings → `["a", "b", "c"]`
-- **Dict**: JSON strings → `{"key": "value"}`
+- **Float**: Decimal numbers, e.g., `"19.99"` → `19.99`
+- **List**: JSON array strings, e.g., `'["a", "b", "c"]'` → `["a", "b", "c"]`
+- **Dict**: JSON object strings, e.g., `'{"key": "value"}'` → `{"key": "value"}`
+
+**Explicit type conversion** (when using `convert_type(value, target_type)`):
+
+- Same as above, plus:
+- **List from comma-separated**: `"a, b, c"` → `["a", "b", "c"]` (only with explicit `target_type=list`)
 
 ## Error Handling
 
