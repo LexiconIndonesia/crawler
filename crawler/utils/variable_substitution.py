@@ -145,23 +145,29 @@ class VariableProvider(ABC):
         return []
 
 
-class JobVariablesProvider(VariableProvider):
-    """Provider for job submission variables (${variables.*})."""
+class DictNavigationMixin:
+    """Mixin providing dictionary navigation utilities for variable providers.
 
-    def get(self, path: str, context: VariableContext) -> Any:
-        """Get job variable by path."""
-        if not path:
-            raise KeyError("Empty path")
-        return self._get_nested(context.job_variables, path)
+    This mixin provides shared implementations of _get_nested and _flatten_keys
+    methods that are commonly used by providers that work with nested dictionaries.
 
-    def source_name(self) -> str:
-        return "variables"
-
-    def list_available(self, context: VariableContext) -> list[str]:
-        return self._flatten_keys(context.job_variables)
+    The _get_nested method can be overridden by subclasses to customize error
+    handling behavior (e.g., returning None instead of raising KeyError).
+    """
 
     def _get_nested(self, data: dict[str, Any], path: str) -> Any:
-        """Get nested value from dictionary using dot notation."""
+        """Get nested value from dictionary using dot notation.
+
+        Args:
+            data: Dictionary to navigate
+            path: Dot-separated path (e.g., "user.profile.email")
+
+        Returns:
+            Value at the specified path
+
+        Raises:
+            KeyError: If path is empty or any key in the path is not found
+        """
         if not path:
             raise KeyError("Empty path")
         keys = path.split(".")
@@ -176,7 +182,19 @@ class JobVariablesProvider(VariableProvider):
         return current
 
     def _flatten_keys(self, data: dict[str, Any], prefix: str = "") -> list[str]:
-        """Flatten dictionary keys to dot notation."""
+        """Flatten nested dictionary keys to dot notation.
+
+        Args:
+            data: Dictionary to flatten
+            prefix: Current key prefix for recursion
+
+        Returns:
+            List of flattened key paths (e.g., ["user.name", "user.email"])
+
+        Example:
+            >>> mixin._flatten_keys({"user": {"name": "John", "email": "john@example.com"}})
+            ["user.name", "user.email"]
+        """
         keys = []
         for key, value in data.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -187,8 +205,31 @@ class JobVariablesProvider(VariableProvider):
         return keys
 
 
-class EnvironmentProvider(VariableProvider):
-    """Provider for environment variables (${ENV.*})."""
+class JobVariablesProvider(DictNavigationMixin, VariableProvider):
+    """Provider for job submission variables (${variables.*}).
+
+    Inherits dictionary navigation utilities from DictNavigationMixin.
+    """
+
+    def get(self, path: str, context: VariableContext) -> Any:
+        """Get job variable by path."""
+        if not path:
+            raise KeyError("Empty path")
+        return self._get_nested(context.job_variables, path)
+
+    def source_name(self) -> str:
+        return "variables"
+
+    def list_available(self, context: VariableContext) -> list[str]:
+        return self._flatten_keys(context.job_variables)
+
+
+class EnvironmentProvider(DictNavigationMixin, VariableProvider):
+    """Provider for environment variables (${ENV.*}).
+
+    Inherits from DictNavigationMixin but overrides _get_nested to return None
+    instead of raising KeyError, allowing fallback to os.environ.
+    """
 
     def get(self, path: str, context: VariableContext) -> Any:
         """Get environment variable by path."""
@@ -214,7 +255,18 @@ class EnvironmentProvider(VariableProvider):
         return list(set(keys))  # Remove duplicates
 
     def _get_nested(self, data: dict[str, Any], path: str) -> Any:
-        """Get nested value from environment dictionary."""
+        """Get nested value from environment dictionary.
+
+        Overrides parent to return None instead of raising KeyError,
+        allowing fallback to os.environ.
+
+        Args:
+            data: Dictionary to navigate
+            path: Dot-separated path
+
+        Returns:
+            Value at path or None if not found
+        """
         keys = path.split(".")
         current = data
 
@@ -227,8 +279,11 @@ class EnvironmentProvider(VariableProvider):
         return current
 
 
-class InputProvider(VariableProvider):
-    """Provider for previous step output (${input.*})."""
+class InputProvider(DictNavigationMixin, VariableProvider):
+    """Provider for previous step output (${input.*}).
+
+    Inherits dictionary navigation utilities from DictNavigationMixin.
+    """
 
     def get(self, path: str, context: VariableContext) -> Any:
         """Get input variable by path."""
@@ -239,30 +294,6 @@ class InputProvider(VariableProvider):
 
     def list_available(self, context: VariableContext) -> list[str]:
         return self._flatten_keys(context.step_input)
-
-    def _get_nested(self, data: dict[str, Any], path: str) -> Any:
-        """Get nested value from input dictionary."""
-        keys = path.split(".")
-        current = data
-
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                raise KeyError(f"Key '{key}' not found in input path '{path}'")
-
-        return current
-
-    def _flatten_keys(self, data: dict[str, Any], prefix: str = "") -> list[str]:
-        """Flatten input dictionary keys."""
-        keys = []
-        for key, value in data.items():
-            full_key = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
-                keys.extend(self._flatten_keys(value, full_key))
-            else:
-                keys.append(full_key)
-        return keys
 
 
 class PaginationProvider(VariableProvider):
@@ -298,8 +329,11 @@ class PaginationProvider(VariableProvider):
         return builtin + contextual
 
 
-class MetadataProvider(VariableProvider):
-    """Provider for job metadata (${metadata.*})."""
+class MetadataProvider(DictNavigationMixin, VariableProvider):
+    """Provider for job metadata (${metadata.*}).
+
+    Inherits dictionary navigation utilities from DictNavigationMixin.
+    """
 
     def get(self, path: str, context: VariableContext) -> Any:
         """Get metadata variable by path."""
@@ -310,30 +344,6 @@ class MetadataProvider(VariableProvider):
 
     def list_available(self, context: VariableContext) -> list[str]:
         return self._flatten_keys(context.metadata)
-
-    def _get_nested(self, data: dict[str, Any], path: str) -> Any:
-        """Get nested value from metadata dictionary."""
-        keys = path.split(".")
-        current = data
-
-        for key in keys:
-            if isinstance(current, dict) and key in current:
-                current = current[key]
-            else:
-                raise KeyError(f"Key '{key}' not found in metadata path '{path}'")
-
-        return current
-
-    def _flatten_keys(self, data: dict[str, Any], prefix: str = "") -> list[str]:
-        """Flatten metadata dictionary keys."""
-        keys = []
-        for key, value in data.items():
-            full_key = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
-                keys.extend(self._flatten_keys(value, full_key))
-            else:
-                keys.append(full_key)
-        return keys
 
 
 class VariableResolver:
@@ -599,7 +609,7 @@ class VariableResolver:
             Variable value or default
         """
         # Parse the variable path
-        if not variable_path.startswith(("${",)):
+        if not variable_path.startswith("${"):
             # Direct value, no substitution needed
             return variable_path
 

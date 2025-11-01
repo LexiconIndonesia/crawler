@@ -3,10 +3,17 @@
 This module extends the auto-generated models with custom business logic validators.
 """
 
-from typing import Annotated, TypeVar, List
+from typing import TypeVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .models import (
+    BackoffStrategy,
+    HttpMethod,
+    MethodEnum,
+    ScheduleTypeEnum,
+    WaitUntil,
+)
 from .models import (
     CrawlStep as _CrawlStep,
 )
@@ -20,13 +27,10 @@ from .models import (
     CreateWebsiteRequest as _CreateWebsiteRequest,
 )
 from .models import (
-    BackoffStrategy,
     GlobalConfig as _GlobalConfig,
-    HttpMethod,
-    MethodEnum,
+)
+from .models import (
     RetryConfig as _RetryConfig,
-    ScheduleTypeEnum,
-    WaitUntil,
 )
 from .models import (
     ScheduleConfig as _ScheduleConfig,
@@ -63,7 +67,32 @@ class StepNamesValidationMixin(BaseModel):
                 raise ValueError("Step names must be unique")
         return self
 
-    
+
+class BrowserTypeValidationMixin(BaseModel):
+    """Mixin for validating browser_type is set when method is browser.
+
+    This mixin provides a shared validator for models that have a `steps` field
+    containing a list of CrawlStep objects. It ensures that when a step's method
+    is 'browser', the browser_type field is also set.
+
+    Usage:
+        class MyRequest(BrowserTypeValidationMixin, _MyRequest):
+            steps: list[CrawlStep]
+    """
+
+    @model_validator(mode="after")
+    def validate_browser_type(self: T) -> T:
+        """Validate browser_type is set when method is browser.
+
+        Raises:
+            ValueError: If a step has method='browser' but browser_type is None
+        """
+        if hasattr(self, "steps"):
+            for step in self.steps:
+                if step.method == MethodEnum.browser and step.browser_type is None:
+                    raise ValueError("browser_type is required when method is 'browser'")
+        return self
+
 
 class CreateSeedJobRequest(_CreateSeedJobRequest):
     """Extended CreateSeedJobRequest with non-nullable priority field."""
@@ -123,10 +152,13 @@ class CrawlStep(_CrawlStep):
         return self
 
 
-class CreateWebsiteRequest(StepNamesValidationMixin, _CreateWebsiteRequest):
+class CreateWebsiteRequest(
+    StepNamesValidationMixin, BrowserTypeValidationMixin, _CreateWebsiteRequest
+):
     """Extended CreateWebsiteRequest with custom validators.
 
-    Inherits step name validation from StepNamesValidationMixin.
+    Inherits step name validation from StepNamesValidationMixin and browser type
+    validation from BrowserTypeValidationMixin.
     """
 
     # Override with default values to match original behavior
@@ -147,19 +179,14 @@ class CreateWebsiteRequest(StepNamesValidationMixin, _CreateWebsiteRequest):
             raise ValueError("base_url must start with http:// or https://")
         return v
 
-    @model_validator(mode="after")
-    def validate_browser_type(self) -> "CreateWebsiteRequest":
-        """Validate browser_type is set when method is browser."""
-        for step in self.steps:
-            if step.method == MethodEnum.browser and step.browser_type is None:
-                raise ValueError("browser_type is required when method is 'browser'")
-        return self
 
-
-class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineRequest):
+class CreateSeedJobInlineRequest(
+    StepNamesValidationMixin, BrowserTypeValidationMixin, _CreateSeedJobInlineRequest
+):
     """Extended CreateSeedJobInlineRequest with custom validators.
 
-    Inherits step name validation from StepNamesValidationMixin.
+    Inherits step name validation from StepNamesValidationMixin and browser type
+    validation from BrowserTypeValidationMixin.
     """
 
     # Override to make priority non-nullable (defaults to 5 per OpenAPI spec)
@@ -180,13 +207,3 @@ class CreateSeedJobInlineRequest(StepNamesValidationMixin, _CreateSeedJobInlineR
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("seed_url must start with http:// or https://")
         return v
-
-    @model_validator(mode="after")
-    def validate_browser_type(self) -> "CreateSeedJobInlineRequest":
-        """Validate browser_type is set when method is browser."""
-        for step in self.steps:
-            if step.method == MethodEnum.browser and step.browser_type is None:
-                raise ValueError("browser_type is required when method is 'browser'")
-        return self
-
-    

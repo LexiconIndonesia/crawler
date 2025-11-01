@@ -182,6 +182,14 @@ context = VariableContext(
     }
 )
 
+data = {
+    "count": "${variables.count}",
+    "price": "${variables.price}",
+    "enabled": "${variables.enabled}",
+    "items": "${variables.items}",
+    "config": "${variables.config}"
+}
+
 result = resolver.substitute_in_dict(data, context, convert_types=True)
 
 # Conversions:
@@ -356,6 +364,7 @@ for page in range(1, 4):
 ```python
 context = VariableContext(
     job_variables={
+        "api_key": "your-newsapi-key",
         "sources": {
             "cnn": "https://edition.cnn.com",
             "bbc": "https://www.bbc.com"
