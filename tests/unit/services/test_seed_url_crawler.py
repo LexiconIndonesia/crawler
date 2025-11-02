@@ -5,7 +5,7 @@ Tests the explicit key requirement for detail_urls and container selectors.
 
 import pytest
 
-from crawler.api.generated import CrawlStep, MethodEnum, OutputConfig, StepConfig, StepTypeEnum
+from crawler.api.generated import CrawlStep, MethodEnum, StepConfig, StepTypeEnum
 from crawler.services import SeedURLCrawler
 
 
