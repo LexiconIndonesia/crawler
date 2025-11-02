@@ -5,6 +5,7 @@ in various crawling scenarios.
 """
 
 import json
+import traceback
 from uuid import uuid4
 
 from crawler.utils.variable_substitution import (
@@ -574,8 +575,6 @@ def main():
             example()
         except Exception as e:
             print(f"Error in {example.__name__}: {e}")
-            import traceback
-
             traceback.print_exc()
         print()
 

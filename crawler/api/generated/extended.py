@@ -43,6 +43,23 @@ from .models import (
 T = TypeVar("T", bound=BaseModel)
 
 
+class EnumSerializationMixin(BaseModel):
+    """Base mixin for models that need to serialize enums as their values.
+
+    This mixin configures Pydantic to serialize enum fields as their string values
+    instead of enum objects, preventing serialization warnings and ensuring consistent
+    JSON representation.
+
+    Usage:
+        class MyConfig(EnumSerializationMixin, _MyConfig):
+            my_enum_field: MyEnum = MyEnum.default_value
+    """
+
+    model_config = {
+        "use_enum_values": True,  # Serialize enums as their values
+    }
+
+
 class StepNamesValidationMixin(BaseModel):
     """Mixin for validating step names are unique.
 
@@ -108,27 +125,19 @@ class ScheduleConfig(_ScheduleConfig):
     type: ScheduleTypeEnum = ScheduleTypeEnum.recurring
 
 
-class RetryConfig(_RetryConfig):
+class RetryConfig(EnumSerializationMixin, _RetryConfig):
     """Extended RetryConfig with proper enum defaults to fix serialization warnings."""
 
     # Override to use enum defaults instead of string literals
     backoff_strategy: BackoffStrategy | None = BackoffStrategy.exponential
 
-    model_config = {
-        "use_enum_values": True,  # Serialize enums as their values
-    }
 
-
-class StepConfig(_StepConfig):
+class StepConfig(EnumSerializationMixin, _StepConfig):
     """Extended StepConfig with proper enum defaults to fix serialization warnings."""
 
     # Override to use enum defaults instead of string literals
     http_method: HttpMethod | None = HttpMethod.GET
     wait_until: WaitUntil | None = WaitUntil.networkidle
-
-    model_config = {
-        "use_enum_values": True,  # Serialize enums as their values
-    }
 
 
 class GlobalConfig(_GlobalConfig):

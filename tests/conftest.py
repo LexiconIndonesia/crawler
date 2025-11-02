@@ -115,9 +115,11 @@ async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        async with session.begin():
+        transaction = await session.begin()
+        try:
             yield session
-            await session.rollback()
+        finally:
+            await transaction.rollback()
 
     await engine.dispose()
 
@@ -137,8 +139,10 @@ async def db_connection(test_db_schema) -> AsyncGenerator[AsyncConnection, None]
 
     # Create connection with transaction
     async with engine.connect() as connection:
-        async with connection.begin() as transaction:
+        transaction = await connection.begin()
+        try:
             yield connection
+        finally:
             await transaction.rollback()
 
     await engine.dispose()
@@ -262,9 +266,10 @@ async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
     # Create session maker
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    # Use context manager for proper session lifecycle management
+    # Explicit transaction management to ensure rollback
     async with async_session() as session:
-        async with session.begin():
+        transaction = await session.begin()
+        try:
 
             async def get_test_db() -> AsyncGenerator[AsyncSession, None]:
                 """Return the shared test session."""
@@ -276,12 +281,13 @@ async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
 
             # Create client
             transport = ASGITransport(app=app)
-            try:
-                async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    yield client
-            finally:
-                # Clean up overrides
-                app.dependency_overrides.clear()
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                yield client
+        finally:
+            # Always rollback to maintain test isolation
+            await transaction.rollback()
+            # Clean up overrides
+            app.dependency_overrides.clear()
 
     # Cleanup after session context exits
     # Dispose engine and wait for all connections to close
