@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Communication Style: Be direct and straightforward. No cheerleading phrases like "that's absolutely right" or "great question." Tell me when my ideas are flawed, incomplete, or poorly thought through. Use casual language and occasional profanity when appropriate. Focus on practical problems and realistic solutions rather than being overly positive or encouraging.
+
+Technical Approach: Challenge assumptions, point out potential issues, and ask the hard questions about implementation, scalability, and real-world viability. If something won't work, say so directly and explain why it has problems rather than just dismissing it.
+
 ## Project Overview
 
 Lexicon Crawler is a production-ready web crawler built with FastAPI and modern Python async patterns. It combines browser automation (Playwright, undetected-chromedriver) with distributed task queuing (NATS JetStream), persistent storage (PostgreSQL + GCS), and full observability (Prometheus, Grafana, Loki).

@@ -294,6 +294,54 @@ async def test_invalid_config_no_selector(
 
 
 @pytest.mark.asyncio
+async def test_seed_page_extraction_failure_in_paginated_mode(
+    seed_url_crawler: SeedURLCrawler,
+    paginated_crawl_step: CrawlStep,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that seed page extraction failure is fatal in paginated mode.
+
+    Ensures consistency with single-page mode - if the seed page cannot be
+    processed, the entire crawl should fail immediately.
+    """
+    seed_url = "https://example.com/products?page=1"
+
+    # Return valid HTML so seed URL fetch succeeds
+    valid_html = b"""
+    <html><body>
+        <a class="product-link" href="/product/1">Product 1</a>
+    </body></html>
+    """
+
+    mock_client = create_mock_http_client({seed_url: (200, valid_html)})
+
+    # Patch the _extract_urls_from_content method to raise an exception on seed page
+    original_extract = seed_url_crawler._extract_urls_from_content
+    call_count = 0
+
+    async def failing_extract(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:  # Fail on first call (seed page)
+            raise RuntimeError("Simulated extraction failure on seed page")
+        return await original_extract(*args, **kwargs)
+
+    monkeypatch.setattr(seed_url_crawler, "_extract_urls_from_content", failing_extract)
+
+    config = SeedURLCrawlerConfig(
+        step=paginated_crawl_step, job_id="test-job-seed-fail", http_client=mock_client
+    )
+    result = await seed_url_crawler.crawl(seed_url, config)
+
+    # Should fail immediately with SEED_URL_ERROR
+    assert result.outcome == CrawlOutcome.SEED_URL_ERROR
+    assert result.total_pages_crawled == 0
+    assert result.total_urls_extracted == 0
+    assert "Failed to extract URLs from seed page" in result.error_message
+    assert "Simulated extraction failure" in result.error_message
+
+
+@pytest.mark.asyncio
 async def test_pagination_selector_not_found(
     seed_url_crawler: SeedURLCrawler,
 ) -> None:
@@ -345,12 +393,20 @@ async def test_pagination_selector_not_found(
 async def test_partial_success_with_page_extraction_errors(
     seed_url_crawler: SeedURLCrawler,
     paginated_crawl_step: CrawlStep,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test PARTIAL_SUCCESS outcome when some pages succeed but others fail during extraction."""
+    """Test PARTIAL_SUCCESS outcome when some pages succeed but others fail during extraction.
+
+    This test simulates a scenario where:
+    - Seed page (page 1) extraction succeeds
+    - Page 2 extraction fails with an error
+    - Page 3 extraction succeeds
+    - Overall outcome should be PARTIAL_SUCCESS with warnings
+    """
     seed_url = "https://example.com/products?page=1"
 
     def get_response(url: str) -> tuple[int, bytes]:
-        """Page 1 succeeds, page 2 has malformed HTML that causes extraction issues."""
+        """All pages return valid HTML."""
         if "page=1" in url:
             return (
                 200,
@@ -362,7 +418,6 @@ async def test_partial_success_with_page_extraction_errors(
             """,
             )
         elif "page=2" in url:
-            # Return valid HTML but without product links
             return (
                 200,
                 b"""
@@ -372,23 +427,49 @@ async def test_partial_success_with_page_extraction_errors(
             """,
             )
         elif "page=3" in url:
-            # Empty page to trigger stop
-            return (200, b"<html><body></body></html>")
+            return (
+                200,
+                b"""
+                <html><body>
+                    <a class="product-link" href="/product/4">Product 4</a>
+                    <a class="product-link" href="/product/5">Product 5</a>
+                </body></html>
+            """,
+            )
         else:
             return (404, b"Not Found")
 
     mock_client = create_mock_http_client(get_response)
+
+    # Patch _extract_urls_from_content to fail on page 2
+    original_extract = seed_url_crawler._extract_urls_from_content
+    call_count = 0
+
+    async def failing_extract(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        base_url = kwargs.get("base_url", "")
+
+        # Fail on page 2 (second pagination page, after seed page)
+        if "page=2" in base_url:
+            raise RuntimeError("Simulated extraction error on page 2")
+
+        return await original_extract(*args, **kwargs)
+
+    monkeypatch.setattr(seed_url_crawler, "_extract_urls_from_content", failing_extract)
 
     config = SeedURLCrawlerConfig(
         step=paginated_crawl_step, job_id="test-job-partial", http_client=mock_client
     )
     result = await seed_url_crawler.crawl(seed_url, config)
 
-    # Should succeed but with no warnings in this case since all pages work
-    # To truly test PARTIAL_SUCCESS, we'd need to inject actual extraction failures
-    # For now, this test documents the expected behavior
-    assert result.outcome in [CrawlOutcome.SUCCESS, CrawlOutcome.PARTIAL_SUCCESS]
-    assert result.total_urls_extracted >= 3
+    # Should have PARTIAL_SUCCESS: some URLs extracted but warnings present
+    assert result.outcome == CrawlOutcome.PARTIAL_SUCCESS
+    assert result.total_urls_extracted == 4  # Page 1 (2 URLs) + Page 3 (2 URLs), page 2 failed
+    assert result.total_pages_crawled == 2  # Page 1 succeeded, page 2 failed, page 3 succeeded
+    assert result.warnings is not None
+    assert any("Failed to extract URLs from page" in w for w in result.warnings)
+    assert any("page=2" in w for w in result.warnings)
 
 
 # =============================================================================

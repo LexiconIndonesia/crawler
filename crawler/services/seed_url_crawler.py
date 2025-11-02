@@ -55,7 +55,30 @@ class CrawlResult:
 
 @dataclass
 class SeedURLCrawlerConfig:
-    """Configuration for seed URL crawler."""
+    """Configuration for seed URL crawler.
+
+    Example:
+        >>> import httpx
+        >>> from crawler.services.redis_cache import URLDeduplicationCache
+        >>> from crawler.services import SeedURLCrawler, SeedURLCrawlerConfig
+        >>>
+        >>> # Basic usage
+        >>> config = SeedURLCrawlerConfig(
+        ...     step=crawl_step,
+        ...     job_id="job-123"
+        ... )
+        >>>
+        >>> # Advanced usage with custom HTTP client and deduplication
+        >>> http_client = httpx.AsyncClient(timeout=60)
+        >>> dedup_cache = URLDeduplicationCache(redis_client)
+        >>> config = SeedURLCrawlerConfig(
+        ...     step=crawl_step,
+        ...     job_id="job-123",
+        ...     http_client=http_client,
+        ...     dedup_cache=dedup_cache,
+        ...     max_pages=10
+        ... )
+    """
 
     # Required: The step configuration with selectors
     step: CrawlStep
@@ -63,10 +86,10 @@ class SeedURLCrawlerConfig:
     # Optional: Job ID for deduplication tracking
     job_id: str | None = None
 
-    # Optional: HTTP client for making requests (if None, creates one)
+    # Optional: httpx.AsyncClient for making requests (if None, creates one)
     http_client: httpx.AsyncClient | None = None
 
-    # Optional: Deduplication cache
+    # Optional: crawler.services.redis_cache.URLDeduplicationCache for caching
     dedup_cache: URLDeduplicationCache | None = None
 
     # Optional: Maximum pages to crawl (overrides pagination config)
@@ -360,8 +383,17 @@ class SeedURLCrawler:
                     urls_count=len(seed_urls),
                 )
             except Exception as e:
+                # Seed page extraction failure is fatal - fail immediately
                 logger.error("seed_page_extraction_failed", seed_url=seed_url, error=str(e))
-                warnings.append(f"Failed to extract URLs from seed page: {e}")
+                return CrawlResult(
+                    outcome=CrawlOutcome.SEED_URL_ERROR,
+                    seed_url=seed_url,
+                    total_pages_crawled=0,
+                    total_urls_extracted=0,
+                    extracted_urls=[],
+                    error_message=f"Failed to extract URLs from seed page: {e}",
+                    warnings=warnings,
+                )
 
             # Now crawl remaining pagination pages
             async for (
@@ -559,8 +591,10 @@ class SeedURLCrawler:
         elif hasattr(selector, "selector"):
             return selector.selector
 
-        # Fallback: convert to string
-        return str(selector)
+        # Invalid selector type - return None to trigger validation error
+        # This prevents unsafe str() conversion that could produce meaningless
+        # selector strings like "<MyObject at 0x...>"
+        return None
 
     def _get_container_selector(self, step: CrawlStep) -> str | None:
         """Extract container selector from step configuration.
@@ -596,8 +630,11 @@ class SeedURLCrawler:
         elif hasattr(selector, "selector"):
             return selector.selector
 
-        # Fallback: convert to string
-        return str(selector)
+        # Invalid selector type - return None
+        # Container selector is optional, so returning None is acceptable
+        # This prevents unsafe str() conversion that could produce meaningless
+        # selector strings like "<MyObject at 0x...>"
+        return None
 
     async def _extract_urls_from_content(
         self,
