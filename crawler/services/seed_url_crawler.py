@@ -302,14 +302,20 @@ class SeedURLCrawler:
         detail_selector = self._get_detail_url_selector(config.step)
         if not detail_selector:
             logger.warning("no_detail_url_selector_configured", seed_url=seed_url)
-            warnings.append("No detail URL selector configured - cannot extract URLs")
+            warnings.append(
+                "Missing required 'detail_urls' selector in step configuration "
+                "- cannot extract URLs"
+            )
             return CrawlResult(
                 outcome=CrawlOutcome.INVALID_CONFIG,
                 seed_url=seed_url,
                 total_pages_crawled=0,
                 total_urls_extracted=0,
                 extracted_urls=[],
-                error_message="No detail URL selector configured in step",
+                error_message=(
+                    "Missing required 'detail_urls' selector in step configuration. "
+                    "This selector is used to extract URLs from list pages."
+                ),
                 warnings=warnings,
             )
 
@@ -338,11 +344,11 @@ class SeedURLCrawler:
 
             # First, extract URLs from seed page (we already have the content)
             try:
-                seed_urls = await url_extractor.extract_urls(
+                seed_urls = await self._extract_urls_from_content(
+                    url_extractor=url_extractor,
                     html_content=seed_content,
                     base_url=seed_url,
-                    url_selector=detail_selector,
-                    deduplicate=True,
+                    detail_selector=detail_selector,
                     job_id=config.job_id,
                     container_selector=container_selector,
                 )
@@ -373,11 +379,11 @@ class SeedURLCrawler:
 
                 # Extract URLs from this page
                 try:
-                    page_urls = await url_extractor.extract_urls(
+                    page_urls = await self._extract_urls_from_content(
+                        url_extractor=url_extractor,
                         html_content=content,
                         base_url=url,
-                        url_selector=detail_selector,
-                        deduplicate=True,
+                        detail_selector=detail_selector,
                         job_id=config.job_id,
                         container_selector=container_selector,
                     )
@@ -395,6 +401,27 @@ class SeedURLCrawler:
                 except Exception as e:
                     logger.error("pagination_page_extraction_failed", url=url, error=str(e))
                     warnings.append(f"Failed to extract URLs from page {url}: {e}")
+
+            # Check if pagination selector was configured but no additional pages found
+            if (
+                pagination_config.selector
+                and pagination_strategy == "selector"
+                and pages_crawled == 1
+            ):
+                logger.warning(
+                    "pagination_selector_no_additional_pages",
+                    seed_url=seed_url,
+                    selector=pagination_config.selector,
+                    message=(
+                        "Pagination selector configured but no additional pages found "
+                        "- only seed page was crawled"
+                    ),
+                )
+                warnings.append(
+                    f"Pagination selector '{pagination_config.selector}' configured "
+                    "but no additional pages found"
+                )
+                stopped_reason = "pagination_selector_no_additional_pages"
 
         # Strategy 2: Single page mode (no pagination or selector-based)
         else:
@@ -419,11 +446,11 @@ class SeedURLCrawler:
 
             # Extract URLs from seed page only
             try:
-                seed_urls = await url_extractor.extract_urls(
+                seed_urls = await self._extract_urls_from_content(
+                    url_extractor=url_extractor,
                     html_content=seed_content,
                     base_url=seed_url,
-                    url_selector=detail_selector,
-                    deduplicate=True,
+                    detail_selector=detail_selector,
                     job_id=config.job_id,
                     container_selector=container_selector,
                 )
@@ -450,6 +477,9 @@ class SeedURLCrawler:
             logger.warning("no_detail_urls_found", seed_url=seed_url, pages_crawled=pages_crawled)
             warnings.append("No detail URLs found on any page")
             outcome = CrawlOutcome.SUCCESS_NO_URLS
+        elif warnings:
+            # URLs extracted but with warnings (e.g., failed to extract from some pages)
+            outcome = CrawlOutcome.PARTIAL_SUCCESS
         else:
             outcome = CrawlOutcome.SUCCESS
 
@@ -487,60 +517,121 @@ class SeedURLCrawler:
         if not config.step.selectors:
             return "Step selectors are required for URL extraction"
 
-        # Check if there's a detail_urls selector or similar
+        # Check if there's a detail_urls selector (required key)
         detail_selector = self._get_detail_url_selector(config.step)
         if not detail_selector:
-            return "No detail URL selector found in step configuration"
+            return (
+                "Missing required 'detail_urls' selector in step configuration. "
+                "This selector is used to extract URLs from list pages."
+            )
 
         return None
 
     def _get_detail_url_selector(self, step: CrawlStep) -> str | None:
         """Extract detail URL selector from step configuration.
 
+        Requires the explicit 'detail_urls' key in the selectors dictionary.
+        This makes the configuration clear and avoids ambiguity.
+
         Args:
             step: Crawl step configuration
 
         Returns:
-            Detail URL selector or None
+            Detail URL selector string, or None if not found
+
+        Example:
+            selectors = {"detail_urls": "a.product-link"}
+            # or with selector object
+            selectors = {"detail_urls": SelectorConfig(selector="a.product-link")}
         """
         if not step.selectors:
             return None
 
-        # Check for common selector names
         selectors_dict = step.selectors
-        for key in ["detail_urls", "urls", "links", "articles", "items"]:
-            if key in selectors_dict:
-                selector = selectors_dict[key]
-                # Return string selector or selector config
-                if isinstance(selector, str):
-                    return selector
-                elif hasattr(selector, "selector"):
-                    return selector.selector
-                return str(selector)
+        if "detail_urls" not in selectors_dict:
+            return None
 
-        return None
+        selector = selectors_dict["detail_urls"]
+
+        # Return string selector or extract from selector config
+        if isinstance(selector, str):
+            return selector
+        elif hasattr(selector, "selector"):
+            return selector.selector
+
+        # Fallback: convert to string
+        return str(selector)
 
     def _get_container_selector(self, step: CrawlStep) -> str | None:
         """Extract container selector from step configuration.
 
-        Container selectors help associate URLs with their metadata correctly.
+        Requires the explicit 'container' key in the selectors dictionary.
+        Container selectors help associate URLs with their metadata correctly
+        by scoping the extraction to specific elements.
 
         Args:
             step: Crawl step configuration
 
         Returns:
-            Container selector or None
+            Container selector string, or None if not configured
+
+        Example:
+            selectors = {
+                "detail_urls": "a.product-link",
+                "container": "div.product-item"  # optional
+            }
         """
         if not step.selectors:
             return None
 
         selectors_dict = step.selectors
-        for key in ["container", "item", "article", "card"]:
-            if key in selectors_dict:
-                selector = selectors_dict[key]
-                if isinstance(selector, str):
-                    return selector
-                elif hasattr(selector, "selector"):
-                    return selector.selector
+        if "container" not in selectors_dict:
+            return None
 
-        return None
+        selector = selectors_dict["container"]
+
+        # Return string selector or extract from selector config
+        if isinstance(selector, str):
+            return selector
+        elif hasattr(selector, "selector"):
+            return selector.selector
+
+        # Fallback: convert to string
+        return str(selector)
+
+    async def _extract_urls_from_content(
+        self,
+        url_extractor: URLExtractorService,
+        html_content: bytes,
+        base_url: str,
+        detail_selector: str,
+        job_id: str | None,
+        container_selector: str | None,
+    ) -> list[ExtractedURL]:
+        """Extract URLs from HTML content using configured selectors.
+
+        This helper method centralizes the URL extraction logic that is used
+        in multiple places (seed page, pagination pages, single-page mode).
+
+        Args:
+            url_extractor: URL extractor service instance
+            html_content: HTML content to extract URLs from
+            base_url: Base URL for resolving relative URLs
+            detail_selector: CSS/XPath selector for detail URLs
+            job_id: Optional job ID for deduplication tracking
+            container_selector: Optional container selector for metadata association
+
+        Returns:
+            List of extracted URLs
+
+        Raises:
+            Exception: If URL extraction fails
+        """
+        return await url_extractor.extract_urls(
+            html_content=html_content,
+            base_url=base_url,
+            url_selector=detail_selector,
+            deduplicate=True,
+            job_id=job_id,
+            container_selector=container_selector,
+        )
