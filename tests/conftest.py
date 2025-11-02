@@ -115,9 +115,11 @@ async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        async with session.begin():
+        transaction = await session.begin()
+        try:
             yield session
-            await session.rollback()
+        finally:
+            await transaction.rollback()
 
     await engine.dispose()
 
@@ -137,8 +139,10 @@ async def db_connection(test_db_schema) -> AsyncGenerator[AsyncConnection, None]
 
     # Create connection with transaction
     async with engine.connect() as connection:
-        async with connection.begin() as transaction:
+        transaction = await connection.begin()
+        try:
             yield connection
+        finally:
             await transaction.rollback()
 
     await engine.dispose()
@@ -239,13 +243,15 @@ async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
     import crawler.db.session as db_module
     from crawler.db import get_db
 
-    # Create test engine without pool_pre_ping
+    # Create test engine with minimal pooling to avoid connection leaks
     engine = create_async_engine(
         str(_test_settings.database_url),
         echo=False,
         pool_pre_ping=False,
-        pool_size=5,
-        max_overflow=10,
+        pool_size=1,  # Minimal pool size for tests
+        max_overflow=0,  # No overflow connections
+        pool_timeout=30,
+        pool_recycle=3600,
     )
 
     # Override module-level engine to prevent event loop issues
@@ -257,34 +263,36 @@ async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
         engine, class_=AsyncSession, expire_on_commit=False
     )
 
-    # Create session
+    # Create session maker
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    session = async_session()
-    transaction = await session.begin()
+    # Explicit transaction management to ensure rollback
+    async with async_session() as session:
+        transaction = await session.begin()
+        try:
 
-    async def get_test_db() -> AsyncGenerator[AsyncSession, None]:
-        """Return the shared test session."""
-        yield session
+            async def get_test_db() -> AsyncGenerator[AsyncSession, None]:
+                """Return the shared test session."""
+                yield session
 
-    # Create app and override dependency
-    app = create_app()
-    app.dependency_overrides[get_db] = get_test_db
+            # Create app and override dependency
+            app = create_app()
+            app.dependency_overrides[get_db] = get_test_db
 
-    # Create client
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
+            # Create client
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                yield client
+        finally:
+            # Always rollback to maintain test isolation
+            await transaction.rollback()
+            # Clean up overrides
+            app.dependency_overrides.clear()
 
-    # Cleanup: rollback transaction
-    await transaction.rollback()
-    await session.close()
+    # Cleanup after session context exits
+    # Dispose engine and wait for all connections to close
+    await engine.dispose()
 
     # Restore original module-level engine
     db_module.engine = original_engine
     db_module.async_session_maker = original_sessionmaker
-
-    await engine.dispose()
-
-    # Clean up overrides
-    app.dependency_overrides.clear()
