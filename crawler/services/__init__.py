@@ -10,6 +10,7 @@ from .redis_cache import (
     RateLimiter,
     URLDeduplicationCache,
 )
+from .seed_url_crawler import CrawlOutcome, CrawlResult, SeedURLCrawler, SeedURLCrawlerConfig
 from .url_extractor import ExtractedURL, URLExtractorService
 
 __all__ = [
@@ -23,4 +24,8 @@ __all__ = [
     "RateLimiter",
     "BrowserPoolStatus",
     "JobProgressCache",
+    "SeedURLCrawler",
+    "SeedURLCrawlerConfig",
+    "CrawlResult",
+    "CrawlOutcome",
 ]
