@@ -63,13 +63,16 @@ class SeedURLCrawler:
 ### Configuration
 
 ```python
+import httpx
+from crawler.services.redis_cache import URLDeduplicationCache
+
 @dataclass
 class SeedURLCrawlerConfig:
     """Configuration for seed URL crawler."""
 
     step: CrawlStep              # Required: The step configuration with selectors
     job_id: str | None           # Optional: Job ID for deduplication tracking
-    http_client: AsyncClient | None  # Optional: Custom HTTP client
+    http_client: httpx.AsyncClient | None  # Optional: Custom HTTP client
     dedup_cache: URLDeduplicationCache | None  # Optional: Deduplication cache
     max_pages: int | None        # Optional: Override max_pages
     request_timeout: int = 30    # Optional: Request timeout in seconds
@@ -172,12 +175,14 @@ Comprehensive integration tests cover all scenarios:
 - ✅ Successful single page crawl
 - ✅ Successful paginated crawl with auto-detection
 
-### Negative Test Cases (5 tests)
+### Negative Test Cases (7 tests)
 - ✅ Seed URL returns 404 (fails immediately)
 - ✅ Seed URL returns 500 (error outcome)
 - ✅ No detail URLs found (success with warning)
 - ✅ Invalid configuration (no selector)
+- ✅ Seed page extraction failure in paginated mode (fatal error)
 - ✅ Pagination selector configured but not found
+- ✅ Partial success with page extraction errors (some pages fail)
 
 ### Edge Cases (5 tests)
 - ✅ Max pages limit respected
@@ -186,7 +191,7 @@ Comprehensive integration tests cover all scenarios:
 - ✅ Circular pagination detection (duplicate content)
 - ✅ Relative URL resolution
 
-**Total**: 12 tests, all passing ✅
+**Total**: 14 tests, all passing ✅
 
 ## Integration with Existing Services
 
@@ -246,9 +251,9 @@ The `SeedURLCrawler` integrates seamlessly with:
    - Exported new service classes and enums
 
 3. **`tests/integration/services/test_seed_url_crawler.py`** (NEW)
-   - 12 comprehensive integration tests
+   - 14 comprehensive integration tests
    - Tests all positive, negative, and edge cases
-   - ~520 lines of test code
+   - ~657 lines of test code
 
 ## Acceptance Criteria Status
 

@@ -264,7 +264,12 @@ class SeedURLCrawler:
             return result
 
         except Exception as e:
-            logger.error("seed_url_crawl_unexpected_error", seed_url=seed_url, error=str(e))
+            logger.error(
+                "seed_url_crawl_unexpected_error",
+                seed_url=seed_url,
+                error=str(e),
+                exc_info=True,
+            )
             return CrawlResult(
                 outcome=CrawlOutcome.SEED_URL_ERROR,
                 seed_url=seed_url,
@@ -322,39 +327,23 @@ class SeedURLCrawler:
         stopped_reason: str | None = None
 
         # Get detail URL selector from step
+        # Note: Already validated in _validate_config, guaranteed to be present
         detail_selector = self._get_detail_url_selector(config.step)
-        if not detail_selector:
-            logger.warning("no_detail_url_selector_configured", seed_url=seed_url)
-            warnings.append(
-                "Missing required 'detail_urls' selector in step configuration "
-                "- cannot extract URLs"
-            )
-            return CrawlResult(
-                outcome=CrawlOutcome.INVALID_CONFIG,
-                seed_url=seed_url,
-                total_pages_crawled=0,
-                total_urls_extracted=0,
-                extracted_urls=[],
-                error_message=(
-                    "Missing required 'detail_urls' selector in step configuration. "
-                    "This selector is used to extract URLs from list pages."
-                ),
-                warnings=warnings,
-            )
+        assert detail_selector is not None, "detail_selector validated in _validate_config"
 
         # Get container selector if available (for better metadata association)
         container_selector = self._get_container_selector(config.step)
 
         # Create fetch function for pagination service
         async def fetch_page(url: str) -> tuple[int, bytes]:
-            """Fetch a page and return status code and content."""
-            try:
-                response = await http_client.get(url)
-                return response.status_code, response.content
-            except httpx.RequestError as e:
-                logger.warning("page_fetch_error", url=url, error=str(e))
-                # Return 500 to trigger stop detection
-                return 500, b""
+            """Fetch a page and return status code and content.
+
+            Raises:
+                httpx.RequestError: Network/request errors are propagated to
+                    PaginationService which handles them appropriately
+            """
+            response = await http_client.get(url)
+            return response.status_code, response.content
 
         # Strategy 1: Use pagination with stop detection
         if pagination_config.enabled and pagination_strategy != "disabled":
@@ -384,7 +373,12 @@ class SeedURLCrawler:
                 )
             except Exception as e:
                 # Seed page extraction failure is fatal - fail immediately
-                logger.error("seed_page_extraction_failed", seed_url=seed_url, error=str(e))
+                logger.error(
+                    "seed_page_extraction_failed",
+                    seed_url=seed_url,
+                    error=str(e),
+                    exc_info=True,
+                )
                 return CrawlResult(
                     outcome=CrawlOutcome.SEED_URL_ERROR,
                     seed_url=seed_url,
@@ -431,7 +425,12 @@ class SeedURLCrawler:
                     )
 
                 except Exception as e:
-                    logger.error("pagination_page_extraction_failed", url=url, error=str(e))
+                    logger.error(
+                        "pagination_page_extraction_failed",
+                        url=url,
+                        error=str(e),
+                        exc_info=True,
+                    )
                     warnings.append(f"Failed to extract URLs from page {url}: {e}")
 
             # Check if pagination selector was configured but no additional pages found
@@ -493,7 +492,12 @@ class SeedURLCrawler:
                 )
 
             except Exception as e:
-                logger.error("single_page_extraction_failed", seed_url=seed_url, error=str(e))
+                logger.error(
+                    "single_page_extraction_failed",
+                    seed_url=seed_url,
+                    error=str(e),
+                    exc_info=True,
+                )
                 return CrawlResult(
                     outcome=CrawlOutcome.SEED_URL_ERROR,
                     seed_url=seed_url,
