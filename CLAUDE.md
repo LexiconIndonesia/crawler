@@ -814,6 +814,103 @@ Use `make encode-gcs FILE=path/to/creds.json` to generate base64-encoded GCS cre
 - **Python version**: 3.11+ required
 - **Async functions**: Use `async def` with proper typing (collections.abc.AsyncGenerator, etc.)
 
+## Coding Patterns
+
+### Guard Pattern and Early Returns
+
+Use guard clauses and early returns to reduce nesting and improve code readability. Check for invalid/edge cases first and return/exit early.
+
+**Pattern**: Check preconditions at the start of a function and return early if they're not met.
+
+**Benefits**:
+- Reduces nesting levels (avoid deep if-else pyramids)
+- Makes happy path code more prominent
+- Easier to understand control flow
+- Clearer error handling
+
+**Examples**:
+
+```python
+# ❌ BAD: Nested conditions
+async def process_item(config, item_id):
+    if config.enabled:
+        if item_id:
+            if await check_permission(item_id):
+                # Main logic buried 3 levels deep
+                return await process(item_id)
+            else:
+                return None
+        else:
+            return None
+    else:
+        return None
+
+# ✅ GOOD: Guard pattern with early returns
+async def process_item(config, item_id):
+    # Guard: feature not enabled
+    if not config.enabled:
+        return None
+
+    # Guard: missing item_id
+    if not item_id:
+        return None
+
+    # Guard: insufficient permissions
+    if not await check_permission(item_id):
+        return None
+
+    # Main logic at top level - clear and prominent
+    return await process(item_id)
+```
+
+**Real example from codebase** (`crawler/services/seed_url_crawler.py:133-184`):
+
+```python
+async def _check_cancellation(
+    self,
+    config: SeedURLCrawlerConfig,
+    seed_url: str,
+    pages_crawled: int,
+    extracted_urls: list[ExtractedURL],
+    warnings: list[str] | None = None,
+) -> CrawlResult | None:
+    """Check if job is cancelled and return appropriate result.
+
+    Uses guard pattern to exit early when cancellation is not configured or not triggered.
+    """
+    # Guard: no cancellation flag configured
+    if not config.cancellation_flag:
+        return None
+
+    # Guard: no job_id to check
+    if not config.job_id:
+        return None
+
+    # Check if job is cancelled
+    is_cancelled = await config.cancellation_flag.is_cancelled(config.job_id)
+    if not is_cancelled:
+        return None
+
+    # Job is cancelled - return result with preserved state
+    logger.info("crawl_cancelled", job_id=config.job_id, ...)
+    return CrawlResult(outcome=CrawlOutcome.CANCELLED, ...)
+```
+
+**When to use**:
+- Functions with multiple preconditions
+- Validation logic
+- Error handling
+- Optional feature checks
+- Permission/authorization checks
+- Configuration checks
+
+**When NOT to use**:
+- When the else branch contains substantial logic (use explicit if-else instead)
+- When early return would skip necessary cleanup (use try-finally instead)
+- When both branches are equally important (explicit if-else is clearer)
+
+**Comment your guards**: Add brief comments like `# Guard: <condition>` to make the pattern explicit and document the reason for early return.
+
 ## CI/CD
 
 ### GitHub Actions Workflows

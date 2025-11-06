@@ -18,7 +18,7 @@ from crawler.api.generated import CrawlStep, PaginationConfig
 from crawler.core.logging import get_logger
 from crawler.services.html_parser import HTMLParserService
 from crawler.services.pagination import PaginationService
-from crawler.services.redis_cache import URLDeduplicationCache
+from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
 from crawler.services.url_extractor import ExtractedURL, URLExtractorService
 
 logger = get_logger(__name__)
@@ -36,6 +36,7 @@ class CrawlOutcome(str, Enum):
     CIRCULAR_PAGINATION = "circular_pagination"  # Circular pagination detected
     EMPTY_PAGES = "empty_pages"  # Stopped due to consecutive empty pages
     PARTIAL_SUCCESS = "partial_success"  # Some pages succeeded, some failed
+    CANCELLED = "cancelled"  # Job was cancelled during execution
 
 
 @dataclass
@@ -98,6 +99,9 @@ class SeedURLCrawlerConfig:
     # Optional: Timeout for HTTP requests (seconds)
     request_timeout: int = 30
 
+    # Optional: crawler.services.redis_cache.JobCancellationFlag for cancellation checks
+    cancellation_flag: JobCancellationFlag | None = None
+
 
 class SeedURLCrawler:
     """Service for crawling seed URLs with comprehensive error handling.
@@ -125,6 +129,59 @@ class SeedURLCrawler:
         self.pagination_service = PaginationService()
         # HTML parser and URL extractor will be created per-crawl
         # to avoid sharing state
+
+    async def _check_cancellation(
+        self,
+        config: SeedURLCrawlerConfig,
+        seed_url: str,
+        pages_crawled: int,
+        extracted_urls: list[ExtractedURL],
+        warnings: list[str] | None = None,
+    ) -> CrawlResult | None:
+        """Check if job is cancelled and return appropriate result.
+
+        Uses guard pattern to exit early when cancellation is not configured or not triggered.
+
+        Args:
+            config: Crawler configuration with optional cancellation_flag
+            seed_url: The seed URL being crawled
+            pages_crawled: Number of pages crawled so far
+            extracted_urls: URLs extracted so far
+            warnings: List of warnings accumulated
+
+        Returns:
+            CrawlResult with CANCELLED outcome if job is cancelled, None otherwise
+        """
+        # Guard: no cancellation flag configured
+        if not config.cancellation_flag:
+            return None
+
+        # Guard: no job_id to check
+        if not config.job_id:
+            return None
+
+        # Check if job is cancelled
+        is_cancelled = await config.cancellation_flag.is_cancelled(config.job_id)
+        if not is_cancelled:
+            return None
+
+        # Job is cancelled - return result with preserved state
+        logger.info(
+            "crawl_cancelled",
+            job_id=config.job_id,
+            seed_url=seed_url,
+            pages_crawled=pages_crawled,
+            urls_extracted=len(extracted_urls),
+        )
+        return CrawlResult(
+            outcome=CrawlOutcome.CANCELLED,
+            seed_url=seed_url,
+            total_pages_crawled=pages_crawled,
+            total_urls_extracted=len(extracted_urls),
+            extracted_urls=extracted_urls,
+            error_message="Job was cancelled during execution",
+            warnings=warnings,
+        )
 
     async def crawl(self, seed_url: str, config: SeedURLCrawlerConfig) -> CrawlResult:
         """Crawl a seed URL and extract detail page URLs.
@@ -354,6 +411,17 @@ class SeedURLCrawler:
                 max_pages=pagination_config.max_pages,
             )
 
+            # Guard: check for cancellation before starting pagination
+            cancellation_result = await self._check_cancellation(
+                config=config,
+                seed_url=seed_url,
+                pages_crawled=0,
+                extracted_urls=[],
+                warnings=warnings,
+            )
+            if cancellation_result:
+                return cancellation_result
+
             # First, extract URLs from seed page (we already have the content)
             try:
                 seed_urls = await self._extract_urls_from_content(
@@ -402,6 +470,17 @@ class SeedURLCrawler:
                 # Skip seed URL (already processed)
                 if url == seed_url:
                     continue
+
+                # Guard: check for cancellation before processing each page
+                cancellation_result = await self._check_cancellation(
+                    config=config,
+                    seed_url=seed_url,
+                    pages_crawled=pages_crawled,
+                    extracted_urls=all_extracted_urls,
+                    warnings=warnings,
+                )
+                if cancellation_result:
+                    return cancellation_result
 
                 # Extract URLs from this page
                 try:
@@ -474,6 +553,17 @@ class SeedURLCrawler:
                     "but pattern not detected"
                 )
                 stopped_reason = "pagination_selector_not_found"
+
+            # Guard: check for cancellation before extraction
+            cancellation_result = await self._check_cancellation(
+                config=config,
+                seed_url=seed_url,
+                pages_crawled=0,
+                extracted_urls=[],
+                warnings=warnings,
+            )
+            if cancellation_result:
+                return cancellation_result
 
             # Extract URLs from seed page only
             try:

@@ -3,10 +3,14 @@
 Tests the explicit key requirement for detail_urls and container selectors.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from crawler.api.generated import CrawlStep, MethodEnum, StepConfig, StepTypeEnum
-from crawler.services import SeedURLCrawler
+from crawler.services import CrawlOutcome, SeedURLCrawler, SeedURLCrawlerConfig
+from crawler.services.url_extractor import ExtractedURL
+from crawler.utils.url import hash_url, normalize_url
 
 
 @pytest.fixture
@@ -187,3 +191,167 @@ class TestConfigValidation:
         error = crawler._validate_config(config)
 
         assert error is None
+
+
+class TestCancellationDetection:
+    """Tests for job cancellation detection during crawl."""
+
+    @pytest.fixture
+    def sample_step(self) -> CrawlStep:
+        """Create a sample step for testing."""
+        return CrawlStep(
+            name="test",
+            type=StepTypeEnum.crawl,
+            description="Test step",
+            method=MethodEnum.http,
+            config=StepConfig(url="https://example.com"),
+            selectors={"detail_urls": "a.product-link"},
+            output=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_check_cancellation_returns_none_when_not_cancelled(
+        self, crawler: SeedURLCrawler, sample_step: CrawlStep
+    ) -> None:
+        """Test that _check_cancellation returns None when job is not cancelled."""
+        # Mock cancellation flag
+        mock_flag = AsyncMock()
+        mock_flag.is_cancelled.return_value = False
+
+        config = SeedURLCrawlerConfig(
+            step=sample_step, job_id="test-job-123", cancellation_flag=mock_flag
+        )
+
+        result = await crawler._check_cancellation(
+            config=config,
+            seed_url="https://example.com",
+            pages_crawled=2,
+            extracted_urls=[],
+            warnings=None,
+        )
+
+        assert result is None
+        mock_flag.is_cancelled.assert_awaited_once_with("test-job-123")
+
+    @pytest.mark.asyncio
+    async def test_check_cancellation_returns_result_when_cancelled(
+        self, crawler: SeedURLCrawler, sample_step: CrawlStep
+    ) -> None:
+        """Test that _check_cancellation returns CrawlResult when job is cancelled."""
+        # Mock cancellation flag
+        mock_flag = AsyncMock()
+        mock_flag.is_cancelled.return_value = True
+
+        url = "https://example.com/product1"
+        extracted_urls = [
+            ExtractedURL(
+                url=url,
+                normalized_url=normalize_url(url),
+                url_hash=hash_url(url),
+            )
+        ]
+
+        config = SeedURLCrawlerConfig(
+            step=sample_step, job_id="test-job-123", cancellation_flag=mock_flag
+        )
+
+        result = await crawler._check_cancellation(
+            config=config,
+            seed_url="https://example.com",
+            pages_crawled=3,
+            extracted_urls=extracted_urls,
+            warnings=["test warning"],
+        )
+
+        assert result is not None
+        assert result.outcome == CrawlOutcome.CANCELLED
+        assert result.seed_url == "https://example.com"
+        assert result.total_pages_crawled == 3
+        assert result.total_urls_extracted == 1
+        assert result.extracted_urls == extracted_urls
+        assert result.error_message == "Job was cancelled during execution"
+        assert result.warnings == ["test warning"]
+        mock_flag.is_cancelled.assert_awaited_once_with("test-job-123")
+
+    @pytest.mark.asyncio
+    async def test_check_cancellation_without_flag(
+        self, crawler: SeedURLCrawler, sample_step: CrawlStep
+    ) -> None:
+        """Test that _check_cancellation returns None when no cancellation flag is provided."""
+        config = SeedURLCrawlerConfig(step=sample_step, job_id="test-job-123")
+
+        result = await crawler._check_cancellation(
+            config=config,
+            seed_url="https://example.com",
+            pages_crawled=1,
+            extracted_urls=[],
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_check_cancellation_without_job_id(
+        self, crawler: SeedURLCrawler, sample_step: CrawlStep
+    ) -> None:
+        """Test that _check_cancellation returns None when no job_id is provided."""
+        mock_flag = AsyncMock()
+        mock_flag.is_cancelled.return_value = True
+
+        config = SeedURLCrawlerConfig(step=sample_step, cancellation_flag=mock_flag)
+
+        result = await crawler._check_cancellation(
+            config=config,
+            seed_url="https://example.com",
+            pages_crawled=1,
+            extracted_urls=[],
+        )
+
+        # Should return None because job_id is required for cancellation checks
+        assert result is None
+        mock_flag.is_cancelled.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_check_cancellation_preserves_extracted_urls(
+        self, crawler: SeedURLCrawler, sample_step: CrawlStep
+    ) -> None:
+        """Test that cancellation preserves URLs extracted so far."""
+        mock_flag = AsyncMock()
+        mock_flag.is_cancelled.return_value = True
+
+        url1 = "https://example.com/product1"
+        url2 = "https://example.com/product2"
+        url3 = "https://example.com/product3"
+        extracted_urls = [
+            ExtractedURL(
+                url=url1,
+                normalized_url=normalize_url(url1),
+                url_hash=hash_url(url1),
+            ),
+            ExtractedURL(
+                url=url2,
+                normalized_url=normalize_url(url2),
+                url_hash=hash_url(url2),
+            ),
+            ExtractedURL(
+                url=url3,
+                normalized_url=normalize_url(url3),
+                url_hash=hash_url(url3),
+            ),
+        ]
+
+        config = SeedURLCrawlerConfig(
+            step=sample_step, job_id="test-job-123", cancellation_flag=mock_flag
+        )
+
+        result = await crawler._check_cancellation(
+            config=config,
+            seed_url="https://example.com",
+            pages_crawled=2,
+            extracted_urls=extracted_urls,
+        )
+
+        assert result is not None
+        assert result.outcome == CrawlOutcome.CANCELLED
+        assert result.total_urls_extracted == 3
+        assert result.extracted_urls == extracted_urls
+        assert len(result.extracted_urls) == 3
