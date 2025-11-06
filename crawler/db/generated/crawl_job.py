@@ -15,12 +15,13 @@ from crawler.db.generated import models
 CANCEL_CRAWL_JOB = """-- name: cancel_crawl_job \\:one
 UPDATE crawl_job
 SET
-    status = 'cancelled',
+    status = 'cancelled'\\:\\:status_enum,
     cancelled_at = CURRENT_TIMESTAMP,
     cancelled_by = :p1,
     cancellation_reason = :p2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p3
+    AND status IN ('pending'\\:\\:status_enum, 'running'\\:\\:status_enum)
 RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
 

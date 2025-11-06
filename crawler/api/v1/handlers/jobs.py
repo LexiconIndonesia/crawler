@@ -5,6 +5,8 @@ and business logic services using dependency injection.
 """
 
 from crawler.api.generated import (
+    CancelJobRequest,
+    CancelJobResponse,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     SeedJobResponse,
@@ -76,3 +78,35 @@ async def create_seed_job_inline_handler(
 
     # Delegate to service layer (error handling done by decorator)
     return await job_service.create_seed_job_inline(request)
+
+
+@handle_service_errors(operation="cancelling the job")
+async def cancel_job_handler(
+    job_id: str,
+    request: CancelJobRequest,
+    job_service: JobService,
+) -> CancelJobResponse:
+    """Handle job cancellation with HTTP error translation.
+
+    This handler validates the request, delegates business logic to the service,
+    and translates service exceptions to HTTP responses via the decorator.
+
+    Args:
+        job_id: Job ID to cancel
+        request: Cancellation request with optional reason
+        job_service: Injected job service
+
+    Returns:
+        Cancellation response with updated job status
+
+    Raises:
+        HTTPException: If job not found or cannot be cancelled
+    """
+    log_context = {
+        "job_id": job_id,
+        "reason": request.reason,
+    }
+    logger.info("cancel_job_request", **log_context)
+
+    # Delegate to service layer (error handling done by decorator)
+    return await job_service.cancel_job(job_id, request)

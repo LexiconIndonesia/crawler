@@ -3,13 +3,19 @@
 from fastapi import APIRouter, status
 
 from crawler.api.generated import (
+    CancelJobRequest,
+    CancelJobResponse,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     ErrorResponse,
     SeedJobResponse,
 )
 from crawler.api.v1.dependencies import JobServiceDep
-from crawler.api.v1.handlers import create_seed_job_handler, create_seed_job_inline_handler
+from crawler.api.v1.handlers import (
+    cancel_job_handler,
+    create_seed_job_handler,
+    create_seed_job_inline_handler,
+)
 
 router = APIRouter()
 
@@ -175,3 +181,83 @@ async def create_seed_job_inline(
         HTTPException: If validation fails or configuration is invalid
     """
     return await create_seed_job_inline_handler(request, job_service)
+
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=CancelJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a crawl job",
+    operation_id="cancelJob",
+    description="""
+    Cancel a running or pending crawl job.
+
+    This endpoint validates that the job exists and is not already completed or cancelled,
+    then updates the job status to "cancelled" and sets a Redis cancellation flag for
+    workers to detect.
+
+    Jobs in "completed" or "failed" status cannot be cancelled.
+    """,
+    responses={
+        200: {"description": "Job cancellation initiated successfully"},
+        400: {
+            "description": "Job cannot be cancelled",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "already_completed": {
+                            "value": {
+                                "detail": "Job is already completed and cannot be cancelled",
+                                "error_code": "INVALID_JOB_STATUS",
+                            }
+                        },
+                        "already_cancelled": {
+                            "value": {
+                                "detail": "Job is already cancelled",
+                                "error_code": "ALREADY_CANCELLED",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Job not found",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "not_found": {
+                            "value": {
+                                "detail": "Job with ID '770e8400-e29b-41d4-a716-446655440000' not "
+                                "found",
+                                "error_code": "JOB_NOT_FOUND",
+                            }
+                        }
+                    }
+                }
+            },
+        },
+        422: {"description": "Validation error (invalid request body)"},
+    },
+)
+async def cancel_job(
+    job_id: str,
+    request: CancelJobRequest,
+    job_service: JobServiceDep,
+) -> CancelJobResponse:
+    """Cancel a crawl job.
+
+    Args:
+        job_id: Job ID to cancel
+        request: Cancellation request with optional reason
+        job_service: Injected job service
+
+    Returns:
+        Cancellation response with updated job status
+
+    Raises:
+        HTTPException: If job not found or cannot be cancelled
+    """
+    return await cancel_job_handler(job_id, request, job_service)
