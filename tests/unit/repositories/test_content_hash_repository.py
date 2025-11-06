@@ -15,7 +15,7 @@ from crawler.db.repositories.content_hash import ContentHashRepository
 class TestContentHashRepository:
     """Unit tests for ContentHashRepository."""
 
-    async def test_initialization(self):
+    async def test_initialization(self) -> None:
         """Test repository initializes correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -23,7 +23,7 @@ class TestContentHashRepository:
         assert repo.conn == mock_conn
         assert repo._querier is not None
 
-    async def test_upsert_converts_string_page_id_to_uuid(self):
+    async def test_upsert_converts_string_page_id_to_uuid(self) -> None:
         """Test upsert converts string page ID to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -47,7 +47,7 @@ class TestContentHashRepository:
         assert called_args.kwargs["content_hash"] == "hash123"
         assert result == mock_content_hash
 
-    async def test_upsert_accepts_uuid_page_id(self):
+    async def test_upsert_accepts_uuid_page_id(self) -> None:
         """Test upsert accepts UUID page ID directly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -69,7 +69,7 @@ class TestContentHashRepository:
         assert called_args.kwargs["first_seen_page_id"] is page_id
         assert result == mock_content_hash
 
-    async def test_upsert_handles_none_page_id(self):
+    async def test_upsert_handles_none_page_id(self) -> None:
         """Test upsert handles None for first_seen_page_id."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -91,7 +91,7 @@ class TestContentHashRepository:
         assert called_args.kwargs["content_hash"] == "hash123"
         assert result == mock_content_hash
 
-    async def test_get_returns_content_hash(self):
+    async def test_get_returns_content_hash(self) -> None:
         """Test get returns content hash record."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -112,7 +112,7 @@ class TestContentHashRepository:
         assert called_args.kwargs["content_hash"] == "hash123"
         assert result == mock_content_hash
 
-    async def test_get_returns_none_when_not_found(self):
+    async def test_get_returns_none_when_not_found(self) -> None:
         """Test get returns None when content hash not found."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)
@@ -123,7 +123,7 @@ class TestContentHashRepository:
 
         assert result is None
 
-    async def test_upsert_increments_occurrence_count(self):
+    async def test_upsert_increments_occurrence_count(self) -> None:
         """Test upsert behavior for incrementing occurrence count."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ContentHashRepository(mock_conn)

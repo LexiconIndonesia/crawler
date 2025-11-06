@@ -16,7 +16,7 @@ from crawler.services.resource_cleanup import (
 class TestHTTPResourceManager:
     """Tests for HTTPResourceManager."""
 
-    async def test_tracked_request_increments_and_decrements(self):
+    async def test_tracked_request_increments_and_decrements(self) -> None:
         """Test that tracked_request properly tracks active requests."""
         client = Mock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -28,7 +28,7 @@ class TestHTTPResourceManager:
 
         assert manager._active_requests == 0
 
-    async def test_tracked_request_handles_exceptions(self):
+    async def test_tracked_request_handles_exceptions(self) -> None:
         """Test that tracked_request decrements counter even on exception."""
         client = Mock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -40,7 +40,7 @@ class TestHTTPResourceManager:
 
         assert manager._active_requests == 0
 
-    async def test_close_gracefully_success(self):
+    async def test_close_gracefully_success(self) -> None:
         """Test graceful close when no requests are active."""
         client = AsyncMock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -50,13 +50,13 @@ class TestHTTPResourceManager:
         assert result is True
         client.aclose.assert_called_once()
 
-    async def test_close_gracefully_waits_for_requests(self):
+    async def test_close_gracefully_waits_for_requests(self) -> None:
         """Test graceful close waits for active requests to complete."""
         client = AsyncMock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
 
         # Simulate an active request that completes after a delay
-        async def simulate_request():
+        async def simulate_request() -> None:
             async with manager.tracked_request():
                 await asyncio.sleep(0.2)
 
@@ -75,13 +75,13 @@ class TestHTTPResourceManager:
         assert result is True
         client.aclose.assert_called_once()
 
-    async def test_close_gracefully_timeout(self):
+    async def test_close_gracefully_timeout(self) -> None:
         """Test graceful close times out if requests take too long."""
         client = AsyncMock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
 
         # Simulate a long-running request
-        async def simulate_long_request():
+        async def simulate_long_request() -> None:
             async with manager.tracked_request():
                 await asyncio.sleep(2.0)
 
@@ -104,7 +104,7 @@ class TestHTTPResourceManager:
         except asyncio.CancelledError:
             pass
 
-    async def test_force_close(self):
+    async def test_force_close(self) -> None:
         """Test force close immediately closes client."""
         client = AsyncMock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -116,7 +116,7 @@ class TestHTTPResourceManager:
 
         client.aclose.assert_called_once()
 
-    async def test_is_active(self):
+    async def test_is_active(self) -> None:
         """Test is_active returns correct status."""
         client = Mock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -128,7 +128,7 @@ class TestHTTPResourceManager:
 
         assert manager.is_active() is False
 
-    async def test_is_active_false_when_closing(self):
+    async def test_is_active_false_when_closing(self) -> None:
         """Test is_active returns False when closing flag is set."""
         client = Mock(spec=httpx.AsyncClient)
         manager = HTTPResourceManager(client)
@@ -142,7 +142,7 @@ class TestHTTPResourceManager:
 class TestBrowserResourceManager:
     """Tests for BrowserResourceManager."""
 
-    async def test_close_gracefully_no_contexts(self):
+    async def test_close_gracefully_no_contexts(self) -> None:
         """Test graceful close with no browser contexts."""
         manager = BrowserResourceManager(contexts=[])
 
@@ -150,7 +150,7 @@ class TestBrowserResourceManager:
 
         assert result is True
 
-    async def test_close_gracefully_with_contexts(self):
+    async def test_close_gracefully_with_contexts(self) -> None:
         """Test graceful close with browser contexts."""
         # Mock browser contexts with close method
         context1 = AsyncMock()
@@ -163,10 +163,10 @@ class TestBrowserResourceManager:
         context1.close.assert_called_once()
         context2.close.assert_called_once()
 
-    async def test_close_gracefully_timeout(self):
+    async def test_close_gracefully_timeout(self) -> None:
         """Test graceful close times out for slow contexts."""
 
-        async def slow_close():
+        async def slow_close() -> None:
             await asyncio.sleep(2.0)
 
         context = AsyncMock()
@@ -177,7 +177,7 @@ class TestBrowserResourceManager:
 
         assert result is False
 
-    async def test_force_close(self):
+    async def test_force_close(self) -> None:
         """Test force close closes all contexts."""
         context1 = AsyncMock()
         context2 = AsyncMock()
@@ -188,7 +188,7 @@ class TestBrowserResourceManager:
         context1.close.assert_called_once()
         context2.close.assert_called_once()
 
-    async def test_force_close_handles_errors(self):
+    async def test_force_close_handles_errors(self) -> None:
         """Test force close continues even if context close fails."""
         context1 = AsyncMock()
         context1.close.side_effect = Exception("close failed")
@@ -201,7 +201,7 @@ class TestBrowserResourceManager:
         context1.close.assert_called_once()
         context2.close.assert_called_once()
 
-    async def test_is_active(self):
+    async def test_is_active(self) -> None:
         """Test is_active returns correct status."""
         manager = BrowserResourceManager(contexts=[])
         assert manager.is_active() is False
@@ -216,7 +216,7 @@ class TestBrowserResourceManager:
 class TestCleanupCoordinator:
     """Tests for CleanupCoordinator."""
 
-    async def test_register_resource(self):
+    async def test_register_resource(self) -> None:
         """Test resource registration."""
         coordinator = CleanupCoordinator()
         resource = Mock(spec=HTTPResourceManager)
@@ -226,7 +226,7 @@ class TestCleanupCoordinator:
         assert len(coordinator.resources) == 1
         assert coordinator.resources[0] is resource
 
-    async def test_cleanup_all_graceful_success(self):
+    async def test_cleanup_all_graceful_success(self) -> None:
         """Test cleanup when all resources close gracefully."""
         coordinator = CleanupCoordinator(graceful_timeout=5.0)
 
@@ -256,7 +256,7 @@ class TestCleanupCoordinator:
         resource2.close_gracefully.assert_called_once()
         resource2.force_close.assert_not_called()
 
-    async def test_cleanup_all_force_close_on_timeout(self):
+    async def test_cleanup_all_force_close_on_timeout(self) -> None:
         """Test cleanup force closes resources that timeout."""
         coordinator = CleanupCoordinator(graceful_timeout=0.1)
 
@@ -277,7 +277,7 @@ class TestCleanupCoordinator:
         resource.close_gracefully.assert_called_once()
         resource.force_close.assert_called_once()
 
-    async def test_cleanup_all_handles_exceptions(self):
+    async def test_cleanup_all_handles_exceptions(self) -> None:
         """Test cleanup continues despite resource errors."""
         coordinator = CleanupCoordinator()
 
@@ -302,7 +302,7 @@ class TestCleanupCoordinator:
         resource1.force_close.assert_called_once()
         resource2.force_close.assert_not_called()
 
-    async def test_cleanup_and_update_job_success(self):
+    async def test_cleanup_and_update_job_success(self) -> None:
         """Test cleanup with successful job status update."""
         coordinator = CleanupCoordinator()
         resource = AsyncMock(spec=HTTPResourceManager)
@@ -329,7 +329,7 @@ class TestCleanupCoordinator:
             reason="test reason",
         )
 
-    async def test_cleanup_and_update_job_repo_failure(self):
+    async def test_cleanup_and_update_job_repo_failure(self) -> None:
         """Test cleanup when job repository update fails."""
         coordinator = CleanupCoordinator()
         resource = AsyncMock(spec=HTTPResourceManager)
@@ -349,7 +349,7 @@ class TestCleanupCoordinator:
         assert "job_status_update_error" in metadata
         assert "database error" in metadata["job_status_update_error"]
 
-    async def test_cleanup_and_update_job_returns_none(self):
+    async def test_cleanup_and_update_job_returns_none(self) -> None:
         """Test cleanup when job repository returns None."""
         coordinator = CleanupCoordinator()
         resource = AsyncMock(spec=HTTPResourceManager)

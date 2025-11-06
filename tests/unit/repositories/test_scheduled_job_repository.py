@@ -16,7 +16,7 @@ from crawler.db.repositories.scheduled_job import ScheduledJobRepository
 class TestScheduledJobRepository:
     """Unit tests for ScheduledJobRepository."""
 
-    async def test_initialization(self):
+    async def test_initialization(self) -> None:
         """Test repository initializes correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -24,7 +24,7 @@ class TestScheduledJobRepository:
         assert repo.conn == mock_conn
         assert repo._querier is not None
 
-    async def test_deserialize_job_config_with_string(self):
+    async def test_deserialize_job_config_with_string(self) -> None:
         """Test _deserialize_job_config converts string to dict."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -50,7 +50,7 @@ class TestScheduledJobRepository:
         assert isinstance(result.job_config, dict)
         assert result.job_config == {"max_depth": 5, "timeout": 30}
 
-    async def test_deserialize_job_config_with_dict(self):
+    async def test_deserialize_job_config_with_dict(self) -> None:
         """Test _deserialize_job_config returns dict unchanged."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -75,7 +75,7 @@ class TestScheduledJobRepository:
         assert result is not None
         assert result.job_config is job_config_dict  # Same object
 
-    async def test_deserialize_job_config_with_none(self):
+    async def test_deserialize_job_config_with_none(self) -> None:
         """Test _deserialize_job_config returns None when input is None."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -84,7 +84,7 @@ class TestScheduledJobRepository:
 
         assert result is None
 
-    async def test_deserialize_job_config_handles_invalid_json(self):
+    async def test_deserialize_job_config_handles_invalid_json(self) -> None:
         """Test _deserialize_job_config handles invalid JSON gracefully."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -108,7 +108,7 @@ class TestScheduledJobRepository:
         assert result is not None
         assert result.job_config == "invalid{json"  # Original value preserved
 
-    async def test_create_serializes_job_config(self):
+    async def test_create_serializes_job_config(self) -> None:
         """Test create serializes job_config dict to JSON."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -139,7 +139,7 @@ class TestScheduledJobRepository:
         assert called_args.kwargs["job_config"] == json.dumps(job_config)
         assert result == mock_job
 
-    async def test_create_converts_website_id_to_uuid(self):
+    async def test_create_converts_website_id_to_uuid(self) -> None:
         """Test create converts string website_id to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -170,7 +170,7 @@ class TestScheduledJobRepository:
         assert str(called_args.kwargs["website_id"]) == website_id_str
         assert result == mock_job
 
-    async def test_get_by_id_deserializes_job_config(self):
+    async def test_get_by_id_deserializes_job_config(self) -> None:
         """Test get_by_id deserializes job_config."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -197,7 +197,7 @@ class TestScheduledJobRepository:
         assert isinstance(result.job_config, dict)
         assert result.job_config == {"max_depth": 10}
 
-    async def test_get_by_website_id_deserializes_all_jobs(self):
+    async def test_get_by_website_id_deserializes_all_jobs(self) -> None:
         """Test get_by_website_id deserializes job_config for all jobs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -232,7 +232,7 @@ class TestScheduledJobRepository:
         assert all(isinstance(job.job_config, dict) for job in result)
         assert [job.job_config["max_depth"] for job in result] == [0, 1, 2]
 
-    async def test_get_due_jobs_deserializes_job_config(self):
+    async def test_get_due_jobs_deserializes_job_config(self) -> None:
         """Test get_due_jobs deserializes job_config for all jobs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -267,7 +267,7 @@ class TestScheduledJobRepository:
         assert all(isinstance(job.job_config, dict) for job in result)
         assert [job.job_config["priority"] for job in result] == [0, 1]
 
-    async def test_update_serializes_job_config_when_provided(self):
+    async def test_update_serializes_job_config_when_provided(self) -> None:
         """Test update serializes job_config when provided."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -294,7 +294,7 @@ class TestScheduledJobRepository:
         assert called_args.kwargs["job_config"] == json.dumps(new_config)
         assert result == mock_job
 
-    async def test_update_passes_none_for_job_config_when_not_provided(self):
+    async def test_update_passes_none_for_job_config_when_not_provided(self) -> None:
         """Test update passes None for job_config when not provided."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -320,7 +320,7 @@ class TestScheduledJobRepository:
         assert called_args.kwargs["job_config"] is None
         assert result == mock_job
 
-    async def test_count_returns_zero_when_none(self):
+    async def test_count_returns_zero_when_none(self) -> None:
         """Test count returns 0 when result is None."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -331,7 +331,7 @@ class TestScheduledJobRepository:
 
         assert result == 0
 
-    async def test_count_returns_actual_count(self):
+    async def test_count_returns_actual_count(self) -> None:
         """Test count returns actual count value."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -342,7 +342,7 @@ class TestScheduledJobRepository:
 
         assert result == 15
 
-    async def test_toggle_status_changes_active_flag(self):
+    async def test_toggle_status_changes_active_flag(self) -> None:
         """Test toggle_status changes is_active flag."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)
@@ -368,7 +368,7 @@ class TestScheduledJobRepository:
         assert called_args.kwargs["is_active"] is False
         assert result == mock_job
 
-    async def test_list_active_deserializes_job_config(self):
+    async def test_list_active_deserializes_job_config(self) -> None:
         """Test list_active deserializes job_config for all jobs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = ScheduledJobRepository(mock_conn)

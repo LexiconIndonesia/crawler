@@ -16,7 +16,7 @@ from crawler.db.repositories.crawl_log import CrawlLogRepository
 class TestCrawlLogRepository:
     """Unit tests for CrawlLogRepository."""
 
-    async def test_initialization(self):
+    async def test_initialization(self) -> None:
         """Test repository initializes correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -24,7 +24,7 @@ class TestCrawlLogRepository:
         assert repo.conn == mock_conn
         assert repo._querier is not None
 
-    async def test_create_converts_ids_to_uuid(self):
+    async def test_create_converts_ids_to_uuid(self) -> None:
         """Test create converts string IDs to UUIDs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -55,7 +55,7 @@ class TestCrawlLogRepository:
         assert str(called_args.kwargs["website_id"]) == website_id_str
         assert result == mock_log
 
-    async def test_create_serializes_context_dict(self):
+    async def test_create_serializes_context_dict(self) -> None:
         """Test create serializes context dict to JSON."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -86,7 +86,7 @@ class TestCrawlLogRepository:
         assert called_args.kwargs["context"] == json.dumps(context)
         assert result == mock_log
 
-    async def test_create_handles_optional_trace_id(self):
+    async def test_create_handles_optional_trace_id(self) -> None:
         """Test create converts optional trace_id to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -118,7 +118,7 @@ class TestCrawlLogRepository:
         assert str(called_args.kwargs["trace_id"]) == trace_id_str
         assert result == mock_log
 
-    async def test_create_handles_none_trace_id(self):
+    async def test_create_handles_none_trace_id(self) -> None:
         """Test create handles None for trace_id."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -145,7 +145,7 @@ class TestCrawlLogRepository:
         assert called_args.kwargs["trace_id"] is None
         assert result == mock_log
 
-    async def test_list_by_job_collects_async_generator(self):
+    async def test_list_by_job_collects_async_generator(self) -> None:
         """Test list_by_job collects all results from async generator."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -180,7 +180,7 @@ class TestCrawlLogRepository:
         assert all(isinstance(log, CrawlLog) for log in result)
         assert result == mock_logs
 
-    async def test_list_by_job_filters_by_log_level(self):
+    async def test_list_by_job_filters_by_log_level(self) -> None:
         """Test list_by_job passes log_level filter."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -219,7 +219,7 @@ class TestCrawlLogRepository:
         assert len(result) == 2
         assert all(log.log_level == LogLevelEnum.ERROR for log in result)
 
-    async def test_get_errors_collects_async_generator(self):
+    async def test_get_errors_collects_async_generator(self) -> None:
         """Test get_errors collects all error logs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)
@@ -255,7 +255,7 @@ class TestCrawlLogRepository:
         assert all(log.log_level == LogLevelEnum.ERROR for log in result)
         assert result == mock_logs
 
-    async def test_create_with_all_optional_parameters(self):
+    async def test_create_with_all_optional_parameters(self) -> None:
         """Test create with all optional parameters provided."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlLogRepository(mock_conn)

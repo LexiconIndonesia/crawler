@@ -16,7 +16,7 @@ from crawler.db.repositories.crawl_job import CrawlJobRepository
 class TestCrawlJobRepository:
     """Unit tests for CrawlJobRepository."""
 
-    async def test_initialization(self):
+    async def test_initialization(self) -> None:
         """Test repository initializes correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -24,7 +24,7 @@ class TestCrawlJobRepository:
         assert repo.conn == mock_conn
         assert repo._querier is not None
 
-    async def test_create_with_website_id(self):
+    async def test_create_with_website_id(self) -> None:
         """Test create with website_id dispatches to create_template_based_job."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -63,7 +63,7 @@ class TestCrawlJobRepository:
         assert str(called_args.kwargs["website_id"]) == website_id_str
         assert result == mock_job
 
-    async def test_create_with_inline_config(self):
+    async def test_create_with_inline_config(self) -> None:
         """Test create with inline_config dispatches to create_seed_url_submission."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -101,7 +101,7 @@ class TestCrawlJobRepository:
         assert called_args.kwargs["inline_config"] == json.dumps(inline_config)
         assert result == mock_job
 
-    async def test_create_with_inline_config_none_requires_website_id(self):
+    async def test_create_with_inline_config_none_requires_website_id(self) -> None:
         """Test create with only website_id dispatches to create_template_based_job."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -139,7 +139,7 @@ class TestCrawlJobRepository:
         assert isinstance(called_args.kwargs["website_id"], UUID)
         assert result == mock_job
 
-    async def test_create_serializes_metadata_and_variables(self):
+    async def test_create_serializes_metadata_and_variables(self) -> None:
         """Test that create dispatches and serializes metadata and variables to JSON."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -186,7 +186,7 @@ class TestCrawlJobRepository:
         assert called_args.kwargs["inline_config"] == json.dumps(inline_config)
         assert result == mock_job
 
-    async def test_update_progress_serializes_progress_dict(self):
+    async def test_update_progress_serializes_progress_dict(self) -> None:
         """Test that update_progress serializes progress dict to JSON."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -225,7 +225,7 @@ class TestCrawlJobRepository:
         assert called_args.kwargs["progress"] == json.dumps(progress)
         assert result == mock_job
 
-    async def test_create_seed_url_submission_requires_inline_config(self):
+    async def test_create_seed_url_submission_requires_inline_config(self) -> None:
         """Test create_seed_url_submission always serializes inline_config."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -265,7 +265,7 @@ class TestCrawlJobRepository:
         assert called_args.kwargs["inline_config"] == json.dumps(inline_config)
         assert result == mock_job
 
-    async def test_create_template_based_job_requires_website_id(self):
+    async def test_create_template_based_job_requires_website_id(self) -> None:
         """Test create_template_based_job converts website_id to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -306,7 +306,7 @@ class TestCrawlJobRepository:
         assert str(called_args.kwargs["website_id"]) == website_id_str
         assert result == mock_job
 
-    async def test_get_pending_collects_async_generator(self):
+    async def test_get_pending_collects_async_generator(self) -> None:
         """Test get_pending collects all results from async generator."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)
@@ -352,7 +352,7 @@ class TestCrawlJobRepository:
         assert all(isinstance(j, CrawlJob) for j in result)
         assert result == mock_jobs
 
-    async def test_cancel_passes_optional_parameters(self):
+    async def test_cancel_passes_optional_parameters(self) -> None:
         """Test cancel handles optional parameters correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawlJobRepository(mock_conn)

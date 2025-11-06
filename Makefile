@@ -123,7 +123,7 @@ pre-commit: ## Run auto-fixes and checks before commit (format + lint-fix + type
 	@echo "$(BLUE)2/3 Auto-fixing linting issues...$(NC)"
 	@$(RUFF) check --fix .
 	@echo "$(BLUE)3/3 Running type checker...$(NC)"
-	@$(MYPY) crawler/
+	@$(MYPY) .
 	@echo "$(GREEN)✅ Pre-commit checks complete!$(NC)"
 
 ##@ Docker

@@ -1,5 +1,6 @@
 """Integration tests for job cancellation with resource cleanup."""
 
+from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -8,7 +9,7 @@ import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from config import get_settings
-from crawler.api.generated import CrawlStep, MethodEnum, PaginationConfig, StepTypeEnum
+from crawler.api.generated import CrawlStep, MethodEnum, PaginationConfig, StepConfig, StepTypeEnum
 from crawler.api.generated.models import Type as PaginationType
 from crawler.db.repositories import CrawlJobRepository
 from crawler.services import (
@@ -21,34 +22,34 @@ from crawler.services import (
 
 
 @pytest.fixture
-async def redis_client():
+async def redis_client() -> AsyncGenerator[redis.Redis, None]:  # type: ignore[type-arg]
     """Create Redis client for testing."""
     settings = get_settings()
     client = redis.from_url(settings.redis_url)
     yield client
-    await client.aclose()
+    await client.aclose()  # type: ignore[attr-defined]
 
 
 @pytest.fixture
-async def cancellation_flag(redis_client):
+async def cancellation_flag(redis_client: redis.Redis) -> JobCancellationFlag:  # type: ignore[type-arg]
     """Create job cancellation flag service."""
     settings = get_settings()
     return JobCancellationFlag(redis_client, settings)
 
 
 @pytest.fixture
-async def cleanup_coordinator():
+async def cleanup_coordinator() -> CleanupCoordinator:
     """Create cleanup coordinator."""
     return CleanupCoordinator(graceful_timeout=5.0)
 
 
 @pytest.fixture
-async def job_repository(db_connection: AsyncConnection):
+async def job_repository(db_connection: AsyncConnection) -> CrawlJobRepository:
     """Create job repository."""
     return CrawlJobRepository(db_connection)
 
 
-def _create_mock_response(status_code: int = 200, content: bytes = b"<html></html>"):
+def _create_mock_response(status_code: int = 200, content: bytes = b"<html></html>") -> AsyncMock:
     """Create a mock HTTP response."""
     mock_response = AsyncMock()
     mock_response.status_code = status_code
@@ -62,7 +63,7 @@ class TestCancellationFlow:
     async def test_cancellation_without_cleanup_coordinator(
         self,
         cancellation_flag: JobCancellationFlag,
-    ):
+    ) -> None:
         """Test cancellation without cleanup coordinator (backward compatibility)."""
         job_id = "test-job-no-cleanup"
 
@@ -71,7 +72,7 @@ class TestCancellationFlow:
             name="test_step",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com",
+            config=StepConfig(url="https://example.com"),
             selectors={"detail_urls": "a"},
         )
 
@@ -107,7 +108,7 @@ class TestCancellationFlow:
         cancellation_flag: JobCancellationFlag,
         cleanup_coordinator: CleanupCoordinator,
         job_repository: CrawlJobRepository,
-    ):
+    ) -> None:
         """Test cancellation with cleanup coordinator and job status update."""
         # Create a test job
         job = await job_repository.create_seed_url_submission(
@@ -122,7 +123,7 @@ class TestCancellationFlow:
             name="test_step",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com/test",
+            config=StepConfig(url="https://example.com/test"),
             selectors={"detail_urls": "a.product"},
         )
 
@@ -170,7 +171,7 @@ class TestCancellationFlow:
         self,
         cancellation_flag: JobCancellationFlag,
         cleanup_coordinator: CleanupCoordinator,
-    ):
+    ) -> None:
         """Test cancellation during multi-page crawl preserves partial results."""
         job_id = "test-job-pagination-cancel"
 
@@ -179,15 +180,15 @@ class TestCancellationFlow:
             name="test_step_pagination",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com/page-1",
-            selectors={"detail_urls": "a.item"},
-            config={
-                "pagination": PaginationConfig(
+            config=StepConfig(
+                url="https://example.com/page-1",
+                pagination=PaginationConfig(
                     enabled=True,
                     type=PaginationType.page_based,
                     max_pages=10,
-                ).model_dump()
-            },
+                ),
+            ),
+            selectors={"detail_urls": "a.item"},
         )
 
         config = SeedURLCrawlerConfig(
@@ -226,7 +227,7 @@ class TestCancellationFlow:
         self,
         cancellation_flag: JobCancellationFlag,
         cleanup_coordinator: CleanupCoordinator,
-    ):
+    ) -> None:
         """Test that HTTP resources are properly cleaned up on cancellation."""
         job_id = "test-job-http-cleanup"
 
@@ -234,7 +235,7 @@ class TestCancellationFlow:
             name="test_http_cleanup",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com",
+            config=StepConfig(url="https://example.com"),
             selectors={"detail_urls": "a"},
         )
 
@@ -271,7 +272,7 @@ class TestCancellationFlow:
     async def test_graceful_close_timeout_triggers_force_close(
         self,
         cancellation_flag: JobCancellationFlag,
-    ):
+    ) -> None:
         """Test that force close is triggered when graceful close times out."""
         job_id = "test-job-force-close"
 
@@ -282,7 +283,7 @@ class TestCancellationFlow:
             name="test_force_close",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com",
+            config=StepConfig(url="https://example.com"),
             selectors={"detail_urls": "a"},
         )
 
@@ -313,7 +314,7 @@ class TestCancellationFlow:
         self,
         cancellation_flag: JobCancellationFlag,
         cleanup_coordinator: CleanupCoordinator,
-    ):
+    ) -> None:
         """Test that extracted URLs are preserved when job is cancelled."""
         job_id = "test-job-preserve-urls"
 
@@ -321,7 +322,7 @@ class TestCancellationFlow:
             name="test_preserve_urls",
             type=StepTypeEnum.crawl,
             method=MethodEnum.http,
-            url="https://example.com",
+            config=StepConfig(url="https://example.com"),
             selectors={"detail_urls": "a.product"},
         )
 

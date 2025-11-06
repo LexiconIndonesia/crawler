@@ -28,7 +28,7 @@ class TestWebsiteSchemas:
             "config": {"max_depth": 3},
             "created_by": "admin@example.com",
         }
-        website = WebsiteCreate(**data)
+        website = WebsiteCreate(**data)  # type: ignore[arg-type]
         assert website.name == "test-site"
         assert str(website.base_url) == "https://example.com/"
         assert website.config == {"max_depth": 3}
@@ -36,7 +36,7 @@ class TestWebsiteSchemas:
     def test_website_create_minimal(self) -> None:
         """Test website creation with minimal fields."""
         data = {"name": "test-site", "base_url": "https://example.com"}
-        website = WebsiteCreate(**data)
+        website = WebsiteCreate(**data)  # type: ignore[arg-type]
         assert website.name == "test-site"
         assert website.config == {}
         assert website.status == "active"
@@ -45,12 +45,12 @@ class TestWebsiteSchemas:
         """Test website creation with invalid URL."""
         data = {"name": "test-site", "base_url": "not-a-url"}
         with pytest.raises(ValidationError):
-            WebsiteCreate(**data)
+            WebsiteCreate(**data)  # type: ignore[arg-type]
 
     def test_website_update_partial(self) -> None:
         """Test partial website update."""
         data = {"status": "inactive"}
-        update = WebsiteUpdate(**data)
+        update = WebsiteUpdate(**data)  # type: ignore[arg-type]
         assert update.status == "inactive"
         assert update.name is None
 
@@ -61,19 +61,19 @@ class TestWebsiteSchemas:
             "base_url": "https://example.com",
             "cron_schedule": "0 0 1,15 * *",
         }
-        website = WebsiteCreate(**data)
+        website = WebsiteCreate(**data)  # type: ignore[arg-type]
         assert website.cron_schedule == "0 0 1,15 * *"
 
     def test_website_create_without_cron_schedule(self) -> None:
         """Test website creation without cron schedule."""
         data = {"name": "test-site", "base_url": "https://example.com"}
-        website = WebsiteCreate(**data)
+        website = WebsiteCreate(**data)  # type: ignore[arg-type]
         assert website.cron_schedule is None
 
     def test_website_update_cron_schedule(self) -> None:
         """Test updating website cron schedule."""
         data = {"cron_schedule": "0 12 * * *"}
-        update = WebsiteUpdate(**data)
+        update = WebsiteUpdate(**data)  # type: ignore[arg-type]
         assert update.cron_schedule == "0 12 * * *"
 
 
@@ -88,7 +88,7 @@ class TestCrawlJobSchemas:
             "job_type": "one_time",
             "priority": 7,
         }
-        job = CrawlJobCreate(**data)
+        job = CrawlJobCreate(**data)  # type: ignore[arg-type]
         assert job.website_id == "123e4567-e89b-12d3-a456-426614174000"
         assert job.priority == 7
         assert job.status == "pending"
@@ -101,7 +101,7 @@ class TestCrawlJobSchemas:
             "priority": 11,  # Invalid: > 10
         }
         with pytest.raises(ValidationError):
-            CrawlJobCreate(**data)
+            CrawlJobCreate(**data)  # type: ignore[arg-type]
 
     def test_crawl_job_invalid_job_type(self) -> None:
         """Test crawl job with invalid job type."""
@@ -111,7 +111,7 @@ class TestCrawlJobSchemas:
             "job_type": "invalid_type",
         }
         with pytest.raises(ValidationError):
-            CrawlJobCreate(**data)
+            CrawlJobCreate(**data)  # type: ignore[arg-type]
 
     def test_crawl_job_invalid_status(self) -> None:
         """Test crawl job with invalid status."""
@@ -121,12 +121,12 @@ class TestCrawlJobSchemas:
             "status": "invalid_status",
         }
         with pytest.raises(ValidationError):
-            CrawlJobCreate(**data)
+            CrawlJobCreate(**data)  # type: ignore[arg-type]
 
     def test_crawl_job_update_partial(self) -> None:
         """Test partial job update."""
         data = {"status": "running", "error_message": None}
-        update = CrawlJobUpdate(**data)
+        update = CrawlJobUpdate(**data)  # type: ignore[arg-type]
         assert update.status == "running"
 
     def test_crawl_job_cancel(self) -> None:
@@ -151,7 +151,7 @@ class TestCrawledPageSchemas:
             "title": "Example Page",
             "crawled_at": datetime.now(UTC),
         }
-        page = CrawledPageCreate(**data)
+        page = CrawledPageCreate(**data)  # type: ignore[arg-type]
         assert page.url_hash == "a" * 64
         assert page.is_duplicate is False
 
@@ -167,7 +167,7 @@ class TestCrawledPageSchemas:
             "similarity_score": 101,  # Invalid: > 100
         }
         with pytest.raises(ValidationError):
-            CrawledPageCreate(**data)
+            CrawledPageCreate(**data)  # type: ignore[arg-type]
 
 
 class TestContentHashSchemas:
@@ -181,7 +181,7 @@ class TestContentHashSchemas:
             "occurrence_count": 1,
             "last_seen_at": datetime.now(UTC),
         }
-        hash_obj = ContentHashCreate(**data)
+        hash_obj = ContentHashCreate(**data)  # type: ignore[arg-type]
         assert hash_obj.content_hash == "a" * 64
         assert hash_obj.occurrence_count == 1
 
@@ -198,7 +198,7 @@ class TestCrawlLogSchemas:
             "log_level": "INFO",
             "context": {"url": "https://example.com"},
         }
-        log = CrawlLogCreate(**data)
+        log = CrawlLogCreate(**data)  # type: ignore[arg-type]
         assert log.message == "Test log message"
         assert log.log_level == "INFO"
 
@@ -210,7 +210,7 @@ class TestCrawlLogSchemas:
             "message": "Test",
             "log_level": "info",  # lowercase
         }
-        log = CrawlLogCreate(**data)
+        log = CrawlLogCreate(**data)  # type: ignore[arg-type]
         assert log.log_level == "INFO"  # Should be uppercase
 
     def test_crawl_log_invalid_level(self) -> None:
@@ -222,4 +222,4 @@ class TestCrawlLogSchemas:
             "log_level": "INVALID",
         }
         with pytest.raises(ValidationError):
-            CrawlLogCreate(**data)
+            CrawlLogCreate(**data)  # type: ignore[arg-type]

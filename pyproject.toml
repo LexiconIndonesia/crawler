@@ -76,6 +76,8 @@ exclude = [
     "^crawler/db/generated/.*\\.py$",
     "^crawler/api/generated/.*\\.py$",
     "^clients/python/.*\\.py$",
+    "^tests/.*\\.py$",
+    "^examples/.*\\.py$",
 ]
 
 [[tool.mypy.overrides]]

@@ -16,7 +16,7 @@ from crawler.db.repositories.crawled_page import CrawledPageRepository
 class TestCrawledPageRepository:
     """Unit tests for CrawledPageRepository."""
 
-    async def test_initialization(self):
+    async def test_initialization(self) -> None:
         """Test repository initializes correctly."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -24,7 +24,7 @@ class TestCrawledPageRepository:
         assert repo.conn == mock_conn
         assert repo._querier is not None
 
-    async def test_create_serializes_metadata_and_gcs_documents(self):
+    async def test_create_serializes_metadata_and_gcs_documents(self) -> None:
         """Test create serializes metadata and gcs_documents to JSON."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -70,7 +70,7 @@ class TestCrawledPageRepository:
         assert params.gcs_documents == json.dumps(gcs_documents)
         assert result == mock_page
 
-    async def test_create_converts_ids_to_uuid(self):
+    async def test_create_converts_ids_to_uuid(self) -> None:
         """Test create converts string IDs to UUIDs."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -116,7 +116,7 @@ class TestCrawledPageRepository:
         assert str(params.job_id) == job_id_str
         assert result == mock_page
 
-    async def test_get_by_id_converts_string_to_uuid(self):
+    async def test_get_by_id_converts_string_to_uuid(self) -> None:
         """Test get_by_id converts string ID to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -150,7 +150,7 @@ class TestCrawledPageRepository:
         assert str(called_args.kwargs["id"]) == page_id_str
         assert result == mock_page
 
-    async def test_list_by_job_collects_async_generator(self):
+    async def test_list_by_job_collects_async_generator(self) -> None:
         """Test list_by_job collects all results from async generator."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -192,7 +192,7 @@ class TestCrawledPageRepository:
         assert all(isinstance(p, CrawledPage) for p in result)
         assert result == mock_pages
 
-    async def test_mark_as_duplicate_converts_optional_uuid(self):
+    async def test_mark_as_duplicate_converts_optional_uuid(self) -> None:
         """Test mark_as_duplicate converts optional duplicate_of to UUID."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
@@ -231,7 +231,7 @@ class TestCrawledPageRepository:
         assert called_args.kwargs["similarity_score"] == 95
         assert result == mock_page
 
-    async def test_mark_as_duplicate_handles_none_duplicate_of(self):
+    async def test_mark_as_duplicate_handles_none_duplicate_of(self) -> None:
         """Test mark_as_duplicate handles None for duplicate_of."""
         mock_conn = MagicMock(spec=AsyncConnection)
         repo = CrawledPageRepository(mock_conn)
