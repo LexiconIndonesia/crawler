@@ -289,8 +289,8 @@ class JobCancellationFlag:
         try:
             key = self._make_key(job_id)
             data = {"cancelled": True, "reason": reason}
-            # Keep flag for 24 hours
-            await self.redis.setex(key, 86400, json.dumps(data))
+            # Keep flag for 1 hour
+            await self.redis.setex(key, 3600, json.dumps(data))
             logger.info("job_cancellation_set", job_id=job_id, reason=reason)
             return True
         except Exception as e:
