@@ -67,6 +67,9 @@ exclude = [
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["crawler", "config"]
+
 [tool.mypy]
 python_version = "3.14"
 warn_return_any = true
