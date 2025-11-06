@@ -11,6 +11,7 @@ This service orchestrates the complete seed URL crawling workflow:
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import httpx
 
@@ -19,6 +20,7 @@ from crawler.core.logging import get_logger
 from crawler.services.html_parser import HTMLParserService
 from crawler.services.pagination import PaginationService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
+from crawler.services.resource_cleanup import CleanupCoordinator, HTTPResourceManager
 from crawler.services.url_extractor import ExtractedURL, URLExtractorService
 
 logger = get_logger(__name__)
@@ -102,6 +104,15 @@ class SeedURLCrawlerConfig:
     # Optional: crawler.services.redis_cache.JobCancellationFlag for cancellation checks
     cancellation_flag: JobCancellationFlag | None = None
 
+    # Optional: CleanupCoordinator for resource cleanup on cancellation
+    cleanup_coordinator: CleanupCoordinator | None = None
+
+    # Optional: CrawlJobRepository for updating job status on cancellation
+    job_repo: Any | None = None  # Type: crawler.db.repositories.CrawlJobRepository
+
+    # Optional: User/system identifier for cancellation metadata
+    cancelled_by: str | None = None
+
 
 class SeedURLCrawler:
     """Service for crawling seed URLs with comprehensive error handling.
@@ -138,9 +149,13 @@ class SeedURLCrawler:
         extracted_urls: list[ExtractedURL],
         warnings: list[str] | None = None,
     ) -> CrawlResult | None:
-        """Check if job is cancelled and return appropriate result.
+        """Check if job is cancelled and perform cleanup if needed.
 
         Uses guard pattern to exit early when cancellation is not configured or not triggered.
+        When cancellation is detected:
+        1. Triggers resource cleanup (HTTP connections, browser contexts)
+        2. Updates job status to 'cancelled' in database
+        3. Returns CrawlResult with partial results preserved
 
         Args:
             config: Crawler configuration with optional cancellation_flag
@@ -165,7 +180,7 @@ class SeedURLCrawler:
         if not is_cancelled:
             return None
 
-        # Job is cancelled - return result with preserved state
+        # Job is cancelled - perform cleanup
         logger.info(
             "crawl_cancelled",
             job_id=config.job_id,
@@ -173,6 +188,29 @@ class SeedURLCrawler:
             pages_crawled=pages_crawled,
             urls_extracted=len(extracted_urls),
         )
+
+        # Perform resource cleanup and update job status
+        cleanup_metadata = {}
+        if config.cleanup_coordinator and config.job_repo:
+            try:
+                cleanup_metadata = await config.cleanup_coordinator.cleanup_and_update_job(
+                    job_id=config.job_id,
+                    job_repo=config.job_repo,
+                    cancelled_by=config.cancelled_by,
+                    reason="Job cancellation requested",
+                )
+                logger.info("cleanup_completed", job_id=config.job_id, metadata=cleanup_metadata)
+            except Exception as e:
+                logger.error(
+                    "cleanup_failed",
+                    job_id=config.job_id,
+                    error=str(e),
+                    exc_info=True,
+                )
+                warnings = warnings or []
+                warnings.append(f"Cleanup failed: {e}")
+
+        # Return result with preserved state
         return CrawlResult(
             outcome=CrawlOutcome.CANCELLED,
             seed_url=seed_url,
@@ -210,6 +248,7 @@ class SeedURLCrawler:
 
         warnings: list[str] = []
         http_client = config.http_client
+        http_resource_manager: HTTPResourceManager | None = None
         client_created = False
 
         try:
@@ -238,10 +277,18 @@ class SeedURLCrawler:
                 )
                 client_created = True
 
-            # Step 3: Fetch seed URL (handle 404 immediately)
+            # Step 3: Create HTTP resource manager and register with cleanup coordinator
+            http_resource_manager = HTTPResourceManager(http_client)
+            if config.cleanup_coordinator:
+                config.cleanup_coordinator.register_resource(http_resource_manager)
+                logger.debug("http_resource_registered_with_cleanup_coordinator")
+
+            # Step 4: Fetch seed URL (handle 404 immediately)
             try:
                 logger.info("fetching_seed_url", seed_url=seed_url)
-                response = await http_client.get(seed_url)
+                # Use tracked request for proper resource management
+                async with http_resource_manager.tracked_request():
+                    response = await http_client.get(seed_url)
 
                 # Handle 404 - fail immediately as per requirements
                 if response.status_code == 404:
@@ -315,6 +362,7 @@ class SeedURLCrawler:
                 pagination_strategy=pagination_strategy,
                 config=config,
                 http_client=http_client,
+                http_resource_manager=http_resource_manager,
                 warnings=warnings,
             )
 
@@ -349,6 +397,7 @@ class SeedURLCrawler:
         pagination_strategy: str,
         config: SeedURLCrawlerConfig,
         http_client: httpx.AsyncClient,
+        http_resource_manager: HTTPResourceManager,
         warnings: list[str],
     ) -> CrawlResult:
         """Crawl pagination pages and extract URLs.
@@ -367,6 +416,7 @@ class SeedURLCrawler:
             pagination_strategy: Detected pagination strategy
             config: Crawler configuration
             http_client: HTTP client for making requests
+            http_resource_manager: HTTP resource manager for tracked requests
             warnings: List to accumulate warnings
 
         Returns:
@@ -399,7 +449,8 @@ class SeedURLCrawler:
                 httpx.RequestError: Network/request errors are propagated to
                     PaginationService which handles them appropriately
             """
-            response = await http_client.get(url)
+            async with http_resource_manager.tracked_request():
+                response = await http_client.get(url)
             return response.status_code, response.content
 
         # Strategy 1: Use pagination with stop detection

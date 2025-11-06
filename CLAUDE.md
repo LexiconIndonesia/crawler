@@ -319,57 +319,28 @@ async def create_resource(
 ```python
 from crawler.api.generated import CreateResourceRequest, ResourceResponse
 from crawler.api.v1.decorators import handle_service_errors
-from crawler.api.v1.services import ResourceService
-from crawler.core.logging import get_logger
 
-logger = get_logger(__name__)
-
-@handle_service_errors(operation="creating the resource")
+@handle_service_errors(operation="creating the resource")  # ValueError→400, RuntimeError→500
 async def create_resource_handler(
     request: CreateResourceRequest,
     resource_service: ResourceService,
 ) -> ResourceResponse:
-    """Handle resource creation with HTTP error translation.
-
-    Error handling is done by the @handle_service_errors decorator which:
-    - Converts ValueError → 400 Bad Request
-    - Converts RuntimeError → 500 Internal Server Error
-    - Converts Exception → 500 Internal Server Error
-    - Logs all errors with context
-    """
     logger.info("create_resource_request", resource_name=request.name)
-
-    # Delegate to service layer (error handling done by decorator)
     return await resource_service.create_resource(request)
 ```
 
-**Important**: Always use the `@handle_service_errors` decorator on handlers to ensure consistent error handling across all API endpoints. The decorator centralizes exception handling, reduces code duplication, and ensures consistent logging.
-
 **5. Create Service** (`crawler/api/v1/services/resources.py`)
 ```python
-from crawler.api.generated import CreateResourceRequest, ResourceResponse
-from crawler.db.repositories import ResourceRepository
-from crawler.core.logging import get_logger
-
-logger = get_logger(__name__)
-
 class ResourceService:
-    """Service for resource business logic."""
-
     def __init__(self, resource_repo: ResourceRepository):
         self.resource_repo = resource_repo
 
     async def create_resource(self, request: CreateResourceRequest) -> ResourceResponse:
-        """Create resource with business logic validation."""
-        # Validate business rules
-        existing = await self.resource_repo.get_by_name(request.name)
-        if existing:
+        # Business logic validation
+        if await self.resource_repo.get_by_name(request.name):
             raise ValueError(f"Resource '{request.name}' already exists")
 
-        # Create resource
         resource = await self.resource_repo.create(name=request.name, ...)
-
-        logger.info("resource_created", resource_id=str(resource.id))
         return ResourceResponse.model_validate(resource)
 ```
 
@@ -399,30 +370,9 @@ from crawler.api.v1.routes import resources
 api_v1_router.include_router(resources.router, prefix="/resources", tags=["Resources"])
 ```
 
-**Import Pattern Examples**:
-```python
-# ✅ CORRECT: Import from crawler.api.generated
-from crawler.api.generated import CreateResourceRequest, ResourceResponse
+**Import Pattern**: Always `from crawler.api.generated import ...` (see Contract-First section for details)
 
-# ✅ CORRECT: Import dependencies from core
-from crawler.core.dependencies import DBSessionDep, RedisDep
-
-# ✅ CORRECT: Import type aliases from v1 dependencies
-from crawler.api.v1.dependencies import ResourceServiceDep
-
-# ❌ INCORRECT: Don't import from models.py directly
-from crawler.api.generated.models import CreateResourceRequest
-
-# ✅ CORRECT: For common schemas (non-OpenAPI models)
-from crawler.api.schemas import ErrorResponse, HealthResponse
-```
-
-**Key Points**:
-- **Routes**: Thin, just endpoint registration and OpenAPI docs
-- **Handlers**: HTTP concerns, error translation, no business logic
-- **Services**: Business logic, domain rules, transaction management
-- **Dependencies**: Use centralized DI from `crawler.core.dependencies`
-- **Repositories**: Database operations only (see "Working with Database")
+**Layer Responsibilities**: Routes (registration) → Handlers (HTTP) → Services (business logic) → Repositories (DB)
 
 ### Adding a New Service
 1. Create service class in `crawler/services/`
@@ -510,259 +460,88 @@ __all__ = ["YourEntityRepository", ...]
 
 **Note**: SQL schema files are the only place to define database structure. No Python table definitions needed - sqlc generates Pydantic models directly from SQL queries.
 
-**Using Repositories in Services**:
+**Using Repositories**:
 ```python
-# In a service (dependency injection pattern)
-from crawler.db.repositories import WebsiteRepository
-
+# In services (recommended - via dependency injection)
 class WebsiteService:
     def __init__(self, website_repo: WebsiteRepository):
         self.website_repo = website_repo
 
     async def create_website(self, name: str, base_url: str) -> Website:
-        # Repository handles all database operations
-        return await self.website_repo.create(
-            name=name,
-            base_url=base_url,
-            config={}
-        )
-```
+        return await self.website_repo.create(name=name, base_url=base_url, config={})
 
-**Using Repositories Directly** (not recommended - use services instead):
-```python
-from crawler.core.dependencies import DBSessionDep
-from crawler.db.repositories import WebsiteRepository
-
+# Direct usage (not recommended - use services instead)
 async def my_function(db: DBSessionDep):
     conn = await db.connection()
     repo = WebsiteRepository(conn)
     website = await repo.create(name="example", base_url="https://example.com", config={})
-    # Returns Pydantic model with type safety
-    print(website.id, website.name)
 ```
 
 ### Working with Scheduled Jobs
 
-**Creating a Scheduled Job**:
 ```python
-from datetime import datetime, UTC
-from crawler.db.repositories import ScheduledJobRepository
-
-async with get_db() as session:
-    async with session.begin():
-        scheduled_job_repo = ScheduledJobRepository(session.connection())
-
-        # Create a scheduled job with bi-weekly schedule
-        job = await scheduled_job_repo.create(
-            website_id=website.id,
-            cron_schedule="0 0 1,15 * *",  # 1st and 15th at midnight
-            next_run_time=datetime.now(UTC),
-            is_active=True,
-            job_config={"max_depth": 5}
-        )
-```
-
-**Finding Jobs Due for Execution**:
-```python
-# Get all jobs that need to run
-due_jobs = await scheduled_job_repo.get_due_jobs(
-    cutoff_time=datetime.now(UTC),
-    limit=100
+# Create scheduled job (bi-weekly: 1st & 15th at midnight)
+job = await scheduled_job_repo.create(
+    website_id=website.id,
+    cron_schedule="0 0 1,15 * *",
+    next_run_time=datetime.now(UTC),
+    is_active=True,
+    job_config={"max_depth": 5}
 )
 
-for job in due_jobs:
-    # Process the job
-    # Update next_run_time after execution
-    await scheduled_job_repo.update_next_run(
-        job_id=job.id,
-        next_run_time=calculate_next_run(job.cron_schedule),
-        last_run_time=datetime.now(UTC)
-    )
-```
+# Get due jobs
+due_jobs = await scheduled_job_repo.get_due_jobs(cutoff_time=datetime.now(UTC), limit=100)
 
-**Pausing/Resuming Schedules**:
-```python
-# Pause a schedule without deleting it
+# Update after execution
+await scheduled_job_repo.update_next_run(job_id=job.id, next_run_time=next_time, last_run_time=datetime.now(UTC))
+
+# Pause/resume
 await scheduled_job_repo.toggle_status(job_id=job.id, is_active=False)
-
-# Resume the schedule
-await scheduled_job_repo.toggle_status(job_id=job.id, is_active=True)
 ```
 
-**Notes**:
-- Default cron schedule for websites: `0 0 1,15 * *` (bi-weekly)
-- Use `is_active=False` to pause schedules instead of deleting
-- Composite index on `(is_active, next_run_time)` optimizes job lookup
-- `job_config` JSONB field allows per-job configuration overrides
+**Notes**: Default cron `0 0 1,15 * *` (bi-weekly). Use `is_active=False` to pause (don't delete). Composite index on `(is_active, next_run_time)` optimizes lookups. `job_config` JSONB allows per-job overrides.
 
 ### Contract-First API Development
 
-This project uses **OpenAPI spec as the single source of truth** for API contracts. The workflow ensures frontend and backend stay in sync.
+**OpenAPI spec is the single source of truth** for all API contracts.
 
-**Architecture** (Data Flow):
-```
-1. openapi.yaml (Contract - single source of truth)
-       ↓
-2. make generate-models (datamodel-codegen)
-       ↓
-3. crawler/api/generated/models.py (auto-generated, git-ignored)
-       ↓
-4. crawler/api/generated/extended.py (extends models with validators)
-       ↓
-5. crawler/api/generated/__init__.py (re-exports extended models)
-       ↓
-6. Your code: from crawler.api.generated import YourModel
-       ↓
-7. FastAPI routes use models
-       ↓
-8. Contract tests verify implementation matches openapi.yaml
-```
+**Data Flow**: `openapi.yaml` → `make generate-models` → `models.py` (git-ignored) → `extended.py` (custom validators) → `__init__.py` (exports) → Your code → Contract tests
 
-**Key Architectural Points**:
-- 📄 **Single source of truth**: `openapi.yaml` defines all API contracts
-- 🤖 **Auto-generation**: `models.py` is never edited manually
-- ✨ **Extension layer**: `extended.py` adds custom validation without touching generated code
-- 📦 **Clean imports**: Always `from crawler.api.generated import ...`
-- ✅ **Validation**: Contract tests ensure spec and implementation stay in sync
+**Workflow**:
+1. Edit `openapi.yaml` → `make validate-openapi`
+2. `make generate-models` (generates `models.py` - DON'T edit this!)
+3. Add custom validators in `extended.py` (if needed), export in `__init__.py`
+4. Implement routes using models from `crawler.api.generated`
+5. `uv run pytest tests/integration/test_openapi_contract.py -v`
 
-**Workflow for API Changes**:
+**File Ownership**:
+- `models.py` - ❌ Auto-generated, git-ignored, CI creates it, NEVER edit
+- `extended.py` - ✅ Manually maintained, add custom validators here, commit to git
+- `__init__.py` - ✅ Manually maintained, exports models, commit to git
 
-1. **Update Contract**: Edit `openapi.yaml` with new endpoints/schemas
-   ```bash
-   # Edit openapi.yaml to add/modify endpoints
-   make validate-openapi  # Validate spec is correct
-   ```
+**Import Pattern**:
+```python
+# ✅ CORRECT
+from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
 
-2. **Generate Models**: Run code generation (creates `models.py` - don't edit this file!)
-   ```bash
-   make generate-models  # Auto-generates crawler/api/generated/models.py
-   # ⚠️ models.py is git-ignored and regenerated every time!
-   ```
-
-3. **Add Custom Validators** (ONLY if your new model needs custom validation):
-   - **manually edit** `crawler/api/generated/extended.py` (this file is version controlled)
-   - Import the base model from `models.py` and extend it
-   ```python
-   # In crawler/api/generated/extended.py
-   from .models import YourNewModel as _YourNewModel
-
-   class YourNewModel(_YourNewModel):
-       """Extended model with custom validators."""
-
-       @model_validator(mode="after")
-       def your_custom_validation(self) -> "YourNewModel":
-           # Custom validation logic
-           return self
-   ```
-   - Export it in `crawler/api/generated/__init__.py`
-
-4. **Implement Routes**: Use models in FastAPI (import directly from `crawler.api.generated`)
-   ```python
-   from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
-   # Imports from crawler.api.generated.__init__.py which re-exports extended models
-
-   @router.post("", response_model=WebsiteResponse, operation_id="createWebsite")
-   async def create_website(request: CreateWebsiteRequest) -> WebsiteResponse:
-       # Implementation uses type-safe models with custom validators
-       pass
-   ```
-
-5. **Run Contract Tests**: Verify implementation matches spec
-   ```bash
-   uv run pytest tests/integration/test_openapi_contract.py -v
-   ```
-
-6. **Generate Client SDK** (optional, for frontend/external consumers):
-   ```bash
-   make generate-client  # Creates clients/python/ SDK
-   ```
-
-**Key Points**:
-- ❌ **NEVER edit** `crawler/api/generated/models.py` - it's regenerated every time
-- ✅ **DO edit** `crawler/api/generated/extended.py` - this is manually maintained
-- ✅ **DO commit** `extended.py` and `__init__.py` to git
-- ❌ **DON'T commit** `models.py` - it's in .gitignore
-- 🤖 **CI automatically** generates `models.py` before running tests
-
-**Contract Tests** (`tests/integration/test_openapi_contract.py`):
-- ✅ API version and title match
-- ✅ All contract paths implemented
-- ✅ No undocumented paths
-- ✅ HTTP methods consistency
-- ✅ Operation IDs match
-- ✅ Response schemas defined
-- ✅ Tags consistency
-- ✅ Required components present
-- ✅ Documentation completeness
-
-**Benefits**:
-1. **Single source of truth** - OpenAPI spec defines everything
-2. **Type safety** - Auto-generated Pydantic models ensure correctness
-3. **Contract validation** - Tests prevent drift between spec and implementation
-4. **Client generation** - Automatic SDK for any language (Python, TypeScript, Go, etc.)
-5. **Team collaboration** - Frontend/backend agree on API before implementation
-
-**File Ownership & Version Control**:
-
-```
-crawler/api/generated/
-├── models.py          ❌ AUTO-GENERATED (git-ignored)
-│                      └─ NEVER EDIT - regenerated by make generate-models
-│                      └─ CI generates this before tests
-│
-├── extended.py        ✅ MANUALLY MAINTAINED (version controlled)
-│                      └─ Edit this to add custom validators
-│                      └─ Imports from models.py and extends classes
-│                      └─ Commit this file
-│
-└── __init__.py        ✅ MANUALLY MAINTAINED (version controlled)
-                       └─ Edit this to export your extended models
-                       └─ Commit this file
+# ❌ WRONG - don't import from models.py directly
+from crawler.api.generated.models import CreateWebsiteRequest
 ```
 
-**Common Mistakes to Avoid**:
+**Custom Validators** (in `extended.py`):
+```python
+from .models import YourModel as _YourModel
 
-- ❌ **DON'T** create `crawler/api/v1/schemas/` directory
-  - This was removed to avoid duplicate sources of truth
-  - All OpenAPI models come from `crawler.api.generated`
+class YourModel(_YourModel):
+    @model_validator(mode="after")
+    def your_validator(self) -> "YourModel":
+        # Custom logic
+        return self
+```
 
-- ❌ **DON'T** create manual Pydantic models that duplicate OpenAPI schemas
-  - Define schemas in `openapi.yaml` instead
-  - Run `make generate-models` to get type-safe models
+**Contract Tests**: Verify API version, paths, methods, operation IDs, schemas, tags, documentation
 
-- ❌ **DON'T** import from `models.py` directly
-
-  ```python
-  from crawler.api.generated.models import CreateWebsiteRequest  # ❌ WRONG
-  ```
-
-- ✅ **DO** import from `crawler.api.generated` (the `__init__.py`)
-
-  ```python
-  from crawler.api.generated import CreateWebsiteRequest  # ✅ CORRECT
-  ```
-
-- ❌ **DON'T** edit `models.py` to add validators
-  - It will be overwritten on next generation
-  - Add validators in `extended.py` instead
-
-- ✅ **DO** extend generated models in `extended.py`
-
-  ```python
-  # In extended.py
-  from .models import YourModel as _YourModel
-
-  class YourModel(_YourModel):
-      @model_validator(mode="after")
-      def your_validator(self) -> "YourModel":
-          # Custom logic here
-          return self
-  ```
-
-**Other Important Files**:
-- `openapi.yaml` - API contract (✅ version controlled, source of truth)
-- `clients/python/` - Generated SDK (❌ git-ignored, regenerated)
-- `docs/openapi-generation.md` - Detailed documentation
+**Benefits**: Single source of truth, type safety, prevents API drift, auto-generates SDKs
 
 ### Testing
 - Unit tests go in `tests/unit/`
@@ -863,21 +642,10 @@ async def process_item(config, item_id):
     return await process(item_id)
 ```
 
-**Real example from codebase** (`crawler/services/seed_url_crawler.py:133-184`):
-
+**Real example** (`crawler/services/seed_url_crawler.py:133-184`):
 ```python
-async def _check_cancellation(
-    self,
-    config: SeedURLCrawlerConfig,
-    seed_url: str,
-    pages_crawled: int,
-    extracted_urls: list[ExtractedURL],
-    warnings: list[str] | None = None,
-) -> CrawlResult | None:
-    """Check if job is cancelled and return appropriate result.
-
-    Uses guard pattern to exit early when cancellation is not configured or not triggered.
-    """
+async def _check_cancellation(self, config, seed_url, pages_crawled, extracted_urls, warnings=None):
+    """Uses guard pattern to exit early when cancellation not configured or not triggered."""
     # Guard: no cancellation flag configured
     if not config.cancellation_flag:
         return None
@@ -886,44 +654,16 @@ async def _check_cancellation(
     if not config.job_id:
         return None
 
-    # Check if job is cancelled
-    is_cancelled = await config.cancellation_flag.is_cancelled(config.job_id)
-    if not is_cancelled:
+    # Guard: job not cancelled
+    if not await config.cancellation_flag.is_cancelled(config.job_id):
         return None
 
-    # Job is cancelled - return result with preserved state
-    logger.info(
-        "crawl_cancelled",
-        job_id=config.job_id,
-        seed_url=seed_url,
-        pages_crawled=pages_crawled,
-        urls_extracted=len(extracted_urls),
-    )
-    return CrawlResult(
-        outcome=CrawlOutcome.CANCELLED,
-        seed_url=seed_url,
-        total_pages_crawled=pages_crawled,
-        total_urls_extracted=len(extracted_urls),
-        extracted_urls=extracted_urls,
-        error_message="Job was cancelled during execution",
-        warnings=warnings,
-    )
+    # Main logic - job is cancelled
+    logger.info("crawl_cancelled", job_id=config.job_id, pages_crawled=pages_crawled)
+    return CrawlResult(outcome=CrawlOutcome.CANCELLED, seed_url=seed_url, ...)
 ```
 
-**When to use**:
-- Functions with multiple preconditions
-- Validation logic
-- Error handling
-- Optional feature checks
-- Permission/authorization checks
-- Configuration checks
-
-**When NOT to use**:
-- When the else branch contains substantial logic (use explicit if-else instead)
-- When early return would skip necessary cleanup (use try-finally instead)
-- When both branches are equally important (explicit if-else is clearer)
-
-**Comment your guards**: Add brief comments like `# Guard: <condition>` to make the pattern explicit and document the reason for early return.
+**Use for**: Preconditions, validation, optional features, permissions. **Avoid when**: Else branch has substantial logic, cleanup needed, or both branches equally important. **Comment guards**: `# Guard: <condition>`
 
 ## CI/CD
 
@@ -985,24 +725,9 @@ The CI/CD setup is optimized to minimize GitHub Actions usage:
 
 ### Pre-merge Checklist
 
-Before merging a PR, ensure:
+**Standard**:
 1. All CI checks pass (OpenAPI validation, format, lint, type-check, tests)
-2. **Contract tests pass** (if API changes made)
-3. Claude Code Review feedback addressed (if applicable)
-4. No merge conflicts with `main`
+2. Claude Code Review feedback addressed (if applicable)
+3. No merge conflicts with `main`
 
-**For API Changes Specifically**:
-1. ✅ Updated `openapi.yaml` with new endpoints/schemas
-2. ✅ Ran `make validate-openapi` - spec is valid
-3. ✅ Ran `make generate-models` locally (to test generation works)
-4. ✅ If new models need custom validation: **manually updated** `crawler/api/generated/extended.py`
-5. ✅ Updated `crawler/api/generated/__init__.py` exports if added new models
-6. ✅ **Committed** `openapi.yaml`, `extended.py`, `__init__.py` (NOT `models.py`!)
-7. ✅ Ran contract tests: `uv run pytest tests/integration/test_openapi_contract.py -v` - all pass
-8. ✅ All 14+ contract tests pass
-
-**What Gets Committed**:
-- ✅ `openapi.yaml` - the contract
-- ✅ `crawler/api/generated/extended.py` - your custom validators
-- ✅ `crawler/api/generated/__init__.py` - exports
-- ❌ `crawler/api/generated/models.py` - NEVER commit (git-ignored, CI generates it)
+**For API Changes**: See "Contract-First API Development" section. Summary: Update `openapi.yaml` → `make validate-openapi` → `make generate-models` → Add validators in `extended.py` (if needed) → Run contract tests → Commit `openapi.yaml`, `extended.py`, `__init__.py` (NOT `models.py`)
