@@ -21,6 +21,7 @@ SET
     cancellation_reason = :p2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p3
+    AND status IN ('pending', 'running')
 RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
 """
 

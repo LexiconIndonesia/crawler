@@ -595,11 +595,12 @@ class TestJobService:
 
     @pytest.mark.asyncio
     async def test_cancel_job_already_cancelled(self, job_service):
-        """Test job cancellation fails when job is already cancelled."""
+        """Test job cancellation is idempotent when job is already cancelled."""
         # Arrange
         job_id = str(uuid7())
         cancel_request = CancelJobRequest(reason="User requested cancellation")
 
+        cancelled_at = datetime.now(UTC)
         mock_job = CrawlJob(
             id=UUID(job_id),
             website_id=uuid7(),
@@ -610,7 +611,7 @@ class TestJobService:
             scheduled_at=None,
             started_at=datetime.now(UTC),
             completed_at=None,
-            cancelled_at=datetime.now(UTC),
+            cancelled_at=cancelled_at,
             cancelled_by="admin",
             cancellation_reason="Previous cancellation",
             error_message=None,
@@ -624,16 +625,25 @@ class TestJobService:
             updated_at=datetime.now(UTC),
         )
 
+        # Mock the behavior: first get returns cancelled job, cancel returns None (no update),
+        # second get returns same cancelled job
         job_service.crawl_job_repo.get_by_id.return_value = mock_job
+        job_service.cancellation_flag.set_cancellation.return_value = True
+        job_service.crawl_job_repo.cancel.return_value = None  # No rows updated
 
-        # Act & Assert
-        with pytest.raises(ValueError, match="already cancelled"):
-            await job_service.cancel_job(job_id, cancel_request)
+        # Act
+        response = await job_service.cancel_job(job_id, cancel_request)
 
-        # Verify repository lookup but no cancellation
-        job_service.crawl_job_repo.get_by_id.assert_called_once_with(job_id)
-        job_service.cancellation_flag.set_cancellation.assert_not_called()
-        job_service.crawl_job_repo.cancel.assert_not_called()
+        # Assert - should succeed idempotently
+        assert response.id == UUID(job_id)
+        assert response.status == ApiStatusEnum.cancelled
+        assert response.message == "Job is already cancelled"
+        assert response.cancelled_at == cancelled_at
+
+        # Verify the call sequence
+        assert job_service.crawl_job_repo.get_by_id.call_count == 2  # Initial check + re-check
+        job_service.cancellation_flag.set_cancellation.assert_called_once()
+        job_service.crawl_job_repo.cancel.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cancel_job_already_completed(self, job_service):
@@ -666,16 +676,21 @@ class TestJobService:
             updated_at=datetime.now(UTC),
         )
 
+        # Mock: first get returns completed job, cancel returns None (no update due to status),
+        # second get returns same completed job
         job_service.crawl_job_repo.get_by_id.return_value = mock_job
+        job_service.cancellation_flag.set_cancellation.return_value = True
+        job_service.crawl_job_repo.cancel.return_value = None  # No rows updated
 
         # Act & Assert
         with pytest.raises(ValueError, match="already completed and cannot be cancelled"):
             await job_service.cancel_job(job_id, cancel_request)
 
-        # Verify repository lookup but no cancellation
-        job_service.crawl_job_repo.get_by_id.assert_called_once_with(job_id)
-        job_service.cancellation_flag.set_cancellation.assert_not_called()
-        job_service.crawl_job_repo.cancel.assert_not_called()
+        # Verify the atomic behavior
+        assert job_service.crawl_job_repo.get_by_id.call_count == 2  # Initial check + re-check
+        job_service.cancellation_flag.set_cancellation.assert_called_once()
+        job_service.crawl_job_repo.cancel.assert_called_once()
+        job_service.cancellation_flag.clear_cancellation.assert_called_once_with(job_id)
 
     @pytest.mark.asyncio
     async def test_cancel_job_already_failed(self, job_service):
@@ -708,16 +723,21 @@ class TestJobService:
             updated_at=datetime.now(UTC),
         )
 
+        # Mock: first get returns failed job, cancel returns None (no update due to status),
+        # second get returns same failed job
         job_service.crawl_job_repo.get_by_id.return_value = mock_job
+        job_service.cancellation_flag.set_cancellation.return_value = True
+        job_service.crawl_job_repo.cancel.return_value = None  # No rows updated
 
         # Act & Assert
         with pytest.raises(ValueError, match="already failed and cannot be cancelled"):
             await job_service.cancel_job(job_id, cancel_request)
 
-        # Verify repository lookup but no cancellation
-        job_service.crawl_job_repo.get_by_id.assert_called_once_with(job_id)
-        job_service.cancellation_flag.set_cancellation.assert_not_called()
-        job_service.crawl_job_repo.cancel.assert_not_called()
+        # Verify the atomic behavior
+        assert job_service.crawl_job_repo.get_by_id.call_count == 2  # Initial check + re-check
+        job_service.cancellation_flag.set_cancellation.assert_called_once()
+        job_service.crawl_job_repo.cancel.assert_called_once()
+        job_service.cancellation_flag.clear_cancellation.assert_called_once_with(job_id)
 
     @pytest.mark.asyncio
     async def test_cancel_job_redis_flag_fails(self, job_service):
@@ -763,8 +783,8 @@ class TestJobService:
         job_service.crawl_job_repo.cancel.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cancel_job_database_fails(self, job_service):
-        """Test job cancellation fails when database update fails."""
+    async def test_cancel_job_disappears(self, job_service):
+        """Test job cancellation fails when job is deleted mid-operation."""
         # Arrange
         job_id = str(uuid7())
         cancel_request = CancelJobRequest(reason="User requested cancellation")
@@ -793,16 +813,17 @@ class TestJobService:
             updated_at=datetime.now(UTC),
         )
 
-        job_service.crawl_job_repo.get_by_id.return_value = mock_job
+        # Mock: first get succeeds, cancel returns None (job deleted), second get returns None
+        job_service.crawl_job_repo.get_by_id.side_effect = [mock_job, None]
         job_service.cancellation_flag.set_cancellation.return_value = True
-        job_service.crawl_job_repo.cancel.return_value = None  # DB fails
+        job_service.crawl_job_repo.cancel.return_value = None  # Job was deleted
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="Failed to cancel job in database"):
+        with pytest.raises(RuntimeError, match="no longer exists"):
             await job_service.cancel_job(job_id, cancel_request)
 
         # Verify Redis flag cleanup was called
-        job_service.crawl_job_repo.get_by_id.assert_called_once_with(job_id)
+        assert job_service.crawl_job_repo.get_by_id.call_count == 2
         job_service.cancellation_flag.set_cancellation.assert_called_once()
         job_service.crawl_job_repo.cancel.assert_called_once()
         job_service.cancellation_flag.clear_cancellation.assert_called_once_with(job_id)

@@ -1367,6 +1367,7 @@ components:
         - id
         - status
         - message
+        - cancelled_at
       properties:
         id:
           type: string
@@ -1383,7 +1384,6 @@ components:
           type: string
           format: date-time
           description: Cancellation timestamp
-          nullable: true
           example: "2025-10-29T10:30:00Z"
 
   securitySchemes:
