@@ -892,8 +892,22 @@ async def _check_cancellation(
         return None
 
     # Job is cancelled - return result with preserved state
-    logger.info("crawl_cancelled", job_id=config.job_id, ...)
-    return CrawlResult(outcome=CrawlOutcome.CANCELLED, ...)
+    logger.info(
+        "crawl_cancelled",
+        job_id=config.job_id,
+        seed_url=seed_url,
+        pages_crawled=pages_crawled,
+        urls_extracted=len(extracted_urls),
+    )
+    return CrawlResult(
+        outcome=CrawlOutcome.CANCELLED,
+        seed_url=seed_url,
+        total_pages_crawled=pages_crawled,
+        total_urls_extracted=len(extracted_urls),
+        extracted_urls=extracted_urls,
+        error_message="Job was cancelled during execution",
+        warnings=warnings,
+    )
 ```
 
 **When to use**:
