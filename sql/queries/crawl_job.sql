@@ -48,13 +48,13 @@ RETURNING *;
 -- Returns NULL if job is not in pending/running state (prevents race conditions)
 UPDATE crawl_job
 SET
-    status = 'cancelled',
+    status = 'cancelled'::status_enum,
     cancelled_at = CURRENT_TIMESTAMP,
     cancelled_by = sqlc.arg(cancelled_by),
     cancellation_reason = sqlc.arg(cancellation_reason),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
-    AND status IN ('pending', 'running')
+    AND status IN ('pending'::status_enum, 'running'::status_enum)
 RETURNING *;
 
 -- name: IncrementJobRetryCount :one
