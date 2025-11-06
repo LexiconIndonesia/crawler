@@ -11,7 +11,7 @@ This service orchestrates the complete seed URL crawling workflow:
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -22,6 +22,9 @@ from crawler.services.pagination import PaginationService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
 from crawler.services.resource_cleanup import CleanupCoordinator, HTTPResourceManager
 from crawler.services.url_extractor import ExtractedURL, URLExtractorService
+
+if TYPE_CHECKING:
+    from crawler.db.repositories import CrawlJobRepository
 
 logger = get_logger(__name__)
 
@@ -108,7 +111,7 @@ class SeedURLCrawlerConfig:
     cleanup_coordinator: CleanupCoordinator | None = None
 
     # Optional: CrawlJobRepository for updating job status on cancellation
-    job_repo: Any | None = None  # Type: crawler.db.repositories.CrawlJobRepository
+    job_repo: "CrawlJobRepository | None" = None
 
     # Optional: User/system identifier for cancellation metadata
     cancelled_by: str | None = None
@@ -193,11 +196,20 @@ class SeedURLCrawler:
         cleanup_metadata = {}
         if config.cleanup_coordinator and config.job_repo:
             try:
+                # Get the actual cancellation reason from Redis if available
+                cancellation_reason = None
+                if config.cancellation_flag:
+                    cancellation_reason = await config.cancellation_flag.get_cancellation_reason(
+                        config.job_id
+                    )
+                # Fallback to generic message if no reason stored
+                cancellation_reason = cancellation_reason or "Job cancellation requested"
+
                 cleanup_metadata = await config.cleanup_coordinator.cleanup_and_update_job(
                     job_id=config.job_id,
                     job_repo=config.job_repo,
                     cancelled_by=config.cancelled_by,
-                    reason="Job cancellation requested",
+                    reason=cancellation_reason,
                 )
                 logger.info("cleanup_completed", job_id=config.job_id, metadata=cleanup_metadata)
             except Exception as e:

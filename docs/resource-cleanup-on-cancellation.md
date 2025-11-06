@@ -111,6 +111,7 @@ class CleanupCoordinator:
 
 **Features:**
 - Registers multiple resource managers
+- **Concurrent graceful shutdown**: All resources close in parallel (total time = max timeout, not sum)
 - Attempts graceful close for all resources (5s timeout per resource)
 - Falls back to force close on timeout
 - Updates job status in database
@@ -127,7 +128,7 @@ class CleanupCoordinator:
     "total_resources": 2,
     "cancelled_by": "user-123",
     "cancellation_reason": "Job cancellation requested",
-    "job_status_updated": true,
+    "job_status_updated": True,
     "job_cancelled_at": "2025-11-06T12:00:05Z"
 }
 ```
@@ -269,8 +270,11 @@ Located in `tests/integration/services/test_cancellation_flow.py`
 
 ## Performance Characteristics
 
-- **Graceful close:** O(n) where n = number of active requests/contexts
-- **Timeout:** 5 seconds default (configurable)
+- **Concurrent cleanup:** All resources close in parallel using `asyncio.gather`
+- **Total cleanup time:** O(max(timeouts)) not O(sum(timeouts))
+  - Example: 3 resources with 5s timeout each = 5s total (not 15s)
+- **Graceful close per resource:** O(n) where n = number of active requests/contexts
+- **Timeout:** 5 seconds default (configurable per coordinator)
 - **Force close:** Immediate (< 100ms)
 - **DB update:** Single atomic transaction
 - **Memory overhead:** Minimal (~100 bytes per resource manager)

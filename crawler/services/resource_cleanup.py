@@ -12,11 +12,14 @@ import asyncio
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from crawler.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from crawler.db.repositories import CrawlJobRepository
 
 logger = get_logger(__name__)
 
@@ -288,28 +291,23 @@ class CleanupCoordinator:
         graceful_close_succeeded = []
         force_closed = []
 
-        # Phase 1: Attempt graceful close for all resources
-        for resource in self.resources:
-            resource_type = type(resource).__name__
-            try:
-                success = await resource.close_gracefully(self.graceful_timeout)
-                if success:
-                    graceful_close_succeeded.append(resource_type)
-                    logger.info("resource_closed_gracefully", resource_type=resource_type)
-                else:
-                    # Graceful close timed out, proceed to force close
-                    await resource.force_close()
-                    force_closed.append(resource_type)
-                    logger.warning(
-                        "resource_force_closed_after_timeout", resource_type=resource_type
-                    )
+        # Phase 1: Attempt graceful close for all resources concurrently
+        # This ensures total cleanup time is max(timeouts) not sum(timeouts)
+        graceful_tasks = [
+            resource.close_gracefully(self.graceful_timeout) for resource in self.resources
+        ]
+        results = await asyncio.gather(*graceful_tasks, return_exceptions=True)
 
-            except Exception as e:
-                # Error during cleanup, force close as fallback
+        # Phase 2: Handle results and force close failures
+        for resource, result in zip(self.resources, results):
+            resource_type = type(resource).__name__
+
+            if isinstance(result, Exception):
+                # Exception during graceful close, force close as fallback
                 logger.error(
                     "resource_cleanup_error",
                     resource_type=resource_type,
-                    error=str(e),
+                    error=str(result),
                     exc_info=True,
                 )
                 try:
@@ -321,6 +319,24 @@ class CleanupCoordinator:
                         resource_type=resource_type,
                         error=str(force_error),
                     )
+
+            elif not result:
+                # Graceful close timed out, proceed to force close
+                logger.warning("resource_force_closed_after_timeout", resource_type=resource_type)
+                try:
+                    await resource.force_close()
+                    force_closed.append(resource_type)
+                except Exception as force_error:
+                    logger.error(
+                        "resource_force_close_failed",
+                        resource_type=resource_type,
+                        error=str(force_error),
+                    )
+
+            else:
+                # Graceful close succeeded
+                graceful_close_succeeded.append(resource_type)
+                logger.info("resource_closed_gracefully", resource_type=resource_type)
 
         cleanup_end = datetime.now(UTC)
         cleanup_duration = (cleanup_end - cleanup_start).total_seconds()
@@ -349,7 +365,7 @@ class CleanupCoordinator:
     async def cleanup_and_update_job(
         self,
         job_id: str,
-        job_repo: Any,  # CrawlJobRepository
+        job_repo: "CrawlJobRepository",
         cancelled_by: str | None = None,
         reason: str | None = None,
     ) -> dict[str, Any]:

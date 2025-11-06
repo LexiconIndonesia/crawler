@@ -162,7 +162,7 @@ class TestCancellationFlow:
         assert updated_job.status.value == "cancelled"
         assert updated_job.cancelled_at is not None
         assert updated_job.cancelled_by == "test-user"
-        assert updated_job.cancellation_reason == "Job cancellation requested"
+        assert updated_job.cancellation_reason == "user request"  # Retrieved from Redis
 
         # Clean up
         await cancellation_flag.clear_cancellation(job_id)
