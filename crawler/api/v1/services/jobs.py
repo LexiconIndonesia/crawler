@@ -1,10 +1,13 @@
 """Job service with business logic."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import AnyUrl
 
 from crawler.api.generated import (
+    CancelJobRequest,
+    CancelJobResponse,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     JobType,
@@ -16,6 +19,7 @@ from crawler.api.generated import (
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
+from crawler.services.redis_cache import JobCancellationFlag
 from crawler.utils import normalize_url
 
 logger = get_logger(__name__)
@@ -28,15 +32,18 @@ class JobService:
         self,
         crawl_job_repo: CrawlJobRepository,
         website_repo: WebsiteRepository,
+        cancellation_flag: JobCancellationFlag,
     ):
         """Initialize service with dependencies.
 
         Args:
             crawl_job_repo: Crawl job repository for database access
             website_repo: Website repository for template loading
+            cancellation_flag: Job cancellation flag service for Redis operations
         """
         self.crawl_job_repo = crawl_job_repo
         self.website_repo = website_repo
+        self.cancellation_flag = cancellation_flag
 
     async def create_seed_job(self, request: CreateSeedJobRequest) -> SeedJobResponse:
         """Create a new crawl job using a website template.
@@ -263,4 +270,90 @@ class JobService:
             variables=job.variables,
             created_at=job.created_at,
             updated_at=job.updated_at,
+        )
+
+    async def cancel_job(self, job_id: str, request: CancelJobRequest) -> CancelJobResponse:
+        """Cancel a crawl job.
+
+        This method:
+        1. Validates that the job exists
+        2. Checks that the job is not already completed or cancelled
+        3. Updates the job status to "cancelled"
+        4. Sets a Redis cancellation flag for workers to detect
+        5. Returns the updated job information
+
+        Args:
+            job_id: Job ID to cancel
+            request: Cancellation request with optional reason
+
+        Returns:
+            Cancellation response with updated job status
+
+        Raises:
+            ValueError: If job not found or cannot be cancelled
+            RuntimeError: If cancellation operation fails
+        """
+        logger.info(
+            "cancelling_job",
+            job_id=job_id,
+            reason=request.reason,
+        )
+
+        # Get the job to check its current status
+        job = await self.crawl_job_repo.get_by_id(job_id)
+        if not job:
+            logger.warning("job_not_found", job_id=job_id)
+            raise ValueError(f"Job with ID '{job_id}' not found")
+
+        # Check if job is already cancelled
+        if job.status == StatusEnum.CANCELLED:
+            logger.warning("job_already_cancelled", job_id=job_id, status=job.status.value)
+            raise ValueError("Job is already cancelled")
+
+        # Check if job is in a final state (completed or failed)
+        if job.status in (StatusEnum.COMPLETED, StatusEnum.FAILED):
+            logger.warning(
+                "job_cannot_be_cancelled",
+                job_id=job_id,
+                status=job.status.value,
+            )
+            raise ValueError(f"Job is already {job.status.value} and cannot be cancelled")
+
+        # Set Redis cancellation flag for workers to detect
+        flag_set = await self.cancellation_flag.set_cancellation(
+            job_id=job_id,
+            reason=request.reason,
+        )
+
+        if not flag_set:
+            logger.error("failed_to_set_cancellation_flag", job_id=job_id)
+            raise RuntimeError("Failed to set cancellation flag in Redis")
+
+        # Update job status to cancelled in database
+        # Note: The repository's cancel() method also sets cancelled_at and cancelled_by
+        cancelled_job = await self.crawl_job_repo.cancel(
+            job_id=job_id,
+            cancelled_by=None,  # No user tracking yet (authorization not implemented)
+            reason=request.reason,
+        )
+
+        if not cancelled_job:
+            logger.error("job_cancellation_failed", job_id=job_id)
+            # Clean up the Redis flag if DB update failed
+            await self.cancellation_flag.clear_cancellation(job_id)
+            raise RuntimeError("Failed to cancel job in database")
+
+        logger.info(
+            "job_cancelled",
+            job_id=job_id,
+            reason=request.reason,
+            cancelled_at=cancelled_job.cancelled_at,
+        )
+
+        # Build response
+        return CancelJobResponse(
+            id=cancelled_job.id,
+            status=ApiStatusEnum.cancelled,
+            message="Job cancellation initiated",
+            cancelled_at=cancelled_job.cancelled_at or datetime.now(UTC),
         )
