@@ -550,7 +550,7 @@ class SeedURLCrawler:
         if not config.step:
             return "Step configuration is required"
 
-        if not config.step.selectors:
+        if config.step.selectors is None:
             return "Step selectors are required for URL extraction"
 
         # Check if there's a detail_urls selector (required key)

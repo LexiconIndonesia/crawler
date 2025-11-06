@@ -290,7 +290,7 @@ async def test_invalid_config_no_selector(
 
     assert result.outcome == CrawlOutcome.INVALID_CONFIG
     assert result.total_pages_crawled == 0
-    assert "selectors are required" in result.error_message.lower()
+    assert "missing required 'detail_urls' selector" in result.error_message.lower()
 
 
 @pytest.mark.asyncio
