@@ -387,6 +387,8 @@ class HTMLParserService:
     ) -> dict[str, Any]:
         """Extract metadata associated with a URL link element.
 
+        Uses guard pattern and helper methods to reduce nesting and improve readability.
+
         Args:
             soup: BeautifulSoup object of the page
             link_element: BeautifulSoup element (e.g., <a> tag)
@@ -408,40 +410,14 @@ class HTMLParserService:
         metadata: dict[str, Any] = {"title": None, "preview": None}
 
         try:
-            # Try to get title from link text first
+            # Extract title from link text first
             if link_element:
                 title_text = link_element.get_text(strip=True)
                 if title_text:
                     metadata["title"] = title_text
 
-            # Determine the search scope for metadata
-            search_scope = soup
-            if link_element:
-                if parent_selector:
-                    # Walk up the DOM tree to find the nearest parent matching parent_selector
-                    current = link_element
-                    while current and current.parent:
-                        # Simple selector matching for common cases
-                        if parent_selector.startswith("."):
-                            # Class selector
-                            class_name = parent_selector[1:]
-                            if current.has_attr("class") and class_name in current["class"]:
-                                search_scope = current
-                                break
-                        elif parent_selector.startswith("#"):
-                            # ID selector
-                            if current.get("id") == parent_selector[1:]:
-                                search_scope = current
-                                break
-                        else:
-                            # Tag selector
-                            if current.name == parent_selector:
-                                search_scope = current
-                                break
-                        current = current.parent
-                else:
-                    # If no parent selector provided, use the link's immediate parent
-                    search_scope = link_element.parent or soup
+            # Determine search scope for metadata extraction
+            search_scope = self._determine_search_scope(soup, link_element, parent_selector)
 
             # Apply custom metadata selectors if provided
             if metadata_fields:
@@ -457,3 +433,63 @@ class HTMLParserService:
             logger.error("metadata_extraction_error", error=str(e))
 
         return metadata
+
+    def _determine_search_scope(
+        self,
+        soup: BeautifulSoup,
+        link_element: Any,
+        parent_selector: str | None,
+    ) -> Any:
+        """Determine the search scope for metadata extraction.
+
+        Uses guard pattern to handle edge cases and walk up DOM tree to find parent container.
+
+        Args:
+            soup: BeautifulSoup object of the page
+            link_element: BeautifulSoup element to start from
+            parent_selector: CSS selector to find the parent container
+
+        Returns:
+            BeautifulSoup object or element representing the search scope
+        """
+        # Guard: No link element
+        if not link_element:
+            return soup
+
+        # Guard: No parent selector - use immediate parent
+        if not parent_selector:
+            return link_element.parent or soup
+
+        # Walk up DOM tree to find parent matching selector
+        current = link_element
+        while current and current.parent:
+            if self._matches_selector(current, parent_selector):
+                return current
+            current = current.parent
+
+        # Parent not found - fallback to full document
+        return soup
+
+    def _matches_selector(self, element: Any, selector: str) -> bool:
+        """Check if element matches a CSS selector.
+
+        Uses guard pattern for different selector types (class, ID, tag).
+
+        Args:
+            element: BeautifulSoup element to check
+            selector: CSS selector string (e.g., ".class", "#id", "tag")
+
+        Returns:
+            True if element matches selector, False otherwise
+        """
+        # Guard: Class selector
+        if selector.startswith("."):
+            class_name = selector[1:]
+            return bool(element.has_attr("class") and class_name in element["class"])
+
+        # Guard: ID selector
+        if selector.startswith("#"):
+            return bool(element.get("id") == selector[1:])
+
+        # Tag selector
+        return bool(element.name == selector)

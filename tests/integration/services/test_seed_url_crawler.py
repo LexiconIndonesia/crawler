@@ -655,3 +655,213 @@ async def test_relative_url_resolution(
     for extracted_url in result.extracted_urls:
         assert extracted_url.url.startswith("https://")
         assert "example.com" in extracted_url.url
+
+
+# =============================================================================
+# Cancellation Test Cases
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cancellation_before_seed_page_extraction(
+    seed_url_crawler: SeedURLCrawler,
+    basic_crawl_step: CrawlStep,
+) -> None:
+    """Test that cancellation is detected before seed page extraction."""
+    seed_url = "https://example.com/products"
+
+    html_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/1">Product 1</a>
+        <a class="product-link" href="/product/2">Product 2</a>
+    </body></html>
+    """
+
+    mock_client = create_mock_http_client({seed_url: (200, html_content)})
+
+    # Mock cancellation flag that returns cancelled immediately
+    mock_flag = AsyncMock()
+    mock_flag.is_cancelled.return_value = True
+
+    config = SeedURLCrawlerConfig(
+        step=basic_crawl_step,
+        job_id="test-job-cancel-early",
+        http_client=mock_client,
+        cancellation_flag=mock_flag,
+    )
+    result = await seed_url_crawler.crawl(seed_url, config)
+
+    assert result.outcome == CrawlOutcome.CANCELLED
+    assert result.total_pages_crawled == 0
+    assert result.total_urls_extracted == 0
+    assert result.error_message == "Job was cancelled during execution"
+    mock_flag.is_cancelled.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_pagination(
+    seed_url_crawler: SeedURLCrawler,
+    paginated_crawl_step: CrawlStep,
+) -> None:
+    """Test that cancellation is detected during pagination loop."""
+    seed_url = "https://example.com/products?page=1"
+
+    page1_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/1">Product 1</a>
+        <a class="product-link" href="/product/2">Product 2</a>
+    </body></html>
+    """
+
+    page2_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/3">Product 3</a>
+        <a class="product-link" href="/product/4">Product 4</a>
+    </body></html>
+    """
+
+    page3_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/5">Product 5</a>
+        <a class="product-link" href="/product/6">Product 6</a>
+    </body></html>
+    """
+
+    def get_response(url: str) -> tuple[int, bytes]:
+        if "page=1" in url:
+            return (200, page1_content)
+        elif "page=2" in url:
+            return (200, page2_content)
+        elif "page=3" in url:
+            return (200, page3_content)
+        else:
+            return (404, b"Not Found")
+
+    mock_client = create_mock_http_client(get_response)
+
+    # Mock cancellation flag that returns cancelled after first page
+    call_count = 0
+
+    async def mock_is_cancelled(_job_id: str) -> bool:
+        nonlocal call_count
+        call_count += 1
+        # Return cancelled after first check (during pagination)
+        return call_count > 1
+
+    mock_flag = AsyncMock()
+    mock_flag.is_cancelled = mock_is_cancelled
+
+    config = SeedURLCrawlerConfig(
+        step=paginated_crawl_step,
+        job_id="test-job-cancel-pagination",
+        http_client=mock_client,
+        cancellation_flag=mock_flag,
+    )
+    result = await seed_url_crawler.crawl(seed_url, config)
+
+    assert result.outcome == CrawlOutcome.CANCELLED
+    # Should have processed seed page before cancellation
+    assert result.total_pages_crawled >= 1
+    assert result.total_urls_extracted >= 2  # At least seed page URLs
+    assert result.error_message == "Job was cancelled during execution"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_preserves_partial_results(
+    seed_url_crawler: SeedURLCrawler,
+    paginated_crawl_step: CrawlStep,
+) -> None:
+    """Test that cancellation preserves partial results collected before cancellation."""
+    seed_url = "https://example.com/products?page=1"
+
+    page1_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/1">Product 1</a>
+        <a class="product-link" href="/product/2">Product 2</a>
+    </body></html>
+    """
+
+    page2_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/3">Product 3</a>
+        <a class="product-link" href="/product/4">Product 4</a>
+    </body></html>
+    """
+
+    page3_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/5">Product 5</a>
+        <a class="product-link" href="/product/6">Product 6</a>
+    </body></html>
+    """
+
+    def get_response(url: str) -> tuple[int, bytes]:
+        if "page=1" in url:
+            return (200, page1_content)
+        elif "page=2" in url:
+            return (200, page2_content)
+        elif "page=3" in url:
+            return (200, page3_content)
+        else:
+            return (404, b"Not Found")
+
+    mock_client = create_mock_http_client(get_response)
+
+    # Mock cancellation flag that returns cancelled after 2 checks
+    # Check 1: before seed page extraction (not cancelled)
+    # Check 2: before page 2 processing (cancelled)
+    call_count = 0
+
+    async def mock_is_cancelled(_job_id: str) -> bool:
+        nonlocal call_count
+        call_count += 1
+        return call_count >= 2
+
+    mock_flag = AsyncMock()
+    mock_flag.is_cancelled = mock_is_cancelled
+
+    config = SeedURLCrawlerConfig(
+        step=paginated_crawl_step,
+        job_id="test-job-cancel-partial",
+        http_client=mock_client,
+        cancellation_flag=mock_flag,
+    )
+    result = await seed_url_crawler.crawl(seed_url, config)
+
+    assert result.outcome == CrawlOutcome.CANCELLED
+    assert result.total_pages_crawled >= 1
+    # Should have extracted URLs from at least the seed page
+    assert result.total_urls_extracted >= 2
+    assert len(result.extracted_urls) >= 2
+    # Verify URLs are actually preserved
+    assert all(url.url.startswith("https://") for url in result.extracted_urls)
+
+
+@pytest.mark.asyncio
+async def test_no_cancellation_when_flag_not_provided(
+    seed_url_crawler: SeedURLCrawler,
+    basic_crawl_step: CrawlStep,
+) -> None:
+    """Test that crawl proceeds normally when no cancellation flag is provided."""
+    seed_url = "https://example.com/products"
+
+    html_content = b"""
+    <html><body>
+        <a class="product-link" href="/product/1">Product 1</a>
+        <a class="product-link" href="/product/2">Product 2</a>
+    </body></html>
+    """
+
+    mock_client = create_mock_http_client({seed_url: (200, html_content)})
+
+    # No cancellation flag provided
+    config = SeedURLCrawlerConfig(
+        step=basic_crawl_step,
+        job_id="test-job-no-cancel",
+        http_client=mock_client,
+    )
+    result = await seed_url_crawler.crawl(seed_url, config)
+
+    assert result.outcome == CrawlOutcome.SUCCESS
+    assert result.total_pages_crawled == 1
+    assert result.total_urls_extracted == 2
