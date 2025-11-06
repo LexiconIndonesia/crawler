@@ -345,9 +345,9 @@ class JobService:
                     cancelled_at=current_job.cancelled_at,
                 )
                 # Enforce data integrity: cancelled jobs must have cancelled_at timestamp
-                assert (
-                    current_job.cancelled_at is not None
-                ), "Data corruption: job is CANCELLED but cancelled_at is NULL"
+                assert current_job.cancelled_at is not None, (
+                    "Data corruption: job is CANCELLED but cancelled_at is NULL"
+                )
 
                 return CancelJobResponse(
                     id=current_job.id,
@@ -388,9 +388,9 @@ class JobService:
 
         # Build response
         # Enforce contract: repository must set cancelled_at timestamp
-        assert (
-            cancelled_job.cancelled_at is not None
-        ), "Repository failed to set cancelled_at timestamp"
+        assert cancelled_job.cancelled_at is not None, (
+            "Repository failed to set cancelled_at timestamp"
+        )
 
         return CancelJobResponse(
             id=cancelled_job.id,
