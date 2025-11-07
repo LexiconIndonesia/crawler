@@ -62,9 +62,7 @@ async def create_future_partitions(conn: asyncpg.Connection, months_ahead: int) 
 
     try:
         # Call the PostgreSQL function to create future partitions
-        results = await conn.fetch(
-            "SELECT create_future_crawl_log_partitions($1)", months_ahead
-        )
+        results = await conn.fetch("SELECT create_future_crawl_log_partitions($1)", months_ahead)
 
         for row in results:
             result_msg = row["result"]
@@ -93,9 +91,7 @@ async def drop_old_partitions(conn: asyncpg.Connection, retention_days: int) -> 
 
     try:
         # Call the PostgreSQL function to drop old partitions
-        results = await conn.fetch(
-            "SELECT drop_old_crawl_log_partitions($1)", retention_days
-        )
+        results = await conn.fetch("SELECT drop_old_crawl_log_partitions($1)", retention_days)
 
         dropped_count = 0
         for row in results:
@@ -150,19 +146,19 @@ async def list_partitions(conn: asyncpg.Connection) -> None:
             return
 
         # Print header
-        print("\n{:<30} {:<15} {:<12} {:<10}".format(
-            "Partition Name", "Month", "Size", "Indexes"
-        ))
+        print("\n{:<30} {:<15} {:<12} {:<10}".format("Partition Name", "Month", "Size", "Indexes"))
         print("-" * 70)
 
         # Print rows
         for row in results:
-            print("{:<30} {:<15} {:<12} {:<10}".format(
-                row["partition_name"],
-                row["partition_month"].strftime("%Y-%m") if row["partition_month"] else "N/A",
-                row["size"] or "N/A",
-                row["index_count"] or 0,
-            ))
+            print(
+                "{:<30} {:<15} {:<12} {:<10}".format(
+                    row["partition_name"],
+                    row["partition_month"].strftime("%Y-%m") if row["partition_month"] else "N/A",
+                    row["size"] or "N/A",
+                    row["index_count"] or 0,
+                )
+            )
 
         print(f"\nTotal partitions: {len(results)}\n")
         logger.info("list_partitions_complete", partition_count=len(results))
