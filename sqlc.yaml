@@ -5,11 +5,7 @@ plugins:
       url: https://downloads.sqlc.dev/plugin/sqlc-gen-python_1.3.0.wasm
       sha256: fbedae96b5ecae2380a70fb5b925fd4bff58a6cfb1f3140375d098fbab7b3a3c
 sql:
-  - schema:
-      - "sql/schema/000_migration_tracking.sql"
-      - "sql/schema/001_initial_schema.sql"
-      - "sql/schema/002_scheduled_jobs.sql"
-      - "sql/schema/003_seed_url_submissions.sql"
+  - schema: "sql/schema"
     queries: "sql/queries"
     engine: "postgresql"
     codegen:

@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list
+.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema
 
 # Default target
 .DEFAULT_GOAL := help
@@ -198,6 +198,16 @@ sqlc-generate: ## Generate type-safe Python code from SQL queries
 	@echo "$(BLUE)⚙️  Generating code with sqlc...$(NC)"
 	sqlc generate
 	@echo "$(GREEN)✅ Code generated in crawler/db/generated/$(NC)"
+
+regenerate-schema: ## Regenerate schema from database (after migrations)
+	@echo "$(BLUE)⚙️  Regenerating schema from database...$(NC)"
+	@docker exec lexicon-postgres pg_dump --schema-only --no-owner --no-privileges --no-tablespaces -U crawler crawler > sql/schema/current_schema.sql
+	@sed -i '' '1,21d' sql/schema/current_schema.sql
+	@sed -i '' '/^\\unrestrict/d' sql/schema/current_schema.sql
+	@sed -i '' '/^\\restrict/d' sql/schema/current_schema.sql
+	@sed -i '' 's/public\.//g' sql/schema/current_schema.sql
+	@python3 -c "import re; content = open('sql/schema/current_schema.sql').read(); patterns = [r'-- Name: create_crawl_log_partition.*?(?=-- Name: [a-z])', r'-- Name: create_future_crawl_log_partitions.*?(?=-- Name: [a-z])', r'-- Name: drop_old_crawl_log_partitions.*?(?=-- Name: [a-z])', r'-- Name: crawl_log_partitions; Type: VIEW.*?(?=-- Name: [a-z])']; [content := re.sub(p, '', content, flags=re.DOTALL) for p in patterns]; open('sql/schema/current_schema.sql', 'w').write(content)"
+	@echo "$(GREEN)✅ Schema regenerated$(NC)"
 
 partition-create: ## Create future log partitions
 	@echo "$(BLUE)📅 Creating future log partitions...$(NC)"
