@@ -109,9 +109,7 @@ def upgrade() -> None:
         )
     """)
 
-    op.execute(
-        "COMMENT ON TABLE crawl_job IS 'Stores crawl job definitions and execution state'"
-    )
+    op.execute("COMMENT ON TABLE crawl_job IS 'Stores crawl job definitions and execution state'")
 
     # Crawl job indexes
     op.execute("CREATE INDEX ix_crawl_job_website_id ON crawl_job(website_id)")
@@ -159,8 +157,7 @@ def upgrade() -> None:
     op.execute("CREATE INDEX ix_crawled_page_is_duplicate ON crawled_page(is_duplicate)")
     op.execute("CREATE INDEX ix_crawled_page_duplicate_of ON crawled_page(duplicate_of)")
     op.execute(
-        "CREATE UNIQUE INDEX ix_crawled_page_website_url_hash "
-        "ON crawled_page(website_id, url_hash)"
+        "CREATE UNIQUE INDEX ix_crawled_page_website_url_hash ON crawled_page(website_id, url_hash)"
     )
 
     # Create content_hash table
@@ -176,15 +173,12 @@ def upgrade() -> None:
     """)
 
     op.execute(
-        "COMMENT ON TABLE content_hash IS "
-        "'Tracks content hash occurrences for duplicate detection'"
+        "COMMENT ON TABLE content_hash IS 'Tracks content hash occurrences for duplicate detection'"
     )
 
     # Content hash indexes
     op.execute("CREATE INDEX ix_content_hash_last_seen_at ON content_hash(last_seen_at)")
-    op.execute(
-        "CREATE INDEX ix_content_hash_occurrence_count ON content_hash(occurrence_count)"
-    )
+    op.execute("CREATE INDEX ix_content_hash_occurrence_count ON content_hash(occurrence_count)")
 
     # Create crawl_log table
     op.execute("""

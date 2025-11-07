@@ -27,9 +27,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Upgrade schema - split into individual statements for asyncpg compatibility."""
     # Add cron_schedule column to website table
-    op.execute(
-        "ALTER TABLE website ADD COLUMN cron_schedule VARCHAR(255) DEFAULT '0 0 1,15 * *'"
-    )
+    op.execute("ALTER TABLE website ADD COLUMN cron_schedule VARCHAR(255) DEFAULT '0 0 1,15 * *'")
 
     op.execute("""
         COMMENT ON COLUMN website.cron_schedule IS
@@ -70,13 +68,9 @@ def upgrade() -> None:
         "'Cron expression defining when the job should run'"
     )
 
-    op.execute(
-        "COMMENT ON COLUMN scheduled_job.next_run_time IS 'Next scheduled execution time'"
-    )
+    op.execute("COMMENT ON COLUMN scheduled_job.next_run_time IS 'Next scheduled execution time'")
 
-    op.execute(
-        "COMMENT ON COLUMN scheduled_job.last_run_time IS 'Most recent execution time'"
-    )
+    op.execute("COMMENT ON COLUMN scheduled_job.last_run_time IS 'Most recent execution time'")
 
     op.execute(
         "COMMENT ON COLUMN scheduled_job.is_active IS "
@@ -89,9 +83,7 @@ def upgrade() -> None:
 
     # Create indexes
     op.execute("CREATE INDEX ix_scheduled_job_website_id ON scheduled_job(website_id)")
-    op.execute(
-        "CREATE INDEX ix_scheduled_job_next_run_time ON scheduled_job(next_run_time)"
-    )
+    op.execute("CREATE INDEX ix_scheduled_job_next_run_time ON scheduled_job(next_run_time)")
     op.execute("CREATE INDEX ix_scheduled_job_is_active ON scheduled_job(is_active)")
 
     op.execute("""
