@@ -567,7 +567,7 @@ class YourModel(_YourModel):
 
 **Browser Automation**: Playwright browsers must be installed separately with `make playwright`. For anti-bot scenarios, undetected-chromedriver is available.
 
-**Message Queue**: NATS JetStream is configured but crawler worker implementation is not yet complete.
+**Message Queue**: NATS JetStream is fully integrated for distributed job queuing with immediate cancellation support. See `docs/NATS_INTEGRATION.md` for details.
 
 **Monitoring Stack**: Full observability with Prometheus (metrics), Grafana (dashboards), Loki (log aggregation), and AlertManager. Access via `make monitoring-up` and `make urls`.
 

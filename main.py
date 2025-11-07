@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from crawler.api import router, router_v1
 from crawler.core import setup_logging
-from crawler.core.dependencies import get_app_settings
+from crawler.core.dependencies import connect_nats_queue, disconnect_nats_queue, get_app_settings
+from crawler.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -19,9 +22,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     # Startup
     setup_logging()
+    logger.info("application_startup", app_name=app.title, version=app.version)
+
+    # Connect to NATS queue
+    try:
+        await connect_nats_queue()
+        logger.info("nats_queue_connected")
+    except Exception as e:
+        logger.error("nats_connection_failed_on_startup", error=str(e))
+        # Continue without NATS - database polling can still work as fallback
+
     yield
+
     # Shutdown
-    pass
+    logger.info("application_shutdown")
+    try:
+        await disconnect_nats_queue()
+        logger.info("nats_queue_disconnected")
+    except Exception as e:
+        logger.error("nats_disconnect_failed_on_shutdown", error=str(e))
 
 
 def create_app() -> FastAPI:

@@ -18,6 +18,7 @@ from config import Settings, get_settings
 from crawler.cache.session import get_redis as _get_redis
 from crawler.db.session import get_db as _get_db
 from crawler.services.cache import CacheService
+from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import (
     BrowserPoolStatus,
     JobCancellationFlag,
@@ -224,6 +225,62 @@ async def get_job_progress_cache(
     return JobProgressCache(redis_client=redis_client, settings=settings)
 
 
+# Global NATS queue service instance (singleton pattern)
+_nats_queue_service: NATSQueueService | None = None
+
+
+async def get_nats_queue_service(
+    settings: SettingsDep,
+) -> NATSQueueService:
+    """Get NATS queue service with singleton pattern.
+
+    The service is created once and reused across requests.
+    Connection is established at app startup and closed at shutdown.
+
+    Args:
+        settings: Application settings from dependency
+
+    Returns:
+        NATSQueueService instance
+
+    Usage:
+        async def my_route(nats_queue: NATSQueueDep):
+            await nats_queue.publish_job(job_id, job_data)
+    """
+    global _nats_queue_service
+
+    # Guard: return existing instance if available
+    if _nats_queue_service is not None:
+        return _nats_queue_service
+
+    # Create new instance
+    from crawler.services.nats_queue import NATSQueueService
+
+    _nats_queue_service = NATSQueueService(settings=settings)
+    return _nats_queue_service
+
+
+async def connect_nats_queue() -> None:
+    """Connect NATS queue service at application startup.
+
+    Should be called in FastAPI lifespan startup.
+    """
+    settings = get_settings()
+    service = await get_nats_queue_service(settings)
+    await service.connect()
+
+
+async def disconnect_nats_queue() -> None:
+    """Disconnect NATS queue service at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    global _nats_queue_service
+    if _nats_queue_service is not None:
+        await _nats_queue_service.disconnect()
+        _nats_queue_service = None
+
+
 # ============================================================================
 # Service Type Aliases for Dependency Injection
 # ============================================================================
@@ -231,6 +288,7 @@ async def get_job_progress_cache(
 # Service dependencies
 CacheServiceDep = Annotated[CacheService, Depends(get_cache_service)]
 StorageServiceDep = Annotated[StorageService, Depends(get_storage_service)]
+NATSQueueDep = Annotated[NATSQueueService, Depends(get_nats_queue_service)]
 URLDedupCacheDep = Annotated[URLDeduplicationCache, Depends(get_url_dedup_cache)]
 JobCancellationFlagDep = Annotated[JobCancellationFlag, Depends(get_job_cancellation_flag)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]

@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from crawler.api.v1.services import JobService, WebsiteService
-from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep
+from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep, NATSQueueDep
 from crawler.db.repositories import CrawlJobRepository, ScheduledJobRepository, WebsiteRepository
 
 
@@ -51,12 +51,14 @@ async def get_website_service(
 async def get_job_service(
     db: DBSessionDep,
     cancellation_flag: JobCancellationFlagDep,
+    nats_queue: NATSQueueDep,
 ) -> JobService:
     """Get job service with injected dependencies.
 
     Args:
         db: Database session from centralized dependency injection
         cancellation_flag: Job cancellation flag service from centralized dependency injection
+        nats_queue: NATS queue service from centralized dependency injection
 
     Returns:
         JobService instance with injected repositories and services
@@ -78,11 +80,12 @@ async def get_job_service(
     crawl_job_repo = CrawlJobRepository(conn)
     website_repo = WebsiteRepository(conn)
 
-    # Return service with injected repositories
+    # Return service with injected repositories and services
     return JobService(
         crawl_job_repo=crawl_job_repo,
         website_repo=website_repo,
         cancellation_flag=cancellation_flag,
+        nats_queue=nats_queue,
     )
 
 

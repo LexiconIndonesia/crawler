@@ -18,6 +18,7 @@ from crawler.api.generated import (
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
+from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag
 from crawler.utils import normalize_url
 
@@ -32,6 +33,7 @@ class JobService:
         crawl_job_repo: CrawlJobRepository,
         website_repo: WebsiteRepository,
         cancellation_flag: JobCancellationFlag,
+        nats_queue: NATSQueueService,
     ):
         """Initialize service with dependencies.
 
@@ -39,10 +41,12 @@ class JobService:
             crawl_job_repo: Crawl job repository for database access
             website_repo: Website repository for template loading
             cancellation_flag: Job cancellation flag service for Redis operations
+            nats_queue: NATS queue service for job queuing
         """
         self.crawl_job_repo = crawl_job_repo
         self.website_repo = website_repo
         self.cancellation_flag = cancellation_flag
+        self.nats_queue = nats_queue
 
     async def create_seed_job(self, request: CreateSeedJobRequest) -> SeedJobResponse:
         """Create a new crawl job using a website template.
@@ -143,6 +147,24 @@ class JobService:
             seed_url=str(request.seed_url),
             priority=job.priority,
         )
+
+        # Publish job to NATS queue for workers to pick up
+        job_data = {
+            "website_id": str(job.website_id) if job.website_id else None,
+            "seed_url": job.seed_url,
+            "job_type": job.job_type.value,
+            "priority": job.priority,
+        }
+        published = await self.nats_queue.publish_job(str(job.id), job_data)
+
+        if not published:
+            logger.warning(
+                "job_publish_to_queue_failed",
+                job_id=str(job.id),
+                reason="nats_publish_failed_but_job_created_in_db",
+            )
+            # Note: Job is still created in DB even if queue publish fails
+            # Worker can still pick it up via database polling as fallback
 
         # Build response - convert database enum to API enum
         api_status = ApiStatusEnum(job.status.value)
@@ -254,6 +276,25 @@ class JobService:
             priority=job.priority,
         )
 
+        # Publish job to NATS queue for workers to pick up
+        job_data = {
+            "website_id": None,  # Inline config jobs don't have website_id
+            "seed_url": job.seed_url,
+            "job_type": job.job_type.value,
+            "priority": job.priority,
+            "has_inline_config": True,
+        }
+        published = await self.nats_queue.publish_job(str(job.id), job_data)
+
+        if not published:
+            logger.warning(
+                "job_publish_to_queue_failed",
+                job_id=str(job.id),
+                reason="nats_publish_failed_but_job_created_in_db",
+            )
+            # Note: Job is still created in DB even if queue publish fails
+            # Worker can still pick it up via database polling as fallback
+
         # Build response - convert database enum to API enum
         api_status = ApiStatusEnum(job.status.value)
         job_type = JobType(job.job_type.value)
@@ -316,6 +357,25 @@ class JobService:
         if not flag_set:
             logger.error("failed_to_set_cancellation_flag", job_id=job_id)
             raise RuntimeError("Failed to set cancellation flag in Redis")
+
+        # Remove job from NATS queue if it's pending (not yet started)
+        # This provides immediate cancellation for queued jobs
+        if job.status == StatusEnum.PENDING:
+            removed = await self.nats_queue.delete_job_from_queue(job_id)
+            if removed:
+                logger.info(
+                    "job_removed_from_queue_on_cancel",
+                    job_id=job_id,
+                    status="pending",
+                )
+            else:
+                logger.info(
+                    "job_not_in_queue_on_cancel",
+                    job_id=job_id,
+                    reason="may_have_been_picked_up_by_worker",
+                )
+                # Not a failure - job might have just been picked up by a worker
+                # The Redis cancellation flag will handle it
 
         # Atomically update job status to cancelled in database
         # The SQL query only updates if status is 'pending' or 'running'
