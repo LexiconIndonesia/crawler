@@ -10,6 +10,12 @@ from .redis_cache import (
     RateLimiter,
     URLDeduplicationCache,
 )
+from .resource_cleanup import (
+    BrowserResourceManager,
+    CleanupCoordinator,
+    HTTPResourceManager,
+    ResourceManager,
+)
 from .seed_url_crawler import CrawlOutcome, CrawlResult, SeedURLCrawler, SeedURLCrawlerConfig
 from .url_extractor import ExtractedURL, URLExtractorService
 
@@ -28,4 +34,8 @@ __all__ = [
     "SeedURLCrawlerConfig",
     "CrawlResult",
     "CrawlOutcome",
+    "ResourceManager",
+    "HTTPResourceManager",
+    "BrowserResourceManager",
+    "CleanupCoordinator",
 ]

@@ -206,7 +206,7 @@ def example_8_practical_use_case():
     print("✓ Ready for parallel crawling")
 
 
-def main():
+def main() -> None:
     """Run all examples."""
     print("=" * 60)
     print("    Lexicon Crawler - Pagination System Examples")

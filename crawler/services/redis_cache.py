@@ -312,6 +312,28 @@ class JobCancellationFlag:
             logger.error("job_cancellation_check_error", job_id=job_id, error=str(e))
             return False
 
+    async def get_cancellation_reason(self, job_id: str) -> str | None:
+        """Get the cancellation reason for a job.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Cancellation reason if available, None otherwise.
+        """
+        try:
+            key = self._make_key(job_id)
+            data_str = await self.redis.get(key)
+            if not data_str:
+                return None
+
+            data: dict[str, str | bool | None] = json.loads(data_str)
+            reason = data.get("reason")
+            return reason if isinstance(reason, str) else None
+        except Exception as e:
+            logger.error("job_cancellation_reason_error", job_id=job_id, error=str(e))
+            return None
+
     async def clear_cancellation(self, job_id: str) -> bool:
         """Clear cancellation flag for a job.
 

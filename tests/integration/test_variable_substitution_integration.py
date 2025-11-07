@@ -167,7 +167,7 @@ class TestVariableSubstitutionInAPI:
 class TestVariableSubstitutionWithDatabase:
     """Test variable substitution with database integration."""
 
-    async def test_variable_persistence_and_retrieval(self, test_client: AsyncClient):
+    async def test_variable_persistence_and_retrieval(self, test_client: AsyncClient) -> None:
         """Test that variables persist correctly in the database."""
         website_data = {
             "name": "Test Site Persistence",
@@ -202,7 +202,7 @@ class TestVariableSubstitutionWithDatabase:
         assert response_data["config"]["variables"]["nested"]["value"] == "test"
         assert response_data["config"]["variables"]["nested"]["number"] == 42
 
-    async def test_job_variable_override_merging(self, test_client: AsyncClient):
+    async def test_job_variable_override_merging(self, test_client: AsyncClient) -> None:
         """Test that job variables properly override website variables."""
         website_data = {
             "name": "Test Site Override",
@@ -266,7 +266,7 @@ class TestVariableSubstitutionInExecution:
         """Variable resolver instance."""
         return VariableResolver()
 
-    def test_substitution_with_job_and_website_variables(self, resolver):
+    def test_substitution_with_job_and_website_variables(self, resolver) -> None:
         """Test substitution with merged job and website variables."""
         # Website variables
         website_vars = {
@@ -318,7 +318,7 @@ class TestVariableSubstitutionInExecution:
         assert result["params"]["timeout"] == 30
         assert isinstance(result["params"]["timeout"], int)
 
-    def test_substitution_with_environment_variables(self, resolver):
+    def test_substitution_with_environment_variables(self, resolver) -> None:
         """Test substitution with environment variables."""
         # Set test environment variable
         os.environ["TEST_API_KEY"] = "env_secret_123"
@@ -361,7 +361,7 @@ class TestVariableSubstitutionInExecution:
             if "TEST_PROXY" in os.environ:
                 del os.environ["TEST_PROXY"]
 
-    def test_substitution_with_input_variables(self, resolver):
+    def test_substitution_with_input_variables(self, resolver) -> None:
         """Test substitution with input from previous step."""
         previous_step_output = {
             "data": {
@@ -398,7 +398,7 @@ class TestVariableSubstitutionInExecution:
         assert result["params"]["categories"] == "['tech', 'science']"
         assert result["metadata"]["previous_step"] == "extract"
 
-    def test_substitution_with_pagination_variables(self, resolver):
+    def test_substitution_with_pagination_variables(self, resolver) -> None:
         """Test substitution with pagination variables."""
         context = VariableContext(
             job_variables={"base_url": "https://example.com/api"},
@@ -423,7 +423,7 @@ class TestVariableSubstitutionInExecution:
         assert results[1] == "https://example.com/api/data?offset=100"
         assert results[2] == "https://example.com/api/data?cursor=page5_cursor"
 
-    def test_complex_nested_substitution(self, resolver):
+    def test_complex_nested_substitution(self, resolver) -> None:
         """Test complex nested substitution scenarios."""
         context = VariableContext(
             job_variables={
@@ -466,7 +466,7 @@ class TestVariableSubstitutionInExecution:
 class TestVariableSubstitutionErrorHandling:
     """Test error handling in variable substitution."""
 
-    def test_missing_variable_in_strict_mode(self):
+    def test_missing_variable_in_strict_mode(self) -> None:
         """Test missing variable raises error in strict mode."""
         resolver = VariableResolver(strict_mode=True)
         context = VariableContext(job_variables={"existing": "value"})
@@ -474,7 +474,7 @@ class TestVariableSubstitutionErrorHandling:
         with pytest.raises(Exception):  # VariableNotFoundError
             resolver.substitute("${variables.missing}", context)
 
-    def test_missing_variable_in_non_strict_mode(self):
+    def test_missing_variable_in_non_strict_mode(self) -> None:
         """Test missing variable preserved in non-strict mode."""
         resolver = VariableResolver(strict_mode=False)
         context = VariableContext(job_variables={"existing": "value"}, strict_mode=False)
@@ -482,7 +482,7 @@ class TestVariableSubstitutionErrorHandling:
         result = resolver.substitute("Prefix ${variables.missing} suffix", context)
         assert result == "Prefix ${variables.missing} suffix"
 
-    def test_circular_reference_detection(self):
+    def test_circular_reference_detection(self) -> None:
         """Test circular reference detection."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -492,7 +492,7 @@ class TestVariableSubstitutionErrorHandling:
         with pytest.raises(Exception):  # CircularReferenceError
             resolver.substitute("${variables.var1}", context)
 
-    def test_type_conversion_errors(self):
+    def test_type_conversion_errors(self) -> None:
         """Test type conversion error handling."""
         resolver = VariableResolver()
         context = VariableContext(job_variables={"number": "not_a_number"})
@@ -507,7 +507,7 @@ class TestVariableSubstitutionErrorHandling:
 class TestRealWorldScenarios:
     """Test real-world variable substitution scenarios."""
 
-    def test_api_crawling_with_authentication(self):
+    def test_api_crawling_with_authentication(self) -> None:
         """Test API crawling with complex authentication."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -548,7 +548,7 @@ class TestRealWorldScenarios:
         assert result["headers"]["X-Job-ID"] == "github-crawl-001"
         assert result["proxy"] == "http://proxy.company.com:8080"
 
-    def test_ecommerce_site_crawling(self):
+    def test_ecommerce_site_crawling(self) -> None:
         """Test e-commerce site crawling with pagination."""
         resolver = VariableResolver()
 
@@ -597,7 +597,7 @@ class TestRealWorldScenarios:
             # HTTP headers are strings, so list will be converted to string representation
             assert result["headers"]["X-Categories"] == "['phones', 'laptops', 'tablets']"
 
-    def test_news_aggregation(self):
+    def test_news_aggregation(self) -> None:
         """Test news aggregation with multiple sources."""
         resolver = VariableResolver()
         context = VariableContext(

@@ -8,8 +8,12 @@ import pytest
 import pytest_asyncio
 import redis.asyncio as redis
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from config import Settings, get_settings
 from crawler.db.repositories import (
@@ -43,7 +47,7 @@ async def create_schema(conn: AsyncConnection) -> None:
     for schema_file in schema_files:
         sql_content = schema_file.read_text()
         # Use asyncpg's execute which handles multi-statement scripts
-        await raw_conn.driver_connection.execute(sql_content)
+        await raw_conn.driver_connection.execute(sql_content)  # type: ignore[union-attr]
 
 
 async def drop_schema(conn: AsyncConnection) -> None:
@@ -57,12 +61,12 @@ async def drop_schema(conn: AsyncConnection) -> None:
         WHERE schemaname = 'public'
         ORDER BY tablename;
     """
-    tables = await raw_conn.driver_connection.fetch(tables_query)
+    tables = await raw_conn.driver_connection.fetch(tables_query)  # type: ignore[union-attr]
 
     # Drop all tables with CASCADE
     for table in tables:
         drop_table_sql = f"DROP TABLE IF EXISTS {table['tablename']} CASCADE;"
-        await raw_conn.driver_connection.execute(drop_table_sql)
+        await raw_conn.driver_connection.execute(drop_table_sql)  # type: ignore[union-attr]
 
     # Get all custom types (enums, composites, etc.)
     types_query = """
@@ -72,16 +76,16 @@ async def drop_schema(conn: AsyncConnection) -> None:
         AND typtype = 'e'  -- only enum types
         ORDER BY typname;
     """
-    types = await raw_conn.driver_connection.fetch(types_query)
+    types = await raw_conn.driver_connection.fetch(types_query)  # type: ignore[union-attr]
 
     # Drop all custom types with CASCADE
     for type_row in types:
         drop_type_sql = f"DROP TYPE IF EXISTS {type_row['typname']} CASCADE;"
-        await raw_conn.driver_connection.execute(drop_type_sql)
+        await raw_conn.driver_connection.execute(drop_type_sql)  # type: ignore[union-attr]
 
 
 @pytest.fixture(scope="session")
-def event_loop():
+def event_loop() -> AsyncGenerator[asyncio.AbstractEventLoop, None]:  # type: ignore[misc]
     """Create event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
@@ -99,7 +103,7 @@ def settings() -> Settings:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession, None]:
     """Create a test database session.
 
     This fixture reuses the session-scoped schema and creates a transaction
@@ -112,7 +116,7 @@ async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
     engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
     # Create session
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
         transaction = await session.begin()
@@ -125,7 +129,7 @@ async def db_session(test_db_schema) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_connection(test_db_schema) -> AsyncGenerator[AsyncConnection, None]:
+async def db_connection(test_db_schema: None) -> AsyncGenerator[AsyncConnection, None]:
     """Create a test database connection for sqlc repositories.
 
     This fixture reuses the session-scoped schema and creates a transaction
@@ -204,11 +208,11 @@ async def redis_client() -> AsyncGenerator[redis.Redis, None]:
         await client.flushdb()
     finally:
         # Clean up connection
-        await client.aclose()
+        await client.aclose()  # type: ignore[attr-defined]
 
 
 @pytest_asyncio.fixture(scope="session")
-async def test_db_schema():
+async def test_db_schema() -> AsyncGenerator[None, None]:
     """Set up database schema once for all integration tests."""
     engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
@@ -230,7 +234,7 @@ async def test_db_schema():
 
 
 @pytest_asyncio.fixture
-async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
+async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient, None]:
     """Create FastAPI test client for integration tests.
 
     This fixture provides an async HTTP client for testing API endpoints.
@@ -259,12 +263,12 @@ async def test_client(test_db_schema) -> AsyncGenerator[AsyncClient, None]:
     original_sessionmaker = db_module.async_session_maker
 
     db_module.engine = engine
-    db_module.async_session_maker = sessionmaker(
+    db_module.async_session_maker = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
 
     # Create session maker
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     # Explicit transaction management to ensure rollback
     async with async_session() as session:

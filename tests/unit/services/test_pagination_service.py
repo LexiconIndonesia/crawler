@@ -9,7 +9,7 @@ from crawler.services.pagination import PaginationService
 class TestPaginationService:
     """Tests for PaginationService integration."""
 
-    def test_generate_urls_with_auto_detection_query_param(self):
+    def test_generate_urls_with_auto_detection_query_param(self) -> None:
         """Test URL generation with auto-detected query parameter pattern."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=10)
@@ -24,7 +24,7 @@ class TestPaginationService:
         assert urls[-1] == "https://example.com/products?page=10"
         assert all("page=" in url for url in urls)
 
-    def test_generate_urls_with_auto_detection_path_segment(self):
+    def test_generate_urls_with_auto_detection_path_segment(self) -> None:
         """Test URL generation with auto-detected path segment pattern."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=8)
@@ -38,7 +38,7 @@ class TestPaginationService:
         assert urls[0] == "https://example.com/page/3"
         assert urls[-1] == "https://example.com/page/8"
 
-    def test_generate_urls_with_template(self):
+    def test_generate_urls_with_template(self) -> None:
         """Test URL generation with explicit template."""
         service = PaginationService()
         config = PaginationConfig(
@@ -57,7 +57,7 @@ class TestPaginationService:
         assert urls[0] == "https://example.com/products?page=1"
         assert urls[-1] == "https://example.com/products?page=5"
 
-    def test_generate_urls_preserves_query_params(self):
+    def test_generate_urls_preserves_query_params(self) -> None:
         """Test that URL generation preserves other query parameters."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=3)
@@ -74,7 +74,7 @@ class TestPaginationService:
             assert "category=tech" in url
             assert "page=" in url
 
-    def test_generate_urls_from_arbitrary_start_page(self):
+    def test_generate_urls_from_arbitrary_start_page(self) -> None:
         """Test that pagination continues from arbitrary seed page."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=12)
@@ -90,7 +90,7 @@ class TestPaginationService:
         assert "page=11" in urls[1]
         assert "page=12" in urls[2]
 
-    def test_generate_urls_disabled_pagination(self):
+    def test_generate_urls_disabled_pagination(self) -> None:
         """Test that disabled pagination returns only seed URL."""
         service = PaginationService()
         config = PaginationConfig(enabled=False)
@@ -102,7 +102,7 @@ class TestPaginationService:
         assert len(urls) == 1
         assert urls[0] == "https://example.com/products?page=5"
 
-    def test_generate_urls_no_pattern_detected(self):
+    def test_generate_urls_no_pattern_detected(self) -> None:
         """Test behavior when no pagination pattern is detected."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=10)
@@ -116,7 +116,7 @@ class TestPaginationService:
         assert len(urls) == 1
         assert urls[0] == "https://example.com/products"
 
-    def test_generate_urls_with_selector_fallback(self):
+    def test_generate_urls_with_selector_fallback(self) -> None:
         """Test that selector-based config returns seed URL only."""
         service = PaginationService()
         config = PaginationConfig(
@@ -135,7 +135,7 @@ class TestPaginationService:
         assert len(urls) == 1
         assert urls[0] == "https://example.com/products"
 
-    def test_generate_urls_offset_based_pagination(self):
+    def test_generate_urls_offset_based_pagination(self) -> None:
         """Test URL generation with offset-based pagination."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=5)
@@ -152,7 +152,7 @@ class TestPaginationService:
         assert "offset=60" in urls[1]  # Page 4
         assert "offset=80" in urls[2]  # Page 5
 
-    def test_should_use_selector_based_pagination_with_pattern(self):
+    def test_should_use_selector_based_pagination_with_pattern(self) -> None:
         """Test that selector-based is not used when pattern detected."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, selector="a.next", type="next_button")
@@ -164,7 +164,7 @@ class TestPaginationService:
 
         assert should_use_selector is False  # Pattern detected, use URL generation
 
-    def test_should_use_selector_based_pagination_no_pattern(self):
+    def test_should_use_selector_based_pagination_no_pattern(self) -> None:
         """Test that selector-based is used when no pattern detected."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, selector="a.next", type="next_button")
@@ -176,7 +176,7 @@ class TestPaginationService:
 
         assert should_use_selector is True  # No pattern, must use selector
 
-    def test_should_use_selector_based_pagination_with_template(self):
+    def test_should_use_selector_based_pagination_with_template(self) -> None:
         """Test that selector-based is not used when template provided."""
         service = PaginationService()
         config = PaginationConfig(
@@ -191,7 +191,7 @@ class TestPaginationService:
 
         assert should_use_selector is False  # Template provided, use it
 
-    def test_get_pagination_strategy_disabled(self):
+    def test_get_pagination_strategy_disabled(self) -> None:
         """Test strategy detection when pagination disabled."""
         service = PaginationService()
         config = PaginationConfig(enabled=False)
@@ -202,7 +202,7 @@ class TestPaginationService:
 
         assert strategy == "disabled"
 
-    def test_get_pagination_strategy_template(self):
+    def test_get_pagination_strategy_template(self) -> None:
         """Test strategy detection with template."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, url_template="https://example.com/page/{page}")
@@ -213,7 +213,7 @@ class TestPaginationService:
 
         assert strategy == "template"
 
-    def test_get_pagination_strategy_auto_detected(self):
+    def test_get_pagination_strategy_auto_detected(self) -> None:
         """Test strategy detection with auto-detected pattern."""
         service = PaginationService()
         config = PaginationConfig(enabled=True)
@@ -224,7 +224,7 @@ class TestPaginationService:
 
         assert strategy == "auto_detected"
 
-    def test_get_pagination_strategy_selector(self):
+    def test_get_pagination_strategy_selector(self) -> None:
         """Test strategy detection with selector fallback."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, selector="a.next")
@@ -240,7 +240,7 @@ class TestPaginationServiceWithStopDetection:
     """Tests for PaginationService with stop detection (async)."""
 
     @pytest.mark.asyncio
-    async def test_generate_with_stop_detection_success(self):
+    async def test_generate_with_stop_detection_success(self) -> None:
         """Test pagination with stop detection - normal completion."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=3)
@@ -264,7 +264,7 @@ class TestPaginationServiceWithStopDetection:
         assert all(size > 100 for _, _, size in results)
 
     @pytest.mark.asyncio
-    async def test_generate_with_stop_detection_404(self):
+    async def test_generate_with_stop_detection_404(self) -> None:
         """Test pagination stops on 404."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=5)
@@ -294,7 +294,7 @@ class TestPaginationServiceWithStopDetection:
         assert call_count == 3  # Fetched 3 times (2 success + 1 404)
 
     @pytest.mark.asyncio
-    async def test_generate_with_stop_detection_duplicate_content(self):
+    async def test_generate_with_stop_detection_duplicate_content(self) -> None:
         """Test pagination stops on duplicate content."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=5)
@@ -317,7 +317,7 @@ class TestPaginationServiceWithStopDetection:
         assert len(results) == 1
 
     @pytest.mark.asyncio
-    async def test_generate_with_stop_detection_disabled(self):
+    async def test_generate_with_stop_detection_disabled(self) -> None:
         """Test that disabled pagination only fetches seed URL."""
         service = PaginationService()
         config = PaginationConfig(enabled=False)
@@ -338,7 +338,7 @@ class TestPaginationServiceWithStopDetection:
         assert results[0] == "https://example.com/products"
 
     @pytest.mark.asyncio
-    async def test_generate_with_custom_stop_detection_params(self):
+    async def test_generate_with_custom_stop_detection_params(self) -> None:
         """Test pagination with custom stop detection parameters."""
         service = PaginationService()
         # Configure custom stop detection: higher empty threshold, no content hashing
@@ -371,7 +371,7 @@ class TestPaginationServiceWithStopDetection:
         assert len(results) == 10
 
     @pytest.mark.asyncio
-    async def test_generate_with_custom_empty_threshold(self):
+    async def test_generate_with_custom_empty_threshold(self) -> None:
         """Test custom max_empty_responses parameter."""
         service = PaginationService()
         # Allow 3 consecutive empty responses before stopping
@@ -404,7 +404,7 @@ class TestPaginationServiceWithStopDetection:
         assert call_count == 3  # Fetched 3 times, stopped on 3rd
 
     @pytest.mark.asyncio
-    async def test_generate_with_custom_min_content_length(self):
+    async def test_generate_with_custom_min_content_length(self) -> None:
         """Test custom min_content_length parameter."""
         service = PaginationService()
         # Set very high minimum content length
@@ -441,7 +441,7 @@ class TestPaginationServiceWithStopDetection:
 class TestPaginationServiceEdgeCases:
     """Edge case tests for PaginationService."""
 
-    def test_generate_urls_max_pages_equals_start_page(self):
+    def test_generate_urls_max_pages_equals_start_page(self) -> None:
         """Test when max_pages equals the start page."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=5)
@@ -455,7 +455,7 @@ class TestPaginationServiceEdgeCases:
         assert len(urls) == 1
         assert "page=5" in urls[0]
 
-    def test_generate_urls_start_page_beyond_max(self):
+    def test_generate_urls_start_page_beyond_max(self) -> None:
         """Test when start page is beyond max_pages."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=3)
@@ -469,7 +469,7 @@ class TestPaginationServiceEdgeCases:
         assert len(urls) == 1
         assert "page=10" in urls[0]
 
-    def test_generate_urls_with_fragment(self):
+    def test_generate_urls_with_fragment(self) -> None:
         """Test URL generation preserves fragments."""
         service = PaginationService()
         config = PaginationConfig(enabled=True, max_pages=3)
@@ -482,7 +482,7 @@ class TestPaginationServiceEdgeCases:
         assert len(urls) == 3
         assert all("#section" in url for url in urls)
 
-    def test_generate_urls_multiple_strategies(self):
+    def test_generate_urls_multiple_strategies(self) -> None:
         """Test that template takes priority over auto-detection."""
         service = PaginationService()
         config = PaginationConfig(

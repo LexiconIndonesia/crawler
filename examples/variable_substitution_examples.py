@@ -553,7 +553,7 @@ def example_8_dynamic_variable_building():
         print()
 
 
-def main():
+def main() -> None:
     """Run all examples."""
     print("Variable Substitution System Examples")
     print("=" * 60)

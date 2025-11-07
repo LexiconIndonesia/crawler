@@ -26,7 +26,7 @@ from crawler.utils.variable_substitution import (
 class TestVariableContext:
     """Test VariableContext class."""
 
-    def test_context_creation(self):
+    def test_context_creation(self) -> None:
         """Test creating a variable context."""
         context = VariableContext(
             job_variables={"api_key": "secret"},
@@ -39,7 +39,7 @@ class TestVariableContext:
         assert context.strict_mode is False
         assert context.max_recursion_depth == 10
 
-    def test_context_merge(self):
+    def test_context_merge(self) -> None:
         """Test merging two contexts."""
         context1 = VariableContext(
             job_variables={"key1": "value1"},
@@ -59,7 +59,7 @@ class TestVariableContext:
         assert merged.environment == {"ENV1": "val1", "ENV2": "val2"}
         assert merged.strict_mode is False  # context2 takes precedence
 
-    def test_context_merge_empty(self):
+    def test_context_merge_empty(self) -> None:
         """Test merging with empty context."""
         context1 = VariableContext(job_variables={"key": "value"})
         context2 = VariableContext()
@@ -71,7 +71,7 @@ class TestVariableContext:
 class TestJobVariablesProvider:
     """Test JobVariablesProvider."""
 
-    def test_get_simple_variable(self):
+    def test_get_simple_variable(self) -> None:
         """Test getting a simple variable."""
         provider = JobVariablesProvider()
         context = VariableContext(job_variables={"api_key": "secret123"})
@@ -79,7 +79,7 @@ class TestJobVariablesProvider:
         value = provider.get("api_key", context)
         assert value == "secret123"
 
-    def test_get_nested_variable(self):
+    def test_get_nested_variable(self) -> None:
         """Test getting a nested variable."""
         provider = JobVariablesProvider()
         context = VariableContext(
@@ -93,7 +93,7 @@ class TestJobVariablesProvider:
         assert provider.get("auth.type", context) == "Bearer"
         assert provider.get("endpoints.users", context) == "/api/users"
 
-    def test_get_missing_variable(self):
+    def test_get_missing_variable(self) -> None:
         """Test getting a missing variable raises KeyError."""
         provider = JobVariablesProvider()
         context = VariableContext(job_variables={"existing": "value"})
@@ -104,7 +104,7 @@ class TestJobVariablesProvider:
         with pytest.raises(KeyError, match="Key 'missing' not found"):
             provider.get("missing.deep.key", context)
 
-    def test_get_missing_nested_key(self):
+    def test_get_missing_nested_key(self) -> None:
         """Test getting missing nested key."""
         provider = JobVariablesProvider()
         context = VariableContext(job_variables={"existing": {"nested": "value"}})
@@ -112,7 +112,7 @@ class TestJobVariablesProvider:
         with pytest.raises(KeyError, match="Key 'missing' not found"):
             provider.get("existing.missing", context)
 
-    def test_list_available(self):
+    def test_list_available(self) -> None:
         """Test listing available variables."""
         provider = JobVariablesProvider()
         context = VariableContext(
@@ -134,7 +134,7 @@ class TestJobVariablesProvider:
 class TestEnvironmentProvider:
     """Test EnvironmentProvider."""
 
-    def test_get_env_variable(self):
+    def test_get_env_variable(self) -> None:
         """Test getting environment variable from context."""
         provider = EnvironmentProvider()
         context = VariableContext(environment={"DB_HOST": "localhost", "PORT": "5432"})
@@ -142,7 +142,7 @@ class TestEnvironmentProvider:
         assert provider.get("DB_HOST", context) == "localhost"
         assert provider.get("PORT", context) == "5432"
 
-    def test_get_nested_env_variable(self):
+    def test_get_nested_env_variable(self) -> None:
         """Test getting nested environment variable."""
         provider = EnvironmentProvider()
         context = VariableContext(
@@ -156,7 +156,7 @@ class TestEnvironmentProvider:
         assert provider.get("database.port", context) == "5432"
         assert provider.get("redis.url", context) == "redis://localhost:6379"
 
-    def test_fallback_to_os_environ(self):
+    def test_fallback_to_os_environ(self) -> None:
         """Test fallback to os.environ."""
         provider = EnvironmentProvider()
         context = VariableContext(allow_env_fallback=True)
@@ -169,7 +169,7 @@ class TestEnvironmentProvider:
         finally:
             del os.environ["TEST_VAR"]
 
-    def test_no_fallback_to_os_environ(self):
+    def test_no_fallback_to_os_environ(self) -> None:
         """Test no fallback when disabled."""
         provider = EnvironmentProvider()
         context = VariableContext(allow_env_fallback=False)
@@ -182,7 +182,7 @@ class TestEnvironmentProvider:
         finally:
             del os.environ["TEST_VAR"]
 
-    def test_missing_variable(self):
+    def test_missing_variable(self) -> None:
         """Test missing environment variable."""
         provider = EnvironmentProvider()
         context = VariableContext(environment={}, allow_env_fallback=False)
@@ -194,7 +194,7 @@ class TestEnvironmentProvider:
 class TestInputProvider:
     """Test InputProvider."""
 
-    def test_get_input_variable(self):
+    def test_get_input_variable(self) -> None:
         """Test getting input variable."""
         provider = InputProvider()
         context = VariableContext(step_input={"user_id": "123", "result": "success"})
@@ -202,7 +202,7 @@ class TestInputProvider:
         assert provider.get("user_id", context) == "123"
         assert provider.get("result", context) == "success"
 
-    def test_get_nested_input(self):
+    def test_get_nested_input(self) -> None:
         """Test getting nested input variable."""
         provider = InputProvider()
         context = VariableContext(
@@ -217,7 +217,7 @@ class TestInputProvider:
         assert provider.get("response.data.items", context) == [1, 2, 3]
         assert provider.get("response.data.total", context) == 3
 
-    def test_missing_input(self):
+    def test_missing_input(self) -> None:
         """Test missing input variable."""
         provider = InputProvider()
         context = VariableContext(step_input={})
@@ -229,7 +229,7 @@ class TestInputProvider:
 class TestPaginationProvider:
     """Test PaginationProvider."""
 
-    def test_get_builtin_variable(self):
+    def test_get_builtin_variable(self) -> None:
         """Test getting built-in pagination variable."""
         provider = PaginationProvider()
         context = VariableContext()
@@ -240,7 +240,7 @@ class TestPaginationProvider:
         assert provider.get("total_items", context) == 0
         assert provider.get("offset", context) == 0
 
-    def test_get_context_variable(self):
+    def test_get_context_variable(self) -> None:
         """Test getting pagination variable from context."""
         provider = PaginationProvider()
         context = VariableContext(
@@ -259,7 +259,7 @@ class TestPaginationProvider:
         # Built-in still available if not in context
         assert provider.get("page_size", context) == 10
 
-    def test_missing_variable(self):
+    def test_missing_variable(self) -> None:
         """Test missing pagination variable."""
         provider = PaginationProvider()
         context = VariableContext()
@@ -267,7 +267,7 @@ class TestPaginationProvider:
         with pytest.raises(KeyError, match="Pagination variable 'missing' not found"):
             provider.get("missing", context)
 
-    def test_list_available(self):
+    def test_list_available(self) -> None:
         """Test listing available pagination variables."""
         provider = PaginationProvider()
         context = VariableContext(pagination_state={"custom_var": "value"})
@@ -282,7 +282,7 @@ class TestPaginationProvider:
 class TestMetadataProvider:
     """Test MetadataProvider."""
 
-    def test_get_metadata_variable(self):
+    def test_get_metadata_variable(self) -> None:
         """Test getting metadata variable."""
         provider = MetadataProvider()
         context = VariableContext(
@@ -293,7 +293,7 @@ class TestMetadataProvider:
         assert provider.get("created_at", context) == "2025-01-01"
         assert provider.get("tags", context) == ["test"]
 
-    def test_get_nested_metadata(self):
+    def test_get_nested_metadata(self) -> None:
         """Test getting nested metadata variable."""
         provider = MetadataProvider()
         context = VariableContext(
@@ -308,7 +308,7 @@ class TestMetadataProvider:
         assert provider.get("source.website.url", context) == "https://example.com"
         assert provider.get("source.website.name", context) == "Example"
 
-    def test_missing_metadata(self):
+    def test_missing_metadata(self) -> None:
         """Test missing metadata variable."""
         provider = MetadataProvider()
         context = VariableContext(metadata={})
@@ -320,7 +320,7 @@ class TestMetadataProvider:
 class TestVariableResolver:
     """Test VariableResolver class."""
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         """Set up test fixtures."""
         self.resolver = VariableResolver()
         self.context = VariableContext(
@@ -335,43 +335,43 @@ class TestVariableResolver:
             metadata={"job_id": "job_123"},
         )
 
-    def test_substitute_simple_variable(self):
+    def test_substitute_simple_variable(self) -> None:
         """Test substituting a simple variable."""
         text = "Bearer ${variables.api_key}"
         result = self.resolver.substitute(text, self.context)
         assert result == "Bearer secret123"
 
-    def test_substitute_multiple_variables(self):
+    def test_substitute_multiple_variables(self) -> None:
         """Test substituting multiple variables in one string."""
         text = "${variables.base_url}/v1/${variables.api_key}"
         result = self.resolver.substitute(text, self.context)
         assert result == "https://api.example.com/v1/secret123"
 
-    def test_substitute_different_sources(self):
+    def test_substitute_different_sources(self) -> None:
         """Test substituting variables from different sources."""
         text = "Job: ${metadata.job_id}, Page: ${pagination.current_page}, Env: ${ENV.ENV_VAR}"
         result = self.resolver.substitute(text, self.context)
         assert result == "Job: job_123, Page: 3, Env: env_value"
 
-    def test_substitute_nested_variables(self):
+    def test_substitute_nested_variables(self) -> None:
         """Test substituting nested variables."""
         text = "Token: ${variables.auth.token}"
         result = self.resolver.substitute(text, self.context)
         assert result == "Token: abc123"
 
-    def test_substitute_no_variables(self):
+    def test_substitute_no_variables(self) -> None:
         """Test text with no variables."""
         text = "Just a plain string"
         result = self.resolver.substitute(text, self.context)
         assert result == text
 
-    def test_substitute_missing_variable_strict(self):
+    def test_substitute_missing_variable_strict(self) -> None:
         """Test missing variable in strict mode."""
         text = "Missing: ${variables.missing}"
         with pytest.raises(VariableNotFoundError):
             self.resolver.substitute(text, self.context)
 
-    def test_substitute_missing_variable_non_strict(self):
+    def test_substitute_missing_variable_non_strict(self) -> None:
         """Test missing variable in non-strict mode."""
         self.resolver.strict_mode = False
         self.context.strict_mode = False
@@ -379,19 +379,19 @@ class TestVariableResolver:
         result = self.resolver.substitute(text, self.context)
         assert result == "Missing: ${variables.missing}"
 
-    def test_substitute_unknown_source(self):
+    def test_substitute_unknown_source(self) -> None:
         """Test unknown variable source."""
         text = "Unknown: ${unknown.source}"
         with pytest.raises(VariableNotFoundError):
             self.resolver.substitute(text, self.context)
 
-    def test_substitute_escaped_variable(self):
+    def test_substitute_escaped_variable(self) -> None:
         """Test escaped variable."""
         text = r"Literal: \${variables.api_key}, Substituted: ${variables.api_key}"
         result = self.resolver.substitute(text, self.context)
         assert result == "Literal: ${variables.api_key}, Substituted: secret123"
 
-    def test_substitute_recursive(self):
+    def test_substitute_recursive(self) -> None:
         """Test recursive variable substitution."""
         context = VariableContext(
             job_variables={
@@ -404,7 +404,7 @@ class TestVariableResolver:
         result = self.resolver.substitute("${variables.full_url}", context)
         assert result == "https://example.com/api/v1"
 
-    def test_circular_reference_detection(self):
+    def test_circular_reference_detection(self) -> None:
         """Test circular reference detection."""
         context = VariableContext(
             job_variables={"var1": "${variables.var2}", "var2": "${variables.var1}"}
@@ -413,7 +413,7 @@ class TestVariableResolver:
         with pytest.raises(CircularReferenceError):
             self.resolver.substitute("${variables.var1}", context)
 
-    def test_max_recursion_depth(self):
+    def test_max_recursion_depth(self) -> None:
         """Test maximum recursion depth."""
         # Create a chain of variables longer than max depth
         chain = {}
@@ -426,7 +426,7 @@ class TestVariableResolver:
         with pytest.raises(VariableError, match="Maximum recursion depth"):
             self.resolver.substitute("${variables.var0}", context)
 
-    def test_substitute_in_dict(self):
+    def test_substitute_in_dict(self) -> None:
         """Test substituting variables in dictionary."""
         data = {
             "url": "${variables.base_url}/api",
@@ -455,7 +455,7 @@ class TestVariableResolver:
 
         assert result == expected
 
-    def test_substitute_in_dict_nested(self):
+    def test_substitute_in_dict_nested(self) -> None:
         """Test substituting variables in nested dictionary."""
         data = {
             "level1": {
@@ -470,7 +470,7 @@ class TestVariableResolver:
         assert result["level1"]["level2"]["value"] == "secret123"
         assert result["level1"]["level2"]["nested"]["deep"] == "job_123"
 
-    def test_substitute_in_dict_with_lists(self):
+    def test_substitute_in_dict_with_lists(self) -> None:
         """Test substituting variables in dictionary with lists."""
         data = {
             "urls": [
@@ -492,7 +492,7 @@ class TestVariableResolver:
         assert result["config"]["auth"] == ["Bearer", "secret123"]
         assert result["config"]["metadata"]["job"] == "job_123"
 
-    def test_get_variable(self):
+    def test_get_variable(self) -> None:
         """Test getting a specific variable."""
         value = self.resolver.get_variable("${variables.api_key}", self.context)
         assert value == "secret123"
@@ -502,19 +502,19 @@ class TestVariableResolver:
         assert value == 42
         assert isinstance(value, int)
 
-    def test_get_variable_with_default(self):
+    def test_get_variable_with_default(self) -> None:
         """Test getting variable with default value."""
         value = self.resolver.get_variable(
             "${variables.missing}", self.context, default="default_value"
         )
         assert value == "default_value"
 
-    def test_get_variable_direct_value(self):
+    def test_get_variable_direct_value(self) -> None:
         """Test getting variable without ${} syntax returns direct value."""
         value = self.resolver.get_variable("direct_value", self.context)
         assert value == "direct_value"
 
-    def test_list_available_variables(self):
+    def test_list_available_variables(self) -> None:
         """Test listing all available variables."""
         available = self.resolver.list_available_variables(self.context)
 
@@ -530,7 +530,7 @@ class TestVariableResolver:
         assert "current_page" in available["pagination"]
         assert "job_id" in available["metadata"]
 
-    def test_convert_type(self):
+    def test_convert_type(self) -> None:
         """Test type conversion."""
         # Boolean conversion
         assert self.resolver.convert_type("true", bool) is True
@@ -560,7 +560,7 @@ class TestVariableResolver:
         json_str = '{"key": "value", "num": 42}'
         assert self.resolver.convert_type(json_str, dict) == {"key": "value", "num": 42}
 
-    def test_convert_type_error(self):
+    def test_convert_type_error(self) -> None:
         """Test type conversion errors."""
         with pytest.raises(TypeConversionError):
             self.resolver.convert_type("maybe", bool)
@@ -571,7 +571,7 @@ class TestVariableResolver:
         with pytest.raises(TypeConversionError):
             self.resolver.convert_type('{"invalid": json}', dict)
 
-    def test_validate_variables(self):
+    def test_validate_variables(self) -> None:
         """Test variable validation."""
         # All variables valid
         errors = self.resolver.validate_variables(
@@ -584,7 +584,7 @@ class TestVariableResolver:
         assert len(errors) > 0
         assert isinstance(errors[0], VariableNotFoundError)
 
-    def test_type_conversion_in_substitution(self):
+    def test_type_conversion_in_substitution(self) -> None:
         """Test automatic type conversion during substitution."""
         context = VariableContext(
             job_variables={
@@ -613,7 +613,7 @@ class TestVariableResolver:
         assert result["items"] == ["a", "b", "c"]
         assert isinstance(result["items"], list)
 
-    def test_context_strict_mode(self):
+    def test_context_strict_mode(self) -> None:
         """Test context strict mode override."""
         context = VariableContext(strict_mode=False)
 
@@ -631,26 +631,26 @@ class TestVariableResolver:
 class TestDefaultResolver:
     """Test default resolver and convenience functions."""
 
-    def test_substitute_function(self):
+    def test_substitute_function(self) -> None:
         """Test substitute convenience function."""
         context = VariableContext(job_variables={"key": "value"})
         result = substitute("${variables.key}", context)
         assert result == "value"
 
-    def test_substitute_dict_function(self):
+    def test_substitute_dict_function(self) -> None:
         """Test substitute_dict convenience function."""
         context = VariableContext(job_variables={"key": "value"})
         data = {"field": "${variables.key}"}
         result = substitute_dict(data, context)
         assert result == {"field": "value"}
 
-    def test_get_variable_function(self):
+    def test_get_variable_function(self) -> None:
         """Test get_variable convenience function."""
         context = VariableContext(job_variables={"key": "value"})
         result = get_variable("${variables.key}", context)
         assert result == "value"
 
-    def test_validate_variables_function(self):
+    def test_validate_variables_function(self) -> None:
         """Test validate_variables convenience function."""
         context = VariableContext(job_variables={"key": "value"})
         errors = validate_variables("${variables.key}", context)
@@ -663,7 +663,7 @@ class TestDefaultResolver:
 class TestComplexScenarios:
     """Test complex variable substitution scenarios."""
 
-    def test_url_with_query_parameters(self):
+    def test_url_with_query_parameters(self) -> None:
         """Test URL with multiple query parameters."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -686,7 +686,7 @@ class TestComplexScenarios:
         expected = "https://api.example.com/v2/search?api_key=secret123&page=3&env=production"
         assert result == expected
 
-    def test_json_configuration(self):
+    def test_json_configuration(self) -> None:
         """Test variable substitution in JSON configuration."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -725,7 +725,7 @@ class TestComplexScenarios:
         assert result["settings"]["timeout"] == 30
         assert result["settings"]["retries"] == 3
 
-    def test_crawl_configuration_example(self):
+    def test_crawl_configuration_example(self) -> None:
         """Test realistic crawl configuration example."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -778,7 +778,7 @@ class TestComplexScenarios:
         assert result["metadata"]["website_id"] == "site-456"
         assert result["proxy"] == "http://proxy.example.com:8080"
 
-    def test_error_handling_scenarios(self):
+    def test_error_handling_scenarios(self) -> None:
         """Test various error handling scenarios."""
         resolver = VariableResolver()
 
@@ -797,7 +797,7 @@ class TestComplexScenarios:
         with pytest.raises(VariableNotFoundError):
             resolver.substitute(text, context_strict)
 
-    def test_complex_nested_substitution(self):
+    def test_complex_nested_substitution(self) -> None:
         """Test complex nested variable substitutions."""
         resolver = VariableResolver()
         context = VariableContext(
@@ -829,7 +829,7 @@ class TestComplexScenarios:
         result = resolver.substitute(f"{base_url}/{version}{endpoint}", context)
         assert result == "https://api.prod.example.com/v1/users"
 
-    def test_pagination_auto_increment(self):
+    def test_pagination_auto_increment(self) -> None:
         """Test pagination auto-increment scenario."""
         resolver = VariableResolver()
 

@@ -27,7 +27,7 @@ class TestScheduledJobSchemas:
             "is_active": True,
             "job_config": {"max_depth": 5},
         }
-        job = ScheduledJobCreate(**data)
+        job = ScheduledJobCreate(**data)  # type: ignore[arg-type]
         assert job.cron_schedule == "0 0 * * *"
         assert job.is_active is True
         assert job.job_config == {"max_depth": 5}
@@ -39,7 +39,7 @@ class TestScheduledJobSchemas:
             "cron_schedule": "0 0 * * *",
             "next_run_time": datetime.now(UTC),
         }
-        job = ScheduledJobCreate(**data)
+        job = ScheduledJobCreate(**data)  # type: ignore[arg-type]
         assert job.is_active is True  # default
         assert job.job_config == {}  # default
 
@@ -51,7 +51,7 @@ class TestScheduledJobSchemas:
             "next_run_time": datetime.now(UTC),
         }
         with pytest.raises(ValidationError) as exc_info:
-            ScheduledJobCreate(**data)
+            ScheduledJobCreate(**data)  # type: ignore[arg-type]
         errors = str(exc_info.value)
         assert "Invalid cron expression" in errors
 
@@ -63,7 +63,7 @@ class TestScheduledJobSchemas:
             "next_run_time": datetime.now(UTC),
         }
         with pytest.raises(ValidationError) as exc_info:
-            ScheduledJobCreate(**data)
+            ScheduledJobCreate(**data)  # type: ignore[arg-type]
         assert "Invalid cron expression" in str(exc_info.value)
 
     def test_scheduled_job_invalid_cron_values(self) -> None:
@@ -84,7 +84,7 @@ class TestScheduledJobSchemas:
                 "next_run_time": datetime.now(UTC),
             }
             with pytest.raises(ValidationError) as exc_info:
-                ScheduledJobCreate(**data)
+                ScheduledJobCreate(**data)  # type: ignore[arg-type]
             assert "Invalid cron expression" in str(exc_info.value)
 
     def test_scheduled_job_valid_cron_expressions(self) -> None:
@@ -102,13 +102,13 @@ class TestScheduledJobSchemas:
                 "cron_schedule": cron,
                 "next_run_time": datetime.now(UTC),
             }
-            job = ScheduledJobCreate(**data)
+            job = ScheduledJobCreate(**data)  # type: ignore[arg-type]
             assert job.cron_schedule == cron
 
     def test_scheduled_job_update_partial(self) -> None:
         """Test partial scheduled job update."""
         data = {"is_active": False, "job_config": {"timeout": 60}}
-        update = ScheduledJobUpdate(**data)
+        update = ScheduledJobUpdate(**data)  # type: ignore[arg-type]
         assert update.is_active is False
         assert update.job_config == {"timeout": 60}
         assert update.cron_schedule is None  # Not provided

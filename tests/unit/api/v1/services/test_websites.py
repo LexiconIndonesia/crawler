@@ -48,7 +48,7 @@ class TestWebsiteService:
         )
 
     @pytest.mark.asyncio
-    async def test_create_website_success(self, website_service, sample_request):
+    async def test_create_website_success(self, website_service, sample_request) -> None:
         """Test successful website creation."""
         # Arrange
         next_run_time = datetime.now(UTC)
@@ -86,7 +86,7 @@ class TestWebsiteService:
         website_service.scheduled_job_repo.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_website_duplicate_name(self, website_service, sample_request):
+    async def test_create_website_duplicate_name(self, website_service, sample_request) -> None:
         """Test website creation fails with duplicate name."""
         # Arrange
         next_run_time = datetime.now(UTC)
@@ -113,7 +113,7 @@ class TestWebsiteService:
         website_service.website_repo.create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_create_website_creation_fails(self, website_service, sample_request):
+    async def test_create_website_creation_fails(self, website_service, sample_request) -> None:
         """Test website creation fails when repository returns None."""
         # Arrange
         next_run_time = datetime.now(UTC)
@@ -128,7 +128,7 @@ class TestWebsiteService:
         website_service.website_repo.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_website_without_schedule(self, website_service, sample_request):
+    async def test_create_website_without_schedule(self, website_service, sample_request) -> None:
         """Test website creation without scheduled job."""
         # Arrange
         sample_request.schedule.enabled = False
