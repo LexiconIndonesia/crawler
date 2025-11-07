@@ -614,6 +614,76 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/jobs/{job_id}/ws-token:
+    post:
+      tags:
+        - Jobs
+      summary: Generate WebSocket token for log streaming
+      description: |
+        Generate a short-lived, single-use WebSocket authentication token.
+
+        This endpoint:
+        1. Validates that the job exists
+        2. Generates a secure random token
+        3. Stores it in Redis with 10-minute TTL
+        4. Returns the token for WebSocket connection
+
+        Use the returned token to connect to the WebSocket endpoint:
+        `/ws/v1/jobs/{job_id}/logs?token={token}`
+
+        Tokens expire after 10 minutes and are single-use only.
+      operationId: generateWSToken
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: ID of the job to generate token for
+          schema:
+            type: string
+            format: uuid
+            example: "770e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: false
+        description: No request body required
+        content:
+          application/json:
+            schema:
+              type: object
+            examples:
+              empty:
+                summary: No body needed
+                value: {}
+      responses:
+        '200':
+          description: Token generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WSTokenResponse'
+              examples:
+                success:
+                  value:
+                    token: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4"
+                    expires_in: 600
+                    job_id: "770e8400-e29b-41d4-a716-446655440000"
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Job with ID '770e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "JOB_NOT_FOUND"
+        '500':
+          description: Token generation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     # ============================================================================
@@ -1385,6 +1455,28 @@ components:
           format: date-time
           description: Cancellation timestamp
           example: "2025-10-29T10:30:00Z"
+
+    WSTokenResponse:
+      type: object
+      required:
+        - token
+        - expires_in
+        - job_id
+      properties:
+        token:
+          type: string
+          description: WebSocket authentication token (secure random string)
+          minLength: 20
+          example: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4"
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+          example: 600
+        job_id:
+          type: string
+          format: uuid
+          description: Job ID this token is valid for
+          example: "770e8400-e29b-41d4-a716-446655440000"
 
   securitySchemes:
     BearerAuth:

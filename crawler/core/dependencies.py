@@ -25,6 +25,7 @@ from crawler.services.redis_cache import (
     JobProgressCache,
     RateLimiter,
     URLDeduplicationCache,
+    WebSocketTokenService,
 )
 from crawler.services.storage import StorageService
 
@@ -225,6 +226,24 @@ async def get_job_progress_cache(
     return JobProgressCache(redis_client=redis_client, settings=settings)
 
 
+async def get_websocket_token_service(
+    redis_client: RedisDep,
+    settings: SettingsDep,
+) -> WebSocketTokenService:
+    """Get WebSocket token service with injected dependencies.
+
+    Args:
+        redis_client: Redis client from dependency
+        settings: Application settings from dependency
+
+    Returns:
+        WebSocketTokenService instance
+    """
+    from crawler.services.redis_cache import WebSocketTokenService
+
+    return WebSocketTokenService(redis_client=redis_client, settings=settings)
+
+
 # Global NATS queue service instance (singleton pattern)
 _nats_queue_service: NATSQueueService | None = None
 
@@ -294,3 +313,4 @@ JobCancellationFlagDep = Annotated[JobCancellationFlag, Depends(get_job_cancella
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
 BrowserPoolStatusDep = Annotated[BrowserPoolStatus, Depends(get_browser_pool_status)]
 JobProgressCacheDep = Annotated[JobProgressCache, Depends(get_job_progress_cache)]
+WebSocketTokenServiceDep = Annotated[WebSocketTokenService, Depends(get_websocket_token_service)]

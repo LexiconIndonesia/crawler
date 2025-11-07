@@ -1,9 +1,11 @@
 """Crawl log repository using sqlc-generated queries."""
 
 import json
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from crawler.db.generated import crawl_log, models
@@ -95,4 +97,65 @@ class CrawlLogRepository:
         logs = []
         async for log in self._querier.get_error_logs(job_id=to_uuid(job_id), limit_count=limit):
             logs.append(log)
+        return logs
+
+    async def stream_logs_by_job(
+        self,
+        job_id: str | UUID,
+        after_timestamp: datetime,
+        log_level: LogLevelEnum | None = None,
+        limit: int = 100,
+    ) -> list[models.CrawlLog]:
+        """Stream logs for a job after a specific timestamp.
+
+        This method is used for WebSocket real-time log streaming.
+        It returns logs created after the given timestamp.
+
+        Args:
+            job_id: Job ID
+            after_timestamp: Only return logs after this timestamp
+            log_level: Optional log level filter
+            limit: Maximum number of results
+
+        Returns:
+            List of CrawlLog models ordered by created_at ASC
+        """
+        query = text("""
+            SELECT id, job_id, website_id, step_name, log_level, message,
+                   context, trace_id, created_at
+            FROM crawl_log
+            WHERE job_id = :job_id
+                AND created_at > :after_timestamp
+                AND (:log_level IS NULL OR log_level = :log_level)
+            ORDER BY created_at ASC
+            LIMIT :limit_count
+        """)
+
+        result = await self.conn.execute(
+            query,
+            {
+                "job_id": to_uuid(job_id),
+                "after_timestamp": after_timestamp,
+                "log_level": log_level.value if log_level else None,
+                "limit_count": limit,
+            },
+        )
+
+        logs = []
+        for row in result:
+            # Manually construct CrawlLog model from row
+            logs.append(
+                models.CrawlLog(
+                    id=row[0],
+                    job_id=row[1],
+                    website_id=row[2],
+                    step_name=row[3],
+                    log_level=LogLevelEnum(row[4]),
+                    message=row[5],
+                    context=row[6],
+                    trace_id=row[7],
+                    created_at=row[8],
+                )
+            )
+
         return logs

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from crawler.api import router, router_v1
+from crawler.api.websocket import router as websocket_router
 from crawler.core import setup_logging
 from crawler.core.dependencies import connect_nats_queue, disconnect_nats_queue, get_app_settings
 from crawler.core.logging import get_logger
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(router)  # Non-versioned endpoints (root, health, metrics)
     app.include_router(router_v1)  # API v1 endpoints
+    app.include_router(websocket_router)  # WebSocket endpoints (/ws/v1)
 
     return app
 
