@@ -18,6 +18,7 @@ from config import Settings, get_settings
 from crawler.cache.session import get_redis as _get_redis
 from crawler.db.session import get_db as _get_db
 from crawler.services.cache import CacheService
+from crawler.services.log_publisher import LogPublisher
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import (
     BrowserPoolStatus,
@@ -279,6 +280,31 @@ async def get_nats_queue_service(
     return _nats_queue_service
 
 
+async def get_log_publisher(
+    nats_queue_service: NATSQueueDep,
+) -> LogPublisher:
+    """Get log publisher for real-time log streaming via NATS.
+
+    The log publisher uses the NATS client from the queue service
+    to publish logs to NATS subjects for WebSocket consumption.
+
+    Args:
+        nats_queue_service: NATS queue service (provides NATS client)
+
+    Returns:
+        LogPublisher instance
+
+    Usage:
+        async def my_handler(log_publisher: LogPublisherDep):
+            await log_publisher.publish_log(log)
+    """
+    from crawler.services.log_publisher import LogPublisher
+
+    # Get NATS client from queue service (may be None if not connected)
+    nats_client = nats_queue_service.client if nats_queue_service else None
+    return LogPublisher(nats_client=nats_client)
+
+
 async def connect_nats_queue() -> None:
     """Connect NATS queue service at application startup.
 
@@ -308,6 +334,7 @@ async def disconnect_nats_queue() -> None:
 CacheServiceDep = Annotated[CacheService, Depends(get_cache_service)]
 StorageServiceDep = Annotated[StorageService, Depends(get_storage_service)]
 NATSQueueDep = Annotated[NATSQueueService, Depends(get_nats_queue_service)]
+LogPublisherDep = Annotated[LogPublisher, Depends(get_log_publisher)]
 URLDedupCacheDep = Annotated[URLDeduplicationCache, Depends(get_url_dedup_cache)]
 JobCancellationFlagDep = Annotated[JobCancellationFlag, Depends(get_job_cancellation_flag)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]

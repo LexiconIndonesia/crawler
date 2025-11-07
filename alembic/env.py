@@ -1,17 +1,17 @@
 """Alembic environment configuration for async SQLAlchemy."""
 
 import asyncio
+
+# Import settings to get DATABASE_URL
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-# Import settings to get DATABASE_URL
-import sys
-from pathlib import Path
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))

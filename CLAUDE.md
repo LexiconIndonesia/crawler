@@ -449,16 +449,69 @@ __all__ = ["YourEntityRepository", ...]
 
 5. **Use in services** via dependency injection (see "Adding a New API Endpoint")
 
-**Schema Changes**:
-1. Add new table or modify schema in `sql/schema/*.sql` (single source of truth)
-2. Create new SQL migration file in `sql/schema/` with next version number
-3. Add sqlc queries in `sql/queries/*.sql` for the new table
-4. Run `make sqlc-generate` to generate type-safe Python models and queries
-5. Create new repository file in `crawler/db/repositories/`
-6. Export repository in `crawler/db/repositories/__init__.py`
-7. Update tests to verify new functionality
+**Schema Changes with Alembic**:
 
-**Note**: SQL schema files are the only place to define database structure. No Python table definitions needed - sqlc generates Pydantic models directly from SQL queries.
+The project uses **Alembic** for database migrations. All schema changes must go through Alembic:
+
+1. **Create new migration**: `make db-migrate-create MSG="add user authentication table"`
+   - This creates a new migration file in `alembic/versions/`
+   - The file will have empty `upgrade()` and `downgrade()` functions
+
+2. **Edit migration file**: Add SQL to `upgrade()` and `downgrade()` functions:
+   ```python
+   def upgrade() -> None:
+       op.execute("""
+       CREATE TABLE user_auth (
+           id UUID PRIMARY KEY DEFAULT uuidv7(),
+           username VARCHAR(255) NOT NULL UNIQUE,
+           ...
+       );
+       CREATE INDEX ix_user_auth_username ON user_auth(username);
+       """)
+
+   def downgrade() -> None:
+       op.execute("DROP TABLE IF EXISTS user_auth CASCADE;")
+   ```
+
+3. **Apply migration**: `make db-migrate` (runs `alembic upgrade head`)
+   - Test locally first
+   - In production, migrations run automatically via `scripts/run_migrations.py`
+
+4. **Regenerate schema**: `make regenerate-schema`
+   - Dumps current database state to `sql/schema/current_schema.sql`
+   - This is used by sqlc for code generation (not for migrations!)
+
+5. **Add sqlc queries**: Write queries in `sql/queries/*.sql`
+
+6. **Generate code**: `make sqlc-generate`
+   - Creates type-safe Python code from queries
+   - Generates Pydantic models
+
+7. **Create repository**: Add repository file in `crawler/db/repositories/`
+
+8. **Export repository**: Update `crawler/db/repositories/__init__.py`
+
+9. **Test**: Verify migration works:
+   ```bash
+   make db-migrate-rollback  # Test downgrade
+   make db-migrate           # Test upgrade
+   make test-integration     # Run tests
+   ```
+
+**Important Notes**:
+- **Never edit `sql/schema/current_schema.sql` manually** - it's auto-generated
+- **All schema changes go through Alembic migrations** in `alembic/versions/`
+- **sql/migrations/*.sql are historical** - kept for reference, not used
+- **Use raw SQL in migrations** - Alembic `op.execute()` for full PostgreSQL features
+- **No SQLAlchemy ORM** - we use sqlc for type-safe queries instead
+
+**Migration Commands**:
+- `make db-migrate` - Apply pending migrations
+- `make db-migrate-create MSG="description"` - Create new migration
+- `make db-migrate-rollback` - Rollback last migration
+- `make db-migrate-current` - Show current migration version
+- `make db-migrate-history` - Show all migrations
+- `make db-migrate-check` - Check if database is up to date
 
 **Using Repositories**:
 ```python

@@ -150,6 +150,6 @@ async def generate_ws_token_handler(
 
     return WSTokenResponse(
         token=token,
-        expires_in=600,  # 10 minutes
+        expires_in=ws_token_service.token_ttl,
         job_id=job.id,  # Use UUID from job object for type safety
     )
