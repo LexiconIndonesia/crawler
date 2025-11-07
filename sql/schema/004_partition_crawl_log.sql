@@ -120,7 +120,11 @@ COMMENT ON FUNCTION create_future_crawl_log_partitions IS 'Creates partitions fo
 
 -- Function to drop partitions older than retention period
 CREATE OR REPLACE FUNCTION drop_old_crawl_log_partitions(retention_days INTEGER DEFAULT 90)
-RETURNS TABLE(result TEXT) AS $$
+RETURNS TABLE(
+    status TEXT,
+    partition_name TEXT,
+    message TEXT
+) AS $$
 DECLARE
     partition_record RECORD;
     cutoff_date DATE;
@@ -144,19 +148,28 @@ BEGIN
 
             IF partition_month < DATE_TRUNC('month', cutoff_date) THEN
                 EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', partition_record.tablename);
-                RETURN QUERY SELECT 'Dropped partition ' || partition_record.tablename ||
-                                   ' (older than ' || retention_days || ' days)';
+                RETURN QUERY SELECT
+                    'dropped'::TEXT,
+                    partition_record.tablename,
+                    format('Dropped partition (older than %s days)', retention_days);
+            ELSE
+                RETURN QUERY SELECT
+                    'skipped'::TEXT,
+                    partition_record.tablename,
+                    format('Partition kept (within retention period)');
             END IF;
         EXCEPTION
             WHEN OTHERS THEN
-                RETURN QUERY SELECT 'Error processing partition ' || partition_record.tablename ||
-                                   ': ' || SQLERRM;
+                RETURN QUERY SELECT
+                    'error'::TEXT,
+                    partition_record.tablename,
+                    'Error: ' || SQLERRM;
         END;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION drop_old_crawl_log_partitions IS 'Drops log partitions older than retention period (default: 90 days)';
+COMMENT ON FUNCTION drop_old_crawl_log_partitions IS 'Drops log partitions older than retention period (default: 90 days). Returns status, partition_name, message for each partition.';
 
 
 -- ============================================================================

@@ -91,20 +91,40 @@ async def drop_old_partitions(conn: asyncpg.Connection, retention_days: int) -> 
 
     try:
         # Call the PostgreSQL function to drop old partitions
-        results = await conn.fetch("SELECT drop_old_crawl_log_partitions($1)", retention_days)
+        # Returns structured data: (status, partition_name, message)
+        results = await conn.fetch(
+            "SELECT * FROM drop_old_crawl_log_partitions($1)", retention_days
+        )
 
         dropped_count = 0
-        for row in results:
-            result_msg = row["result"]
-            if "Dropped partition" in result_msg:
-                dropped_count += 1
-                logger.info("partition_dropped", message=result_msg)
-                print(f"✓ {result_msg}")
-            elif "Error" in result_msg:
-                logger.warning("partition_drop_error", message=result_msg)
-                print(f"⚠ {result_msg}")
+        error_count = 0
 
-        if dropped_count == 0:
+        for row in results:
+            status = row["status"]
+            partition_name = row["partition_name"]
+            message = row["message"]
+
+            if status == "dropped":
+                dropped_count += 1
+                logger.info(
+                    "partition_dropped",
+                    partition=partition_name,
+                    message=message,
+                )
+                print(f"✓ {partition_name}: {message}")
+
+            elif status == "error":
+                error_count += 1
+                logger.error(
+                    "partition_drop_error",
+                    partition=partition_name,
+                    message=message,
+                )
+                print(f"⚠ {partition_name}: {message}")
+
+            # status == "skipped" is silently ignored (within retention)
+
+        if dropped_count == 0 and error_count == 0:
             logger.info("no_partitions_to_drop", retention_days=retention_days)
             print(f"✓ No partitions older than {retention_days} days to drop")
 
@@ -112,6 +132,7 @@ async def drop_old_partitions(conn: asyncpg.Connection, retention_days: int) -> 
             "drop_old_partitions_complete",
             retention_days=retention_days,
             partitions_dropped=dropped_count,
+            errors=error_count,
         )
 
     except Exception as e:
