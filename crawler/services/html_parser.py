@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from lxml import etree  # type: ignore[import-untyped]
+from lxml import etree
 
 from crawler.core.logging import get_logger
 
@@ -338,8 +338,12 @@ class HTMLParserService:
             ... )
         """
         if selector_type == "xpath":
+            if not isinstance(parsed_content, etree._Element):
+                raise TypeError("XPath selectors require lxml Element, use parse_html_raw()")
             results = self.apply_xpath(parsed_content, selector, attribute)
         else:
+            if not isinstance(parsed_content, BeautifulSoup):
+                raise TypeError("CSS selectors require BeautifulSoup, use parse_html()")
             select_all = result_type == "array"
             results = self.apply_css_selector(
                 parsed_content, selector, attribute, select_all=select_all
