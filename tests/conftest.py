@@ -147,7 +147,9 @@ async def db_connection(test_db_schema: None) -> AsyncGenerator[AsyncConnection,
         try:
             yield connection
         finally:
-            await transaction.rollback()
+            # Only rollback if transaction is still active
+            if transaction.is_active:
+                await transaction.rollback()
 
     await engine.dispose()
 

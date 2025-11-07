@@ -43,12 +43,20 @@ class TestJobService:
         return AsyncMock()
 
     @pytest.fixture
-    def job_service(self, mock_crawl_job_repo, mock_website_repo, mock_cancellation_flag):
+    def mock_nats_queue(self):
+        """Create a mock NATS queue service."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def job_service(
+        self, mock_crawl_job_repo, mock_website_repo, mock_cancellation_flag, mock_nats_queue
+    ):
         """Create JobService with mocked dependencies."""
         return JobService(
             crawl_job_repo=mock_crawl_job_repo,
             website_repo=mock_website_repo,
             cancellation_flag=mock_cancellation_flag,
+            nats_queue=mock_nats_queue,
         )
 
     @pytest.fixture
