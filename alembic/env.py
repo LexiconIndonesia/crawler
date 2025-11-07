@@ -82,10 +82,12 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
+    # Disable prepared statement cache for asyncpg to avoid multi-statement issues
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"prepared_statement_cache_size": 0},
     )
 
     async with connectable.connect() as connection:

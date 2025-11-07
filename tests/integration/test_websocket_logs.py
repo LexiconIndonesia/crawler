@@ -23,7 +23,8 @@ class TestWebSocketLogStreaming:
         fake_job_id = str(uuid.uuid4())
         response = await test_client.post(f"/api/v1/jobs/{fake_job_id}/ws-token")
 
-        assert response.status_code == 400
+        # Per OpenAPI spec, job not found should return 404, not 400
+        assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
     async def test_websocket_invalid_token_rejects_connection(self):

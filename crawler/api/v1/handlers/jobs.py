@@ -134,14 +134,19 @@ async def generate_ws_token_handler(
         Token response with token and expiry
 
     Raises:
-        HTTPException: If job not found or token generation fails
+        HTTPException: 404 if job not found, 500 if token generation fails
     """
+    from fastapi import HTTPException, status
+
     logger.info("ws_token_request", job_id=job_id)
 
-    # Guard: check if job exists
+    # Guard: check if job exists (return 404 per OpenAPI spec)
     job = await crawl_job_repo.get_by_id(job_id)
     if not job:
-        raise ValueError(f"Job with ID '{job_id}' not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job with ID '{job_id}' not found",
+        )
 
     # Generate token
     token = await ws_token_service.create_token(job_id)
