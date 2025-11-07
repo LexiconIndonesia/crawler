@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list
+.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema db-migrate db-migrate-check db-migrate-current db-migrate-history db-migrate-create db-migrate-rollback db-migrate-rollback-to db-stamp db-stamp-revision
 
 # Default target
 .DEFAULT_GOAL := help
@@ -180,24 +180,82 @@ nats-shell: ## Open NATS monitoring
 	@echo "$(BLUE)📡 NATS Monitoring: http://localhost:8222$(NC)"
 	@open http://localhost:8222 || xdg-open http://localhost:8222 || echo "Open http://localhost:8222 in your browser"
 
-db-migrate: ## Run database migrations
-	@echo "$(BLUE)🔄 Running database migrations...$(NC)"
-	$(PYTHON) scripts/migrate.py up
-	@echo "$(GREEN)✅ Migrations complete$(NC)"
+##@ Database Migrations (Alembic)
 
-db-migrate-status: ## Show migration status
-	@echo "$(BLUE)📊 Migration Status:$(NC)"
-	$(PYTHON) scripts/migrate.py status
+db-migrate: ## Apply database migrations with Alembic
+	@echo "$(BLUE)🔄 Running database migrations with Alembic...$(NC)"
+	uv run alembic upgrade head
+	@echo "$(GREEN)✅ Migrations applied$(NC)"
 
-db-migrate-down: ## Rollback last migration
-	@echo "$(RED)⬇️  Rolling back migration...$(NC)"
-	$(PYTHON) scripts/migrate.py down
+db-migrate-check: ## Check if database is up to date
+	@echo "$(BLUE)🔍 Checking migration status...$(NC)"
+	@uv run alembic current -v || echo "$(YELLOW)⚠️  Database not stamped or migrations pending$(NC)"
+
+db-migrate-current: ## Show current migration version
+	@echo "$(BLUE)📍 Current migration:$(NC)"
+	@uv run alembic current
+
+db-migrate-history: ## Show migration history
+	@echo "$(BLUE)📜 Migration history:$(NC)"
+	@uv run alembic history
+
+db-migrate-create: ## Create a new migration (usage: make db-migrate-create MSG="description")
+	@if [ -z "$(MSG)" ]; then \
+		echo "$(RED)❌ Error: MSG not set$(NC)"; \
+		echo "$(YELLOW)Usage: make db-migrate-create MSG='your migration description'$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)📝 Creating new migration: $(MSG)$(NC)"
+	@uv run alembic revision -m "$(MSG)"
+	@echo "$(GREEN)✅ Migration created in alembic/versions/$(NC)"
+	@echo "$(YELLOW)⚠️  Don't forget to implement upgrade() and downgrade() functions!$(NC)"
+
+db-migrate-rollback: ## Rollback one migration
+	@echo "$(YELLOW)⬇️  Rolling back one migration...$(NC)"
+	@uv run alembic downgrade -1
 	@echo "$(YELLOW)⚠️  Migration rolled back$(NC)"
+
+db-migrate-rollback-to: ## Rollback to specific revision (usage: make db-migrate-rollback-to REV=<revision>)
+	@if [ -z "$(REV)" ]; then \
+		echo "$(RED)❌ Error: REV not set$(NC)"; \
+		echo "$(YELLOW)Usage: make db-migrate-rollback-to REV=<revision_id>$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)⬇️  Rolling back to revision $(REV)...$(NC)"
+	@uv run alembic downgrade $(REV)
+	@echo "$(YELLOW)⚠️  Rolled back to $(REV)$(NC)"
+
+db-stamp: ## Stamp database with head revision (USE WITH CAUTION)
+	@echo "$(YELLOW)⚠️  Stamping database with head revision...$(NC)"
+	@uv run alembic stamp head
+	@echo "$(GREEN)✅ Database stamped$(NC)"
+
+db-stamp-revision: ## Stamp database with specific revision (usage: make db-stamp-revision REV=<revision>)
+	@if [ -z "$(REV)" ]; then \
+		echo "$(RED)❌ Error: REV not set$(NC)"; \
+		echo "$(YELLOW)Usage: make db-stamp-revision REV=<revision_id>$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)⚠️  Stamping database with revision $(REV)...$(NC)"
+	@uv run alembic stamp $(REV)
+	@echo "$(GREEN)✅ Database stamped with $(REV)$(NC)"
+
+##@ Database Tools
 
 sqlc-generate: ## Generate type-safe Python code from SQL queries
 	@echo "$(BLUE)⚙️  Generating code with sqlc...$(NC)"
 	sqlc generate
 	@echo "$(GREEN)✅ Code generated in crawler/db/generated/$(NC)"
+
+regenerate-schema: ## Regenerate schema from database (after migrations)
+	@echo "$(BLUE)⚙️  Regenerating schema from database...$(NC)"
+	@docker exec lexicon-postgres pg_dump --schema-only --no-owner --no-privileges --no-tablespaces -U crawler crawler > sql/schema/current_schema.sql
+	@sed -i '' '1,21d' sql/schema/current_schema.sql
+	@sed -i '' '/^\\unrestrict/d' sql/schema/current_schema.sql
+	@sed -i '' '/^\\restrict/d' sql/schema/current_schema.sql
+	@sed -i '' 's/public\.//g' sql/schema/current_schema.sql
+	@python3 -c "import re; content = open('sql/schema/current_schema.sql').read(); patterns = [r'-- Name: create_crawl_log_partition.*?(?=-- Name: [a-z])', r'-- Name: create_future_crawl_log_partitions.*?(?=-- Name: [a-z])', r'-- Name: drop_old_crawl_log_partitions.*?(?=-- Name: [a-z])', r'-- Name: crawl_log_partitions; Type: VIEW.*?(?=-- Name: [a-z])']; [content := re.sub(p, '', content, flags=re.DOTALL) for p in patterns]; open('sql/schema/current_schema.sql', 'w').write(content)"
+	@echo "$(GREEN)✅ Schema regenerated$(NC)"
 
 partition-create: ## Create future log partitions
 	@echo "$(BLUE)📅 Creating future log partitions...$(NC)"

@@ -9,13 +9,17 @@ from crawler.api.generated import (
     CreateSeedJobRequest,
     ErrorResponse,
     SeedJobResponse,
+    WSTokenResponse,
 )
 from crawler.api.v1.dependencies import JobServiceDep
 from crawler.api.v1.handlers import (
     cancel_job_handler,
     create_seed_job_handler,
     create_seed_job_inline_handler,
+    generate_ws_token_handler,
 )
+from crawler.core.dependencies import DBSessionDep, WebSocketTokenServiceDep
+from crawler.db.repositories import CrawlJobRepository
 
 router = APIRouter()
 
@@ -261,3 +265,71 @@ async def cancel_job(
         HTTPException: If job not found or cannot be cancelled
     """
     return await cancel_job_handler(job_id, request, job_service)
+
+
+@router.post(
+    "/{job_id}/ws-token",
+    response_model=WSTokenResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate WebSocket token for log streaming",
+    operation_id="generateWSToken",
+    description="""
+    Generate a short-lived, single-use WebSocket authentication token.
+
+    This endpoint:
+    1. Validates that the job exists
+    2. Generates a secure random token
+    3. Stores it in Redis with 10-minute TTL
+    4. Returns the token for WebSocket connection
+
+    Use the returned token to connect to the WebSocket endpoint:
+    /ws/v1/jobs/{job_id}/logs?token={token}
+
+    Tokens expire after 10 minutes and are single-use only.
+    """,
+    responses={
+        200: {"description": "Token generated successfully"},
+        404: {
+            "description": "Job not found",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "not_found": {
+                            "value": {
+                                "detail": "Job with ID '770e8400-e29b-41d4-a716-446655440000' not "
+                                "found",
+                                "error_code": "JOB_NOT_FOUND",
+                            }
+                        }
+                    }
+                }
+            },
+        },
+        500: {
+            "description": "Token generation failed",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def generate_ws_token(
+    job_id: str,
+    db: DBSessionDep,
+    ws_token_service: WebSocketTokenServiceDep,
+) -> WSTokenResponse:
+    """Generate a WebSocket authentication token for a job.
+
+    Args:
+        job_id: Job ID to generate token for
+        db: Database session from dependency
+        ws_token_service: WebSocket token service from dependency
+
+    Returns:
+        Token response with token and expiry
+
+    Raises:
+        HTTPException: If job not found or token generation fails
+    """
+    conn = await db.connection()
+    crawl_job_repo = CrawlJobRepository(conn)
+    return await generate_ws_token_handler(job_id, crawl_job_repo, ws_token_service)

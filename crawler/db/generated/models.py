@@ -69,7 +69,91 @@ class CrawlJob(pydantic.BaseModel):
 
 
 class CrawlLog(pydantic.BaseModel):
-    """Stores detailed crawl execution logs"""
+    """Stores detailed crawl execution logs (partitioned by month)"""
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202508(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202509(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202510(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202511(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202512(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202601(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+
+class CrawlLog202602(pydantic.BaseModel):
     id: int
     job_id: uuid.UUID
     website_id: uuid.UUID

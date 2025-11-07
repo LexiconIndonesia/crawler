@@ -55,7 +55,25 @@ def handle_service_errors(
                 return await func(*args, **kwargs)
 
             except ValueError as e:
-                # Business validation error (e.g., invalid configuration, not found)
+                # Check if this is a "not found" error (should be 404, not 400)
+                error_msg = str(e).lower()
+                is_job_not_found = "not found" in error_msg and (
+                    "job with id" in error_msg or "job id" in error_msg
+                )
+
+                if is_job_not_found:
+                    # Resource not found - return 404
+                    logger.warning(
+                        "resource_not_found",
+                        error=str(e),
+                        handler=func.__name__,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=str(e),
+                    ) from e
+
+                # Business validation error (e.g., invalid configuration, inactive website)
                 logger.warning(
                     "validation_error",
                     error=str(e),

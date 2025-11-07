@@ -51,8 +51,22 @@ async def create_schema(conn: AsyncConnection) -> None:
 
 
 async def drop_schema(conn: AsyncConnection) -> None:
-    """Drop all tables and types automatically by querying the database."""
+    """Drop all tables, types, functions, and views automatically by querying the database."""
     raw_conn = await conn.get_raw_connection()
+
+    # Get all views in public schema
+    views_query = """
+        SELECT viewname
+        FROM pg_views
+        WHERE schemaname = 'public'
+        ORDER BY viewname;
+    """
+    views = await raw_conn.driver_connection.fetch(views_query)  # type: ignore[union-attr]
+
+    # Drop all views with CASCADE
+    for view in views:
+        drop_view_sql = f"DROP VIEW IF EXISTS {view['viewname']} CASCADE;"
+        await raw_conn.driver_connection.execute(drop_view_sql)  # type: ignore[union-attr]
 
     # Get all tables in public schema (excluding system tables)
     tables_query = """
@@ -67,6 +81,25 @@ async def drop_schema(conn: AsyncConnection) -> None:
     for table in tables:
         drop_table_sql = f"DROP TABLE IF EXISTS {table['tablename']} CASCADE;"
         await raw_conn.driver_connection.execute(drop_table_sql)  # type: ignore[union-attr]
+
+    # Get all user-created functions in public schema (exclude extension functions)
+    functions_query = """
+        SELECT p.proname, oidvectortypes(p.proargtypes) as argtypes
+        FROM pg_proc p
+        WHERE p.pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+        AND NOT EXISTS (
+            SELECT 1 FROM pg_depend d
+            WHERE d.objid = p.oid
+            AND d.deptype = 'e'
+        )
+        ORDER BY p.proname;
+    """
+    functions = await raw_conn.driver_connection.fetch(functions_query)  # type: ignore[union-attr]
+
+    # Drop all user functions (not extension functions)
+    for func in functions:
+        drop_func_sql = f"DROP FUNCTION IF EXISTS {func['proname']}({func['argtypes']}) CASCADE;"
+        await raw_conn.driver_connection.execute(drop_func_sql)  # type: ignore[union-attr]
 
     # Get all custom types (enums, composites, etc.)
     types_query = """

@@ -5,10 +5,10 @@ DO NOT EDIT MANUALLY - regenerate using: make generate-models
 """
 
 from .extended import (
+    CrawlStep,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     CreateWebsiteRequest,
-    CrawlStep,
     GlobalConfig,
     RetryConfig,
     ScheduleConfig,
@@ -44,6 +44,7 @@ from .models import (
     ValidationError,
     WaitUntil,
     WebsiteResponse,
+    WSTokenResponse,
 )
 
 # Re-export with better names for generic Type enums
@@ -60,6 +61,7 @@ __all__ = [
     "SeedJobResponse",
     "CancelJobRequest",
     "CancelJobResponse",
+    "WSTokenResponse",
     "RootResponse",
     "HealthResponse",
     "ErrorResponse",

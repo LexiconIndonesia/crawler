@@ -85,3 +85,11 @@ SELECT
     COUNT(*) FILTER (WHERE log_level = 'CRITICAL') as critical_count
 FROM crawl_log
 WHERE job_id = sqlc.arg(job_id);
+
+-- name: StreamLogsByJob :many
+SELECT * FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND created_at > sqlc.arg(after_timestamp)::TIMESTAMP WITH TIME ZONE
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+ORDER BY created_at ASC
+LIMIT sqlc.arg(limit_count);

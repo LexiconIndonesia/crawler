@@ -6,10 +6,12 @@ Provides specialized Redis data structures for:
 - Rate limiting
 - Browser pool status tracking
 - Job progress caching
+- WebSocket authentication tokens
 """
 
 import builtins
 import json
+import secrets
 from typing import Any, cast
 
 import redis.asyncio as redis
@@ -614,4 +616,116 @@ class JobProgressCache:
             return True
         except Exception as e:
             logger.error("job_progress_delete_error", job_id=job_id, error=str(e))
+            return False
+
+
+class WebSocketTokenService:
+    """Redis-based WebSocket authentication token service.
+
+    Provides secure, short-lived, single-use tokens for WebSocket connections.
+    Tokens are job-specific and expire based on settings.ws_token_ttl.
+    """
+
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
+        """Initialize WebSocket token service.
+
+        Args:
+            redis_client: Redis client from connection pool.
+            settings: Application settings.
+        """
+        self.settings = settings
+        self.redis = redis_client
+        self.key_prefix = "ws:token:"
+        self.token_ttl = settings.ws_token_ttl
+
+    def _make_key(self, token: str) -> str:
+        """Create Redis key for token.
+
+        Args:
+            token: Token string.
+
+        Returns:
+            Redis key string.
+        """
+        return f"{self.key_prefix}{token}"
+
+    def _generate_token(self) -> str:
+        """Generate a secure random token.
+
+        Returns:
+            URL-safe random token (32 bytes = 43 chars base64).
+        """
+        return secrets.token_urlsafe(32)
+
+    async def create_token(self, job_id: str) -> str:
+        """Create a new WebSocket token for a job.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Generated token string.
+
+        Raises:
+            RuntimeError: If token creation fails.
+        """
+        try:
+            token = self._generate_token()
+            key = self._make_key(token)
+            data = json.dumps({"job_id": job_id, "single_use": True})
+
+            # Store token with TTL
+            await self.redis.setex(key, self.token_ttl, data)
+
+            logger.info("ws_token_created", job_id=job_id, ttl=self.token_ttl)
+            return token
+
+        except Exception as e:
+            logger.error("ws_token_create_error", job_id=job_id, error=str(e))
+            raise RuntimeError(f"Failed to create WebSocket token: {e}") from e
+
+    async def validate_and_consume_token(self, token: str, job_id: str) -> bool:
+        """Validate token and consume it (single-use).
+
+        Args:
+            token: Token to validate.
+            job_id: Expected job ID.
+
+        Returns:
+            True if valid and consumed, False otherwise.
+        """
+        # Guard: check if token format is valid
+        if not token or len(token) < 20:
+            logger.warning("ws_token_invalid_format", token_length=len(token) if token else 0)
+            return False
+
+        try:
+            key = self._make_key(token)
+
+            # Get and delete token atomically (consume it)
+            value: str | None = await self.redis.getdel(key)
+
+            # Guard: token not found or already used
+            if not value:
+                logger.warning("ws_token_not_found_or_expired", job_id=job_id)
+                return False
+
+            # Parse token data
+            data = json.loads(value)
+            stored_job_id = data.get("job_id")
+
+            # Guard: job ID mismatch
+            if stored_job_id != job_id:
+                logger.warning(
+                    "ws_token_job_mismatch",
+                    expected_job_id=job_id,
+                    stored_job_id=stored_job_id,
+                )
+                return False
+
+            logger.info("ws_token_validated", job_id=job_id)
+            return True
+
+        except Exception as e:
+            logger.error("ws_token_validate_error", job_id=job_id, error=str(e))
             return False

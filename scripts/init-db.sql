@@ -7,7 +7,6 @@
 -- Enable useful extensions
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";     -- Trigram similarity for text search
 CREATE EXTENSION IF NOT EXISTS "btree_gin";   -- GIN indexes for btree types
-CREATE EXTENSION IF NOT EXISTS "pg_search";   -- Full-text search enhancements
 
 -- Create migration tracking table (will be overwritten by 000_migration_tracking.sql)
 CREATE TABLE IF NOT EXISTS schema_migrations (

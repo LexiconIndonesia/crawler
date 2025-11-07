@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Database migration runner for SQL-based migrations.
 
+⚠️ DEPRECATED: This script is deprecated in favor of Alembic migrations.
+Use `alembic upgrade head` or `make db-migrate` instead.
+
+This script is kept for reference only and should not be used for new migrations.
+All new migrations should be created with: `alembic revision -m "description"`
+
 Reads schema files directly from sql/schema/ as migrations.
 Each .sql file in sql/schema/ is treated as a migration.
 """

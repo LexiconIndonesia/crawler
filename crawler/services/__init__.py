@@ -2,6 +2,7 @@
 
 from .cache import CacheService
 from .html_parser import HTMLParserService
+from .log_publisher import LogPublisher
 from .nats_queue import NATSQueueService
 from .pagination import PaginationService
 from .redis_cache import (
@@ -23,6 +24,7 @@ from .url_extractor import ExtractedURL, URLExtractorService
 __all__ = [
     "CacheService",
     "HTMLParserService",
+    "LogPublisher",
     "NATSQueueService",
     "PaginationService",
     "URLDeduplicationCache",
