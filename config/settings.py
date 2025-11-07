@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     database_max_overflow: int = 5
     database_echo: bool = False
 
+    # Log Retention & Partitioning
+    log_retention_days: int = Field(
+        default=90,
+        description="Number of days to retain crawl logs before dropping partitions",
+    )
+    log_partition_months_ahead: int = Field(
+        default=3,
+        description="Number of future months to pre-create log partitions",
+    )
+
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     redis_max_connections: int = 10

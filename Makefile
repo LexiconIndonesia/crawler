@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks
+.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list
 
 # Default target
 .DEFAULT_GOAL := help
@@ -198,6 +198,24 @@ sqlc-generate: ## Generate type-safe Python code from SQL queries
 	@echo "$(BLUE)⚙️  Generating code with sqlc...$(NC)"
 	sqlc generate
 	@echo "$(GREEN)✅ Code generated in crawler/db/generated/$(NC)"
+
+partition-create: ## Create future log partitions
+	@echo "$(BLUE)📅 Creating future log partitions...$(NC)"
+	$(PYTHON) scripts/maintain_partitions.py create-future
+	@echo "$(GREEN)✅ Partitions created$(NC)"
+
+partition-drop: ## Drop old log partitions based on retention policy
+	@echo "$(BLUE)🗑️  Dropping old log partitions...$(NC)"
+	$(PYTHON) scripts/maintain_partitions.py drop-old
+	@echo "$(GREEN)✅ Old partitions dropped$(NC)"
+
+partition-maintain: ## Maintain log partitions (create future + drop old)
+	@echo "$(BLUE)🔧 Maintaining log partitions...$(NC)"
+	$(PYTHON) scripts/maintain_partitions.py maintain
+
+partition-list: ## List all log partitions with metadata
+	@echo "$(BLUE)📋 Listing log partitions...$(NC)"
+	$(PYTHON) scripts/maintain_partitions.py list
 
 ##@ Monitoring
 
