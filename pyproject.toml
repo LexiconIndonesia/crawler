@@ -60,11 +60,7 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = [
-    "crawler/db/generated",
-    "crawler/api/generated",
-    "clients/python",
-]
+exclude = ["crawler/db/generated", "crawler/api/generated", "clients/python"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]

@@ -623,7 +623,7 @@ class WebSocketTokenService:
     """Redis-based WebSocket authentication token service.
 
     Provides secure, short-lived, single-use tokens for WebSocket connections.
-    Tokens are job-specific and expire after 10 minutes.
+    Tokens are job-specific and expire based on settings.ws_token_ttl.
     """
 
     def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
@@ -636,7 +636,7 @@ class WebSocketTokenService:
         self.settings = settings
         self.redis = redis_client
         self.key_prefix = "ws:token:"
-        self.token_ttl = 600  # 10 minutes
+        self.token_ttl = settings.ws_token_ttl
 
     def _make_key(self, token: str) -> str:
         """Create Redis key for token.

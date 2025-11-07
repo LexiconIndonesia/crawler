@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     redis_max_connections: int = 10
     redis_ttl: int = 3600  # 1 hour default TTL
+    ws_token_ttl: int = Field(
+        default=600,
+        description="WebSocket token TTL in seconds (default: 10 minutes)",
+    )
 
     # NATS
     nats_url: str = Field(default="nats://localhost:4222", description="NATS server URL")
