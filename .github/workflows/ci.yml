@@ -90,33 +90,6 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: quality-checks
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: lexicon_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-      nats:
-        image: nats:2.10-alpine
-        ports:
-          - 4222:4222
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -146,12 +119,22 @@ jobs:
             --use-double-quotes \
             --target-python-version 3.11
           echo "✅ Models generated successfully"
+      - name: Start services with docker-compose
+        run: |
+          echo "Starting PostgreSQL, Redis, and NATS..."
+          docker-compose up -d postgres redis nats
+          echo "Waiting for services to be healthy..."
+          sleep 10
+          docker-compose ps
       - name: Run integration tests
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/lexicon_test
+          DATABASE_URL: postgresql+asyncpg://crawler:crawler@localhost:5432/crawler
           REDIS_URL: redis://localhost:6379
           NATS_URL: nats://localhost:4222
           ENVIRONMENT: testing
         run: |
           echo "Running integration tests..."
           uv run pytest tests/integration/ -q --maxfail=3
+      - name: Stop services
+        if: always()
+        run: docker-compose down -v
