@@ -17,6 +17,7 @@ import httpx
 
 from crawler.api.generated import CrawlStep, PaginationConfig
 from crawler.core.logging import get_logger
+from crawler.db.generated.models import LogLevelEnum
 from crawler.services.html_parser import HTMLParserService
 from crawler.services.pagination import PaginationService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
@@ -24,7 +25,7 @@ from crawler.services.resource_cleanup import CleanupCoordinator, HTTPResourceMa
 from crawler.services.url_extractor import ExtractedURL, URLExtractorService
 
 if TYPE_CHECKING:
-    from crawler.db.repositories import CrawlJobRepository
+    from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository
 
 logger = get_logger(__name__)
 
@@ -113,6 +114,12 @@ class SeedURLCrawlerConfig:
     # Optional: CrawlJobRepository for updating job status on cancellation
     job_repo: "CrawlJobRepository | None" = None
 
+    # Optional: CrawlLogRepository for writing crawl logs
+    crawl_log_repo: "CrawlLogRepository | None" = None
+
+    # Optional: Website ID for log entries
+    website_id: str | None = None
+
     # Optional: User/system identifier for cancellation metadata
     cancelled_by: str | None = None
 
@@ -143,6 +150,63 @@ class SeedURLCrawler:
         self.pagination_service = PaginationService()
         # HTML parser and URL extractor will be created per-crawl
         # to avoid sharing state
+
+    def _write_log(
+        self,
+        config: SeedURLCrawlerConfig,
+        message: str,
+        log_level: LogLevelEnum = LogLevelEnum.INFO,
+        step_name: str | None = None,
+        context: dict | None = None,
+    ) -> None:
+        """Write a crawl log entry if logging is configured (non-blocking).
+
+        Uses guard pattern to exit early if logging is not configured.
+        Logs are written asynchronously in the background to avoid blocking
+        the crawl execution.
+
+        Args:
+            config: Crawler configuration
+            message: Log message
+            log_level: Log level (default: INFO)
+            step_name: Optional step name
+            context: Optional context data
+        """
+        # Guard: no log repository configured
+        if not config.crawl_log_repo:
+            return
+
+        # Guard: no job_id
+        if not config.job_id:
+            return
+
+        # Guard: no website_id (required for crawl_log table)
+        if not config.website_id:
+            return
+
+        # Create background task for non-blocking log write
+        async def write_log_task() -> None:
+            try:
+                await config.crawl_log_repo.create(  # type: ignore[union-attr]
+                    job_id=config.job_id,  # type: ignore[arg-type]
+                    website_id=config.website_id,  # type: ignore[arg-type]
+                    message=message,
+                    log_level=log_level,
+                    step_name=step_name,
+                    context=context,
+                )
+            except Exception as e:
+                # Don't let logging errors crash the crawl
+                logger.warning(
+                    "failed_to_write_crawl_log",
+                    error=str(e),
+                    job_id=config.job_id,
+                )
+
+        # Fire and forget - don't await
+        import asyncio
+
+        asyncio.create_task(write_log_task())
 
     async def _check_cancellation(
         self,
@@ -258,6 +322,15 @@ class SeedURLCrawler:
         """
         logger.info("seed_url_crawl_started", seed_url=seed_url, job_id=config.job_id)
 
+        # Write log: crawl started
+        self._write_log(
+            config,
+            f"Starting crawl for seed URL: {seed_url}",
+            log_level=LogLevelEnum.INFO,
+            step_name="crawl_start",
+            context={"seed_url": seed_url},
+        )
+
         warnings: list[str] = []
         http_client = config.http_client
         http_resource_manager: HTTPResourceManager | None = None
@@ -271,6 +344,14 @@ class SeedURLCrawler:
                     "seed_url_crawl_invalid_config",
                     seed_url=seed_url,
                     error=validation_error,
+                )
+                # Write log: validation error
+                self._write_log(
+                    config,
+                    f"Invalid configuration: {validation_error}",
+                    log_level=LogLevelEnum.ERROR,
+                    step_name="validation",
+                    context={"error": validation_error},
                 )
                 return CrawlResult(
                     outcome=CrawlOutcome.INVALID_CONFIG,
@@ -305,6 +386,14 @@ class SeedURLCrawler:
                 # Handle 404 - fail immediately as per requirements
                 if response.status_code == 404:
                     logger.error("seed_url_404", seed_url=seed_url)
+                    # Write log: 404 error
+                    self._write_log(
+                        config,
+                        "Seed URL returned 404 Not Found",
+                        log_level=LogLevelEnum.ERROR,
+                        step_name="fetch_seed_url",
+                        context={"seed_url": seed_url, "status_code": 404},
+                    )
                     return CrawlResult(
                         outcome=CrawlOutcome.SEED_URL_404,
                         seed_url=seed_url,
@@ -320,6 +409,14 @@ class SeedURLCrawler:
                         "seed_url_http_error",
                         seed_url=seed_url,
                         status_code=response.status_code,
+                    )
+                    # Write log: HTTP error
+                    self._write_log(
+                        config,
+                        f"Seed URL returned HTTP {response.status_code}",
+                        log_level=LogLevelEnum.ERROR,
+                        step_name="fetch_seed_url",
+                        context={"seed_url": seed_url, "status_code": response.status_code},
                     )
                     return CrawlResult(
                         outcome=CrawlOutcome.SEED_URL_ERROR,
@@ -338,8 +435,29 @@ class SeedURLCrawler:
                     content_size=len(seed_content),
                 )
 
+                # Write log: seed URL fetched successfully
+                self._write_log(
+                    config,
+                    f"Fetched seed URL successfully ({len(seed_content)} bytes)",
+                    log_level=LogLevelEnum.INFO,
+                    step_name="fetch_seed_url",
+                    context={
+                        "seed_url": seed_url,
+                        "status_code": response.status_code,
+                        "content_size": len(seed_content),
+                    },
+                )
+
             except httpx.RequestError as e:
                 logger.error("seed_url_fetch_failed", seed_url=seed_url, error=str(e))
+                # Write log: request error
+                self._write_log(
+                    config,
+                    f"Failed to fetch seed URL: {str(e)}",
+                    log_level=LogLevelEnum.ERROR,
+                    step_name="fetch_seed_url",
+                    context={"seed_url": seed_url, "error": str(e)},
+                )
                 return CrawlResult(
                     outcome=CrawlOutcome.SEED_URL_ERROR,
                     seed_url=seed_url,
@@ -366,6 +484,15 @@ class SeedURLCrawler:
             )
             logger.info("pagination_strategy_determined", strategy=pagination_strategy)
 
+            # Write log: pagination strategy determined
+            self._write_log(
+                config,
+                f"Pagination strategy: {pagination_strategy}",
+                log_level=LogLevelEnum.INFO,
+                step_name="pagination",
+                context={"strategy": pagination_strategy},
+            )
+
             # Step 6: Crawl pages and extract URLs
             result = await self._crawl_and_extract(
                 seed_url=seed_url,
@@ -386,6 +513,14 @@ class SeedURLCrawler:
                 seed_url=seed_url,
                 error=str(e),
                 exc_info=True,
+            )
+            # Write log: unexpected error
+            self._write_log(
+                config,
+                f"Unexpected error during crawl: {str(e)}",
+                log_level=LogLevelEnum.CRITICAL,
+                step_name="crawl",
+                context={"seed_url": seed_url, "error": str(e)},
             )
             return CrawlResult(
                 outcome=CrawlOutcome.SEED_URL_ERROR,
@@ -502,6 +637,15 @@ class SeedURLCrawler:
                     seed_url=seed_url,
                     urls_count=len(seed_urls),
                 )
+
+                # Write log: seed page URLs extracted
+                self._write_log(
+                    config,
+                    f"Extracted {len(seed_urls)} URLs from seed page",
+                    log_level=LogLevelEnum.INFO,
+                    step_name="extract_urls",
+                    context={"page_url": seed_url, "urls_count": len(seed_urls), "page_number": 1},
+                )
             except Exception as e:
                 # Seed page extraction failure is fatal - fail immediately
                 logger.error(
@@ -509,6 +653,14 @@ class SeedURLCrawler:
                     seed_url=seed_url,
                     error=str(e),
                     exc_info=True,
+                )
+                # Write log: seed page extraction failed
+                self._write_log(
+                    config,
+                    f"Failed to extract URLs from seed page: {str(e)}",
+                    log_level=LogLevelEnum.ERROR,
+                    step_name="extract_urls",
+                    context={"page_url": seed_url, "error": str(e)},
                 )
                 return CrawlResult(
                     outcome=CrawlOutcome.SEED_URL_ERROR,
@@ -566,6 +718,23 @@ class SeedURLCrawler:
                         total_urls=len(all_extracted_urls),
                     )
 
+                    # Write log: pagination page processed
+                    self._write_log(
+                        config,
+                        (
+                            f"Processed page {pages_crawled}: "
+                            f"extracted {len(page_urls)} URLs (total: {len(all_extracted_urls)})"
+                        ),
+                        log_level=LogLevelEnum.INFO,
+                        step_name="extract_urls",
+                        context={
+                            "page_url": url,
+                            "page_number": pages_crawled,
+                            "urls_count": len(page_urls),
+                            "total_urls": len(all_extracted_urls),
+                        },
+                    )
+
                 except Exception as e:
                     logger.error(
                         "pagination_page_extraction_failed",
@@ -574,6 +743,15 @@ class SeedURLCrawler:
                         exc_info=True,
                     )
                     warnings.append(f"Failed to extract URLs from page {url}: {e}")
+
+                    # Write log: pagination page extraction failed
+                    self._write_log(
+                        config,
+                        f"Failed to extract URLs from page {pages_crawled + 1}: {str(e)}",
+                        log_level=LogLevelEnum.WARNING,
+                        step_name="extract_urls",
+                        context={"page_url": url, "error": str(e)},
+                    )
 
             # Check if pagination selector was configured but no additional pages found
             if (
@@ -644,12 +822,29 @@ class SeedURLCrawler:
                     "single_page_urls_extracted", seed_url=seed_url, urls_count=len(seed_urls)
                 )
 
+                # Write log: single page URLs extracted
+                self._write_log(
+                    config,
+                    f"Extracted {len(seed_urls)} URLs from single page",
+                    log_level=LogLevelEnum.INFO,
+                    step_name="extract_urls",
+                    context={"page_url": seed_url, "urls_count": len(seed_urls)},
+                )
+
             except Exception as e:
                 logger.error(
                     "single_page_extraction_failed",
                     seed_url=seed_url,
                     error=str(e),
                     exc_info=True,
+                )
+                # Write log: single page extraction failed
+                self._write_log(
+                    config,
+                    f"Failed to extract URLs from single page: {str(e)}",
+                    log_level=LogLevelEnum.ERROR,
+                    step_name="extract_urls",
+                    context={"page_url": seed_url, "error": str(e)},
                 )
                 return CrawlResult(
                     outcome=CrawlOutcome.SEED_URL_ERROR,
@@ -678,6 +873,26 @@ class SeedURLCrawler:
             outcome=outcome.value,
             pages_crawled=pages_crawled,
             total_urls=len(all_extracted_urls),
+        )
+
+        # Write log: crawl completed
+        success_outcomes = (CrawlOutcome.SUCCESS, CrawlOutcome.SUCCESS_NO_URLS)
+        log_level = LogLevelEnum.INFO if outcome in success_outcomes else LogLevelEnum.WARNING
+
+        self._write_log(
+            config,
+            (
+                f"Crawl completed: {outcome.value} "
+                f"({pages_crawled} pages, {len(all_extracted_urls)} URLs)"
+            ),
+            log_level=log_level,
+            step_name="crawl_complete",
+            context={
+                "outcome": outcome.value,
+                "pages_crawled": pages_crawled,
+                "total_urls": len(all_extracted_urls),
+                "warnings_count": len(warnings) if warnings else 0,
+            },
         )
 
         return CrawlResult(
