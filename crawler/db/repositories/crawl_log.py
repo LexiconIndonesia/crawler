@@ -2,10 +2,9 @@
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from crawler.db.generated import crawl_log, models
@@ -13,18 +12,31 @@ from crawler.db.generated.models import LogLevelEnum
 
 from .base import to_uuid, to_uuid_optional
 
+if TYPE_CHECKING:
+    from crawler.services.log_publisher import LogPublisher
+
 
 class CrawlLogRepository:
-    """Repository for crawl log operations using sqlc-generated queries."""
+    """Repository for crawl log operations using sqlc-generated queries.
 
-    def __init__(self, connection: AsyncConnection):
+    Supports optional real-time log publishing via NATS for WebSocket streaming.
+    """
+
+    def __init__(
+        self,
+        connection: AsyncConnection,
+        log_publisher: "LogPublisher | None" = None,
+    ):
         """Initialize repository.
 
         Args:
             connection: SQLAlchemy async connection.
+            log_publisher: Optional log publisher for real-time streaming via NATS.
+                          If provided, logs are published to NATS after DB insert.
         """
         self.conn = connection
         self._querier = crawl_log.AsyncQuerier(connection)
+        self.log_publisher = log_publisher
 
     async def create(
         self,
@@ -38,6 +50,9 @@ class CrawlLogRepository:
     ) -> models.CrawlLog | None:
         """Create a new log entry.
 
+        The log is first inserted into the database (source of truth),
+        then optionally published to NATS for real-time streaming.
+
         Args:
             job_id: Job ID
             website_id: Website ID
@@ -50,7 +65,8 @@ class CrawlLogRepository:
         Returns:
             Created CrawlLog model or None
         """
-        return await self._querier.create_crawl_log(
+        # Insert into database first (source of truth)
+        log = await self._querier.create_crawl_log(
             job_id=to_uuid(job_id),
             website_id=to_uuid(website_id),
             step_name=step_name,
@@ -59,6 +75,12 @@ class CrawlLogRepository:
             context=json.dumps(context) if context else None,
             trace_id=to_uuid_optional(trace_id),
         )
+
+        # Publish to NATS for real-time streaming (if publisher available)
+        if log and self.log_publisher:
+            await self.log_publisher.publish_log(log)
+
+        return log
 
     async def list_by_job(
         self,
@@ -108,7 +130,7 @@ class CrawlLogRepository:
     ) -> list[models.CrawlLog]:
         """Stream logs for a job after a specific timestamp.
 
-        This method is used for WebSocket real-time log streaming.
+        This method is used for WebSocket real-time log streaming (fallback mode).
         It returns logs created after the given timestamp.
 
         Args:
@@ -119,43 +141,17 @@ class CrawlLogRepository:
 
         Returns:
             List of CrawlLog models ordered by created_at ASC
+
+        Note:
+            SQL uses COALESCE, but sqlc generates non-optional type.
         """
-        query = text("""
-            SELECT id, job_id, website_id, step_name, log_level, message,
-                   context, trace_id, created_at
-            FROM crawl_log
-            WHERE job_id = :job_id
-                AND created_at > :after_timestamp
-                AND (:log_level IS NULL OR log_level = :log_level)
-            ORDER BY created_at ASC
-            LIMIT :limit_count
-        """)
-
-        result = await self.conn.execute(
-            query,
-            {
-                "job_id": to_uuid(job_id),
-                "after_timestamp": after_timestamp,
-                "log_level": log_level.value if log_level else None,
-                "limit_count": limit,
-            },
-        )
-
-        logs = []
-        for row in result:
-            # Manually construct CrawlLog model from row
-            logs.append(
-                models.CrawlLog(
-                    id=row[0],
-                    job_id=row[1],
-                    website_id=row[2],
-                    step_name=row[3],
-                    log_level=LogLevelEnum(row[4]),
-                    message=row[5],
-                    context=row[6],
-                    trace_id=row[7],
-                    created_at=row[8],
-                )
+        logs = [
+            log
+            async for log in self._querier.stream_logs_by_job(
+                job_id=to_uuid(job_id),
+                after_timestamp=after_timestamp,
+                log_level=log_level,  # type: ignore[arg-type]
+                limit_count=limit,
             )
-
+        ]
         return logs

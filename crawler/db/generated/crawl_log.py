@@ -134,6 +134,16 @@ OFFSET :p3 LIMIT :p4
 """
 
 
+STREAM_LOGS_BY_JOB = """-- name: stream_logs_by_job \\:many
+SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+WHERE job_id = :p1
+    AND created_at > :p2\\:\\:TIMESTAMP WITH TIME ZONE
+    AND log_level = COALESCE(:p3, log_level)
+ORDER BY created_at ASC
+LIMIT :p4
+"""
+
+
 class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
@@ -286,6 +296,26 @@ class AsyncQuerier:
             "p1": website_id,
             "p2": log_level,
             "p3": offset_count,
+            "p4": limit_count,
+        })
+        async for row in result:
+            yield models.CrawlLog(
+                id=row[0],
+                job_id=row[1],
+                website_id=row[2],
+                step_name=row[3],
+                log_level=row[4],
+                message=row[5],
+                context=row[6],
+                trace_id=row[7],
+                created_at=row[8],
+            )
+
+    async def stream_logs_by_job(self, *, job_id: uuid.UUID, after_timestamp: datetime.datetime, log_level: models.LogLevelEnum, limit_count: int) -> AsyncIterator[models.CrawlLog]:
+        result = await self._conn.stream(sqlalchemy.text(STREAM_LOGS_BY_JOB), {
+            "p1": job_id,
+            "p2": after_timestamp,
+            "p3": log_level,
             "p4": limit_count,
         })
         async for row in result:
