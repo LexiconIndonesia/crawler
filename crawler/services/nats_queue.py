@@ -95,7 +95,7 @@ class NATSQueueService:
             retention=RetentionPolicy.WORK_QUEUE,  # Messages deleted after ack
             max_age=86400,  # 24 hours max retention
             max_msgs=100000,  # Max 100k pending jobs
-            discard=DiscardPolicy.OLD,  # Discard oldest when limit reached
+            discard=DiscardPolicy.NEW,  # Reject new jobs when full (prevents silent loss)
             duplicate_window=300,  # 5 minutes deduplication window
         )
 
@@ -147,6 +147,10 @@ class NATSQueueService:
 
         Returns:
             True if published successfully, False otherwise
+
+        Note:
+            With DiscardPolicy.NEW, if the queue is full (max_msgs reached),
+            the publish will fail with an error. This prevents silent job loss.
         """
         if not self.js:
             logger.error("nats_not_connected", operation="publish")
@@ -171,7 +175,17 @@ class NATSQueueService:
             )
             return True
         except Exception as e:
-            logger.error("job_publish_failed", job_id=job_id, error=str(e))
+            # Check if this is a queue full error
+            error_msg = str(e).lower()
+            if "maximum messages" in error_msg or "stream store maximum" in error_msg:
+                logger.error(
+                    "queue_full_rejected_job",
+                    job_id=job_id,
+                    error=str(e),
+                    action="scale_workers_or_increase_capacity",
+                )
+            else:
+                logger.error("job_publish_failed", job_id=job_id, error=str(e))
             return False
 
     async def delete_job_from_queue(self, job_id: str) -> bool:

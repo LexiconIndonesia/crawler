@@ -4,14 +4,17 @@ These tests require NATS to be running and will be skipped if not available.
 Run with: make db-up && pytest tests/integration/test_nats_real_connection.py -v
 """
 
+import asyncio
+from collections.abc import AsyncGenerator
+
 import pytest
 
 from config import get_settings
 from crawler.services.nats_queue import NATSQueueService
 
 
-async def check_nats_available() -> bool:
-    """Check if NATS server is available."""
+async def _check_nats_available_async() -> bool:
+    """Check if NATS server is available (async implementation)."""
     try:
         settings = get_settings()
         service = NATSQueueService(settings)
@@ -23,8 +26,16 @@ async def check_nats_available() -> bool:
         return False
 
 
+def check_nats_available() -> bool:
+    """Check if NATS server is available (synchronous wrapper for skipif)."""
+    try:
+        return asyncio.run(_check_nats_available_async())
+    except Exception:
+        return False
+
+
 @pytest.fixture
-async def nats_service() -> NATSQueueService:
+async def nats_service() -> AsyncGenerator[NATSQueueService, None]:
     """Create NATS service with real connection."""
     settings = get_settings()
     service = NATSQueueService(settings)
@@ -35,7 +46,7 @@ async def nats_service() -> NATSQueueService:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    not pytest.mark.asyncio,
+    not check_nats_available(),
     reason="NATS server not available - run 'make db-up' first",
 )
 class TestNATSRealConnection:

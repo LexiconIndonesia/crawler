@@ -251,11 +251,20 @@ curl http://localhost:8222/varz
 
 ### **Stream Config** (in `nats_queue.py`)
 ```python
-retention=RetentionPolicy.WORK_QUEUE  # Delete after ack
+retention=RetentionPolicy.WORK_QUEUE   # Delete after ack
 max_age=86400                          # 24 hours max
 max_msgs=100000                        # Max 100k pending
+discard=DiscardPolicy.NEW              # Reject new jobs when full
 duplicate_window=300                   # 5 min dedup
 ```
+
+**Discard Policy**: `DiscardPolicy.NEW` is used to prevent silent job loss. When the queue reaches `max_msgs` (100k), new job publishes will fail with an explicit error rather than silently dropping older jobs. This ensures:
+- ✅ No silent data loss
+- ✅ Database consistency (job status matches queue state)
+- ✅ Explicit backpressure signal for capacity planning
+- ✅ Scheduled recurring jobs won't be silently dropped
+
+If you see `queue_full_rejected_job` errors, scale up workers or increase `max_msgs`.
 
 ### **Consumer Config**
 ```python
@@ -282,6 +291,29 @@ max_ack_pending=10                    # 10 unacked per consumer
 2. **Worker must implement crawl logic**: Current worker has placeholder for actual crawling
 3. **No priority queue yet**: Jobs processed in order received (can be added)
 4. **Single stream**: All jobs in one stream (can be split by website/priority)
+
+## 📊 Monitoring Recommendations
+
+### **Queue Capacity Alerts**
+Monitor queue depth to prevent hitting the 100k limit:
+
+```bash
+# Check current queue depth
+curl http://localhost:8222/jsz | jq '.streams[] | select(.config.name=="CRAWLER_TASKS") | .state.messages'
+
+# Alert when > 80% capacity (80,000 messages)
+# Use Prometheus alert or monitoring system
+```
+
+**Recommended Prometheus metrics to add**:
+- `nats_queue_depth` - Current pending job count
+- `nats_queue_capacity_percent` - Usage as % of max_msgs
+- Alert threshold: 80% capacity (80,000 messages)
+
+**Action when alert fires**:
+1. Scale up worker instances
+2. Increase `max_msgs` if sustained high load
+3. Investigate if workers are stalled
 
 ## 📚 References
 
