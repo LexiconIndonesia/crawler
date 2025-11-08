@@ -162,7 +162,8 @@ async def _stream_logs_via_nats(
     subject = f"logs.{job_id}"
     subscription = None
     message_buffer: list[str] = []
-    last_flush_time = asyncio.get_event_loop().time()
+    loop = asyncio.get_running_loop()
+    last_flush_time = loop.time()
     batch_interval = 0.1  # 100ms batching window
 
     async def flush_buffer() -> None:
@@ -180,7 +181,7 @@ async def _stream_logs_via_nats(
                 batch_size=len(message_buffer),
             )
             message_buffer = []
-            last_flush_time = asyncio.get_event_loop().time()
+            last_flush_time = loop.time()
         except Exception as e:
             logger.error("ws_batch_send_error", job_id=job_id, error=str(e))
             raise
@@ -194,7 +195,7 @@ async def _stream_logs_via_nats(
         while True:
             try:
                 # Calculate time until next flush
-                current_time = asyncio.get_event_loop().time()
+                current_time = loop.time()
                 time_since_flush = current_time - last_flush_time
                 timeout = max(0.01, batch_interval - time_since_flush)
 
@@ -205,7 +206,7 @@ async def _stream_logs_via_nats(
                 message_buffer.append(msg.data.decode("utf-8"))
 
                 # Flush if batch interval reached
-                if (asyncio.get_event_loop().time() - last_flush_time) >= batch_interval:
+                if (loop.time() - last_flush_time) >= batch_interval:
                     await flush_buffer()
 
             except TimeoutError:

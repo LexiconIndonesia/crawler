@@ -9,6 +9,7 @@ This service orchestrates the complete seed URL crawling workflow:
 6. Handles all error cases gracefully
 """
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -204,8 +205,6 @@ class SeedURLCrawler:
                 )
 
         # Fire and forget - don't await
-        import asyncio
-
         asyncio.create_task(write_log_task())
 
     async def _check_cancellation(

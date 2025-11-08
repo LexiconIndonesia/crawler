@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -11,11 +13,45 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from config import get_settings
 from crawler.api.generated import CrawlStep, MethodEnum, StepConfig, StepTypeEnum
 from crawler.api.websocket_models import WebSocketLogMessage
-from crawler.db.generated.models import LogLevelEnum
+from crawler.db.generated.models import CrawlLog, LogLevelEnum
 from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository, WebsiteRepository
 from crawler.services import SeedURLCrawler, SeedURLCrawlerConfig
 from crawler.services.log_publisher import LogPublisher
 from crawler.services.nats_queue import NATSQueueService
+
+
+async def poll_for_condition(
+    condition: Callable[[], bool],
+    fetch_data: Callable[[], Any],
+    timeout: float = 2.0,
+    poll_interval: float = 0.1,
+    error_message: str = "Condition not met within timeout",
+) -> Any:
+    """Poll for a condition to be met with timeout.
+
+    Args:
+        condition: Callable that checks if the expected condition is met
+        fetch_data: Callable that fetches the latest data
+        timeout: Maximum time to wait in seconds
+        poll_interval: Time between polls in seconds
+        error_message: Error message to raise if timeout is reached
+
+    Returns:
+        The last fetched data when condition is met
+
+    Raises:
+        AssertionError: If condition is not met within timeout
+    """
+    max_iterations = int(timeout / poll_interval)
+    data = None
+
+    for _ in range(max_iterations):
+        data = await fetch_data()
+        if condition():
+            return data
+        await asyncio.sleep(poll_interval)
+
+    pytest.fail(error_message)
 
 
 @pytest.mark.asyncio
@@ -94,11 +130,23 @@ class TestCrawlLogBroadcasting:
             crawler = SeedURLCrawler()
             await crawler.crawl("https://example.com/products", crawler_config)
 
-            # Wait a bit for background log tasks to complete
-            await asyncio.sleep(0.5)
+            # Wait briefly for background log tasks to start, then poll for completion
+            await asyncio.sleep(0.2)  # Give tasks time to spawn
 
-            # Verify logs were written to database
-            logs = await log_repo.list_by_job(job_id=job.id, limit=100)
+            logs: list[CrawlLog] = []
+
+            async def fetch_logs() -> list[CrawlLog]:
+                nonlocal logs
+                logs = await log_repo.list_by_job(job_id=job.id, limit=100)
+                return logs
+
+            await poll_for_condition(
+                condition=lambda: len(logs) > 0,
+                fetch_data=fetch_logs,
+                timeout=1.5,
+                poll_interval=0.1,
+                error_message="No logs found in database after waiting",
+            )
 
             # Should have multiple logs from the crawl
             assert len(logs) > 0, "No logs were written during crawl"
@@ -301,11 +349,25 @@ class TestCrawlLogBroadcasting:
             crawler = SeedURLCrawler()
             await crawler.crawl("https://example.com/404", crawler_config)
 
-            # Wait for background log tasks
-            await asyncio.sleep(0.5)
+            # Wait briefly for background log tasks to start, then poll for completion
+            await asyncio.sleep(0.2)  # Give tasks time to spawn
 
-            # Verify error logs were written
-            logs = await log_repo.list_by_job(job_id=job.id, limit=100)
+            logs: list[CrawlLog] = []
+
+            async def fetch_logs() -> list[CrawlLog]:
+                nonlocal logs
+                logs = await log_repo.list_by_job(job_id=job.id, limit=100)
+                return logs
+
+            await poll_for_condition(
+                condition=lambda: len(logs) > 0,
+                fetch_data=fetch_logs,
+                timeout=1.5,
+                poll_interval=0.1,
+                error_message="No logs found in database after waiting",
+            )
+
+            # Verify logs were written
             assert len(logs) > 0, "No logs written for failed crawl"
 
             # Verify error log exists
