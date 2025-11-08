@@ -149,7 +149,10 @@ async def _stream_logs_via_nats(
     job_id: str,
     nats_client: Any,
 ) -> None:
-    """Stream logs via NATS subscription (real-time, <50ms latency).
+    """Stream logs via NATS subscription with batching (100ms window).
+
+    Batches log messages every 100ms to handle high log volume efficiently.
+    This reduces WebSocket message overhead while maintaining low latency.
 
     Args:
         websocket: WebSocket connection
@@ -158,23 +161,57 @@ async def _stream_logs_via_nats(
     """
     subject = f"logs.{job_id}"
     subscription = None
+    message_buffer: list[str] = []
+    loop = asyncio.get_running_loop()
+    last_flush_time = loop.time()
+    batch_interval = 0.1  # 100ms batching window
+
+    async def flush_buffer() -> None:
+        """Flush buffered messages to WebSocket."""
+        nonlocal message_buffer, last_flush_time
+        if not message_buffer:
+            return
+
+        try:
+            # Send all buffered messages as a JSON array
+            await websocket.send_json(message_buffer)
+            logger.debug(
+                "ws_batch_sent",
+                job_id=job_id,
+                batch_size=len(message_buffer),
+            )
+            message_buffer = []
+            last_flush_time = loop.time()
+        except Exception as e:
+            logger.error("ws_batch_send_error", job_id=job_id, error=str(e))
+            raise
 
     try:
         # Subscribe to NATS subject for this job
         subscription = await nats_client.subscribe(subject)
         logger.info("ws_nats_subscribed", job_id=job_id, subject=subject)
 
-        # Stream messages from NATS to WebSocket
+        # Stream messages from NATS to WebSocket with batching
         while True:
             try:
-                # Wait for message with timeout (check for disconnect every 5s)
-                msg = await asyncio.wait_for(subscription.next_msg(), timeout=5.0)
+                # Calculate time until next flush
+                current_time = loop.time()
+                time_since_flush = current_time - last_flush_time
+                timeout = max(0.01, batch_interval - time_since_flush)
 
-                # Forward message to WebSocket (already JSON encoded)
-                await websocket.send_text(msg.data.decode("utf-8"))
+                # Wait for message with dynamic timeout
+                msg = await asyncio.wait_for(subscription.next_msg(), timeout=timeout)
+
+                # Add message to buffer (already JSON encoded string)
+                message_buffer.append(msg.data.decode("utf-8"))
+
+                # Flush if batch interval reached
+                if (loop.time() - last_flush_time) >= batch_interval:
+                    await flush_buffer()
 
             except TimeoutError:
-                # No message in 5 seconds, continue waiting
+                # Flush any pending messages on timeout
+                await flush_buffer()
                 continue
             except WebSocketDisconnect:
                 logger.info("ws_client_disconnected_nats", job_id=job_id)
@@ -184,6 +221,12 @@ async def _stream_logs_via_nats(
         logger.error("ws_nats_streaming_error", job_id=job_id, error=str(e))
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="NATS error")
     finally:
+        # Flush any remaining messages
+        try:
+            await flush_buffer()
+        except Exception:
+            pass  # WebSocket already closed
+
         # Cleanup NATS subscription
         if subscription:
             try:

@@ -21,9 +21,10 @@ from config import Settings, get_settings
 from crawler.api.generated import CrawlStep
 from crawler.core.logging import get_logger, setup_logging
 from crawler.db.generated.models import StatusEnum
-from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
+from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository, WebsiteRepository
 from crawler.db.session import get_db
 from crawler.services import CrawlOutcome, SeedURLCrawler, SeedURLCrawlerConfig
+from crawler.services.log_publisher import LogPublisher
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
 
@@ -211,6 +212,17 @@ class CrawlJobWorker:
             )
             return True
 
+        # Create log publisher for real-time log streaming
+        log_publisher = LogPublisher(
+            nats_client=self.nats_queue.client if self.nats_queue else None
+        )
+
+        # Create log repository for writing crawl logs
+        crawl_log_repo = CrawlLogRepository(conn, log_publisher=log_publisher)
+
+        # Get website_id from job (inline jobs may not have website_id)
+        website_id = str(job.website_id) if job.website_id else None
+
         # Create HTTP client for crawling
         async with httpx.AsyncClient(timeout=30.0) as http_client:
             # Build crawler configuration
@@ -221,6 +233,8 @@ class CrawlJobWorker:
                 dedup_cache=self.dedup_cache,
                 cancellation_flag=self.cancellation_flag,
                 job_repo=job_repo,
+                crawl_log_repo=crawl_log_repo,
+                website_id=website_id,
                 cancelled_by="worker",
             )
 
