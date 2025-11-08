@@ -13,6 +13,16 @@ import sqlalchemy.ext.asyncio
 from crawler.db.generated import models
 
 
+COUNT_JOB_LOGS_FILTERED = """-- name: count_job_logs_filtered \\:one
+SELECT COUNT(*) FROM crawl_log
+WHERE job_id = :p1
+    AND log_level = COALESCE(:p2, log_level)
+    AND (:p3\\:\\:TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= :p3\\:\\:TIMESTAMP WITH TIME ZONE)
+    AND (:p4\\:\\:TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= :p4\\:\\:TIMESTAMP WITH TIME ZONE)
+    AND (:p5\\:\\:TEXT IS NULL OR message ILIKE '%' || :p5\\:\\:TEXT || '%')
+"""
+
+
 COUNT_LOGS_BY_JOB = """-- name: count_logs_by_job \\:one
 SELECT COUNT(*) FROM crawl_log
 WHERE job_id = :p1
@@ -73,6 +83,18 @@ WHERE job_id = :p1
     AND log_level IN ('ERROR', 'CRITICAL')
 ORDER BY created_at DESC
 LIMIT :p2
+"""
+
+
+GET_JOB_LOGS_FILTERED = """-- name: get_job_logs_filtered \\:many
+SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+WHERE job_id = :p1
+    AND log_level = COALESCE(:p2, log_level)
+    AND (:p3\\:\\:TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= :p3\\:\\:TIMESTAMP WITH TIME ZONE)
+    AND (:p4\\:\\:TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= :p4\\:\\:TIMESTAMP WITH TIME ZONE)
+    AND (:p5\\:\\:TEXT IS NULL OR message ILIKE '%' || :p5\\:\\:TEXT || '%')
+ORDER BY created_at ASC
+OFFSET :p6 LIMIT :p7
 """
 
 
@@ -148,6 +170,18 @@ class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
 
+    async def count_job_logs_filtered(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, start_time: datetime.datetime, end_time: datetime.datetime, search_text: str) -> Optional[int]:
+        row = (await self._conn.execute(sqlalchemy.text(COUNT_JOB_LOGS_FILTERED), {
+            "p1": job_id,
+            "p2": log_level,
+            "p3": start_time,
+            "p4": end_time,
+            "p5": search_text,
+        })).first()
+        if row is None:
+            return None
+        return row[0]
+
     async def count_logs_by_job(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum) -> Optional[int]:
         row = (await self._conn.execute(sqlalchemy.text(COUNT_LOGS_BY_JOB), {"p1": job_id, "p2": log_level})).first()
         if row is None:
@@ -208,6 +242,29 @@ class AsyncQuerier:
 
     async def get_error_logs(self, *, job_id: uuid.UUID, limit_count: int) -> AsyncIterator[models.CrawlLog]:
         result = await self._conn.stream(sqlalchemy.text(GET_ERROR_LOGS), {"p1": job_id, "p2": limit_count})
+        async for row in result:
+            yield models.CrawlLog(
+                id=row[0],
+                job_id=row[1],
+                website_id=row[2],
+                step_name=row[3],
+                log_level=row[4],
+                message=row[5],
+                context=row[6],
+                trace_id=row[7],
+                created_at=row[8],
+            )
+
+    async def get_job_logs_filtered(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, start_time: datetime.datetime, end_time: datetime.datetime, search_text: str, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
+        result = await self._conn.stream(sqlalchemy.text(GET_JOB_LOGS_FILTERED), {
+            "p1": job_id,
+            "p2": log_level,
+            "p3": start_time,
+            "p4": end_time,
+            "p5": search_text,
+            "p6": offset_count,
+            "p7": limit_count,
+        })
         async for row in result:
             yield models.CrawlLog(
                 id=row[0],

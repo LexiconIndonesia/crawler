@@ -155,3 +155,76 @@ class CrawlLogRepository:
             )
         ]
         return logs
+
+    async def get_job_logs_filtered(
+        self,
+        job_id: str | UUID,
+        log_level: LogLevelEnum | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        search_text: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[models.CrawlLog]:
+        """Get filtered logs for a job with pagination.
+
+        Args:
+            job_id: Job ID
+            log_level: Optional log level filter
+            start_time: Optional start timestamp filter
+            end_time: Optional end timestamp filter
+            search_text: Optional text search in message (case-insensitive)
+            limit: Maximum number of results
+            offset: Number of results to skip
+
+        Returns:
+            List of CrawlLog models ordered by created_at ASC
+
+        Note:
+            SQL uses COALESCE and NULL checks, but sqlc generates non-optional types.
+        """
+        logs = [
+            log
+            async for log in self._querier.get_job_logs_filtered(
+                job_id=to_uuid(job_id),
+                log_level=log_level,  # type: ignore[arg-type]
+                start_time=start_time,  # type: ignore[arg-type]
+                end_time=end_time,  # type: ignore[arg-type]
+                search_text=search_text,  # type: ignore[arg-type]
+                limit_count=limit,
+                offset_count=offset,
+            )
+        ]
+        return logs
+
+    async def count_job_logs_filtered(
+        self,
+        job_id: str | UUID,
+        log_level: LogLevelEnum | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        search_text: str | None = None,
+    ) -> int:
+        """Count filtered logs for a job.
+
+        Args:
+            job_id: Job ID
+            log_level: Optional log level filter
+            start_time: Optional start timestamp filter
+            end_time: Optional end timestamp filter
+            search_text: Optional text search in message (case-insensitive)
+
+        Returns:
+            Total count of logs matching the filters
+
+        Note:
+            SQL uses COALESCE and NULL checks, but sqlc generates non-optional types.
+        """
+        count = await self._querier.count_job_logs_filtered(
+            job_id=to_uuid(job_id),
+            log_level=log_level,  # type: ignore[arg-type]
+            start_time=start_time,  # type: ignore[arg-type]
+            end_time=end_time,  # type: ignore[arg-type]
+            search_text=search_text,  # type: ignore[arg-type]
+        )
+        return count or 0

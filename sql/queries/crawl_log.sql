@@ -93,3 +93,21 @@ WHERE job_id = sqlc.arg(job_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at ASC
 LIMIT sqlc.arg(limit_count);
+
+-- name: GetJobLogsFiltered :many
+SELECT * FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+    AND (sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(search_text)::TEXT IS NULL OR message ILIKE '%' || sqlc.arg(search_text)::TEXT || '%')
+ORDER BY created_at ASC
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
+
+-- name: CountJobLogsFiltered :one
+SELECT COUNT(*) FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+    AND (sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(search_text)::TEXT IS NULL OR message ILIKE '%' || sqlc.arg(search_text)::TEXT || '%');
