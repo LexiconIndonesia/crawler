@@ -624,6 +624,10 @@ class LogBuffer:
 
     Buffers recent logs (max 1000) for each job to support reconnection with resume.
     When a WebSocket reconnects, it can request logs after a specific log_id.
+
+    Implementation uses Redis Sorted Set (ZSET) with log_id as score for efficient
+    range queries. This allows Redis to handle filtering server-side, reducing
+    network transfer and improving performance.
     """
 
     def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
@@ -651,11 +655,13 @@ class LogBuffer:
         return f"{self.key_prefix}{job_id}"
 
     async def add_log(self, job_id: str, log_id: int, log_data: dict[str, Any]) -> bool:
-        """Add a log to the buffer (FIFO with max 1000 entries).
+        """Add a log to the buffer using a sorted set (FIFO with max 1000 entries).
+
+        Uses Redis ZSET with log_id as score for efficient range queries.
 
         Args:
             job_id: Job UUID.
-            log_id: Log entry ID.
+            log_id: Log entry ID (used as score in sorted set).
             log_data: Log data dict (WebSocketLogMessage format).
 
         Returns:
@@ -664,16 +670,16 @@ class LogBuffer:
         try:
             key = self._make_key(job_id)
 
-            # Store log_id:log_data as JSON in Redis LIST
-            log_entry = json.dumps({"id": log_id, "data": log_data})
+            # Serialize log data as JSON (member of sorted set)
+            log_entry = json.dumps(log_data)
 
             # Use pipeline for atomic operations
             async with self.redis.pipeline() as pipe:
-                # Add to list
-                await pipe.rpush(key, log_entry)
-                # Trim to max size (keep only last 1000)
-                await pipe.ltrim(key, -self.max_buffer_size, -1)
-                # Set expiry
+                # Add to sorted set with log_id as score
+                await pipe.zadd(key, {log_entry: log_id})
+                # Trim to max size (keep only last N entries by removing oldest)
+                await pipe.zremrangebyrank(key, 0, -self.max_buffer_size - 1)
+                # Set/reset expiry on each add
                 await pipe.expire(key, self.buffer_ttl)
                 await pipe.execute()
 
@@ -685,7 +691,10 @@ class LogBuffer:
             return False
 
     async def get_logs_after_id(self, job_id: str, after_log_id: int) -> list[dict[str, Any]]:
-        """Get all buffered logs after a specific log ID.
+        """Get buffered logs after a specific log ID using sorted set range query.
+
+        Uses ZRANGEBYSCORE to efficiently fetch only logs with ID > after_log_id.
+        Filtering happens in Redis (optimized C code) rather than in Python.
 
         Args:
             job_id: Job UUID.
@@ -697,17 +706,16 @@ class LogBuffer:
         try:
             key = self._make_key(job_id)
 
-            # Get all buffered logs
-            log_entries = await self.redis.lrange(key, 0, -1)
+            # Use ZRANGEBYSCORE with exclusive range to get logs with ID > after_log_id
+            # The '(' prefix makes the range exclusive (excluding after_log_id itself)
+            log_entries = await self.redis.zrangebyscore(key, f"({after_log_id}", "+inf")
 
-            # Parse and filter logs after the specified ID
+            # Parse JSON entries
             result: list[dict[str, Any]] = []
             for entry in log_entries:
                 if isinstance(entry, bytes):
                     entry = entry.decode("utf-8")
-                log_obj = json.loads(entry)
-                if log_obj["id"] > after_log_id:
-                    result.append(log_obj["data"])
+                result.append(json.loads(entry))
 
             logger.debug(
                 "log_buffer_retrieved",
@@ -747,6 +755,8 @@ class LogBuffer:
     async def get_buffer_size(self, job_id: str) -> int:
         """Get the current buffer size for a job.
 
+        Uses ZCARD for O(1) cardinality check on the sorted set.
+
         Args:
             job_id: Job UUID.
 
@@ -755,7 +765,7 @@ class LogBuffer:
         """
         try:
             key = self._make_key(job_id)
-            size = await self.redis.llen(key)
+            size = await self.redis.zcard(key)
             return size or 0
         except Exception as e:
             logger.error("log_buffer_size_error", job_id=job_id, error=str(e))

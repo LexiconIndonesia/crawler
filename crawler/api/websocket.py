@@ -2,9 +2,10 @@
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from nats.aio.client import Client as NATSClient
 
 from crawler.api.websocket_models import WebSocketLogMessage
 from crawler.core.dependencies import (
@@ -16,6 +17,9 @@ from crawler.core.dependencies import (
 )
 from crawler.core.logging import get_logger
 from crawler.db.repositories import CrawlLogRepository
+
+if TYPE_CHECKING:
+    from crawler.services.redis_cache import LogBuffer
 
 logger = get_logger(__name__)
 
@@ -99,8 +103,10 @@ async def stream_job_logs(
             )
 
             # Choose streaming strategy based on NATS availability
-            use_nats = log_publisher.is_enabled and nats_queue_service.client
+            use_nats = log_publisher.is_enabled and nats_queue_service.client is not None
             if use_nats:
+                # Type narrowing: we know client is not None at this point
+                assert nats_queue_service.client is not None
                 logger.info("ws_using_nats_streaming", job_id=job_id)
                 await _stream_logs_via_nats(
                     websocket=websocket,
@@ -135,7 +141,7 @@ async def stream_job_logs(
 async def _send_initial_logs(
     websocket: WebSocket,
     log_repo: CrawlLogRepository,
-    log_buffer: Any,
+    log_buffer: "LogBuffer",
     job_id: str,
     last_log_id: int | None = None,
     timeout: float = 30.0,
@@ -235,7 +241,7 @@ async def _send_initial_logs(
 async def _stream_logs_via_nats(
     websocket: WebSocket,
     job_id: str,
-    nats_client: Any,
+    nats_client: NATSClient,
 ) -> None:
     """Stream logs via NATS subscription with batching (100ms window).
 
