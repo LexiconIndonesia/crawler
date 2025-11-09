@@ -2,6 +2,7 @@
 # versions:
 #   sqlc v1.30.0
 # source: website.sql
+import pydantic
 from typing import Any, AsyncIterator, Optional
 import uuid
 
@@ -53,6 +54,39 @@ GET_WEBSITE_BY_NAME = """-- name: get_website_by_name \\:one
 SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
 WHERE name = :p1
 """
+
+
+GET_WEBSITE_STATISTICS = """-- name: get_website_statistics \\:one
+SELECT
+    COALESCE(COUNT(cj.id), 0)\\:\\:INTEGER AS total_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'completed'), 0)\\:\\:INTEGER AS completed_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'failed'), 0)\\:\\:INTEGER AS failed_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'cancelled'), 0)\\:\\:INTEGER AS cancelled_jobs,
+    CASE
+        WHEN COUNT(cj.id) = 0 THEN 0.0
+        ELSE (COUNT(cj.id) FILTER (WHERE cj.status = 'completed')\\:\\:FLOAT / COUNT(cj.id)\\:\\:FLOAT * 100.0)
+    END AS success_rate,
+    COALESCE(SUM((
+        SELECT COUNT(*)
+        FROM crawled_page cp
+        WHERE cp.job_id = cj.id
+    )), 0)\\:\\:INTEGER AS total_pages_crawled,
+    MAX(cj.completed_at) FILTER (WHERE cj.status = 'completed') AS last_crawl_at
+FROM website w
+LEFT JOIN crawl_job cj ON cj.website_id = w.id
+WHERE w.id = :p1
+GROUP BY w.id
+"""
+
+
+class GetWebsiteStatisticsRow(pydantic.BaseModel):
+    total_jobs: int
+    completed_jobs: int
+    failed_jobs: int
+    cancelled_jobs: int
+    success_rate: Optional[Any]
+    total_pages_crawled: int
+    last_crawl_at: Any
 
 
 LIST_WEBSITES = """-- name: list_websites \\:many
@@ -153,6 +187,20 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+        )
+
+    async def get_website_statistics(self, *, website_id: uuid.UUID) -> Optional[GetWebsiteStatisticsRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_WEBSITE_STATISTICS), {"p1": website_id})).first()
+        if row is None:
+            return None
+        return GetWebsiteStatisticsRow(
+            total_jobs=row[0],
+            completed_jobs=row[1],
+            failed_jobs=row[2],
+            cancelled_jobs=row[3],
+            success_rate=row[4],
+            total_pages_crawled=row[5],
+            last_crawl_at=row[6],
         )
 
     async def list_websites(self, *, status: models.StatusEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.Website]:

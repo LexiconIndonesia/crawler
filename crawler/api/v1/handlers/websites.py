@@ -8,7 +8,14 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 
-from crawler.api.generated import CreateWebsiteRequest, WebsiteResponse
+from crawler.api.generated import (
+    CreateWebsiteRequest,
+    ListWebsitesResponse,
+    UpdateWebsiteRequest,
+    UpdateWebsiteResponse,
+    WebsiteResponse,
+    WebsiteWithStatsResponse,
+)
 from crawler.api.v1.decorators import handle_service_errors
 from crawler.api.v1.services import WebsiteService
 from crawler.api.validators import validate_and_calculate_next_run
@@ -57,3 +64,94 @@ async def create_website_handler(
 
     # Delegate to service layer (error handling done by decorator)
     return await website_service.create_website(request, next_run_time)
+
+
+@handle_service_errors(operation="retrieving the website")
+async def get_website_by_id_handler(
+    website_id: str,
+    website_service: WebsiteService,
+) -> WebsiteWithStatsResponse:
+    """Handle website retrieval by ID with statistics.
+
+    This handler delegates to the service layer which handles:
+    - Website lookup
+    - Statistics calculation
+    - Scheduled job info retrieval
+
+    Args:
+        website_id: Website ID
+        website_service: Injected website service
+
+    Returns:
+        Website with statistics
+
+    Raises:
+        HTTPException: If website not found or operation fails
+    """
+    logger.info("get_website_by_id_request", website_id=website_id)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.get_website_by_id(website_id)
+
+
+@handle_service_errors(operation="listing websites")
+async def list_websites_handler(
+    status: str | None,
+    limit: int,
+    offset: int,
+    website_service: WebsiteService,
+) -> ListWebsitesResponse:
+    """Handle website listing with pagination and filtering.
+
+    This handler validates query parameters and delegates to the service layer.
+
+    Args:
+        status: Optional status filter ('active' or 'inactive')
+        limit: Maximum number of results
+        offset: Number of results to skip
+        website_service: Injected website service
+
+    Returns:
+        Paginated list of websites
+
+    Raises:
+        HTTPException: If invalid parameters or operation fails
+    """
+    logger.info("list_websites_request", status=status, limit=limit, offset=offset)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.list_websites(status=status, limit=limit, offset=offset)
+
+
+@handle_service_errors(operation="updating the website")
+async def update_website_handler(
+    website_id: str,
+    request: UpdateWebsiteRequest,
+    website_service: WebsiteService,
+) -> UpdateWebsiteResponse:
+    """Handle website update with versioning.
+
+    This handler validates and delegates to the service layer which handles:
+    - Configuration validation
+    - History versioning
+    - Schedule updates
+    - Optional re-crawl triggering
+
+    Args:
+        website_id: Website ID
+        request: Update request
+        website_service: Injected website service
+
+    Returns:
+        Updated website with version info
+
+    Raises:
+        HTTPException: If website not found or validation fails
+    """
+    logger.info("update_website_request", website_id=website_id)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.update_website(website_id, request)

@@ -57,3 +57,24 @@ SET
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;
+
+-- name: GetWebsiteStatistics :one
+SELECT
+    COALESCE(COUNT(cj.id), 0)::INTEGER AS total_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'completed'), 0)::INTEGER AS completed_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'failed'), 0)::INTEGER AS failed_jobs,
+    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'cancelled'), 0)::INTEGER AS cancelled_jobs,
+    CASE
+        WHEN COUNT(cj.id) = 0 THEN 0.0
+        ELSE (COUNT(cj.id) FILTER (WHERE cj.status = 'completed')::FLOAT / COUNT(cj.id)::FLOAT * 100.0)
+    END AS success_rate,
+    COALESCE(SUM((
+        SELECT COUNT(*)
+        FROM crawled_page cp
+        WHERE cp.job_id = cj.id
+    )), 0)::INTEGER AS total_pages_crawled,
+    MAX(cj.completed_at) FILTER (WHERE cj.status = 'completed') AS last_crawl_at
+FROM website w
+LEFT JOIN crawl_job cj ON cj.website_id = w.id
+WHERE w.id = sqlc.arg(website_id)
+GROUP BY w.id;
