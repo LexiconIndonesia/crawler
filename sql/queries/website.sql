@@ -69,22 +69,39 @@ WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- name: GetWebsiteStatistics :one
+WITH job_stats AS (
+    SELECT
+        website_id,
+        COUNT(*) AS total_jobs,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs,
+        COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_jobs,
+        MAX(completed_at) FILTER (WHERE status = 'completed') AS last_crawl_at
+    FROM crawl_job
+    WHERE website_id = sqlc.arg(website_id)
+    GROUP BY website_id
+),
+page_stats AS (
+    SELECT
+        cj.website_id,
+        COUNT(cp.id) AS total_pages_crawled
+    FROM crawl_job cj
+    JOIN crawled_page cp ON cp.job_id = cj.id
+    WHERE cj.website_id = sqlc.arg(website_id)
+    GROUP BY cj.website_id
+)
 SELECT
-    COALESCE(COUNT(cj.id), 0)::INTEGER AS total_jobs,
-    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'completed'), 0)::INTEGER AS completed_jobs,
-    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'failed'), 0)::INTEGER AS failed_jobs,
-    COALESCE(COUNT(cj.id) FILTER (WHERE cj.status = 'cancelled'), 0)::INTEGER AS cancelled_jobs,
+    COALESCE(js.total_jobs, 0)::INTEGER AS total_jobs,
+    COALESCE(js.completed_jobs, 0)::INTEGER AS completed_jobs,
+    COALESCE(js.failed_jobs, 0)::INTEGER AS failed_jobs,
+    COALESCE(js.cancelled_jobs, 0)::INTEGER AS cancelled_jobs,
     CASE
-        WHEN COUNT(cj.id) = 0 THEN 0.0
-        ELSE (COUNT(cj.id) FILTER (WHERE cj.status = 'completed')::FLOAT / COUNT(cj.id)::FLOAT * 100.0)
+        WHEN COALESCE(js.total_jobs, 0) = 0 THEN 0.0
+        ELSE (COALESCE(js.completed_jobs, 0)::FLOAT / js.total_jobs::FLOAT * 100.0)
     END AS success_rate,
-    COALESCE(SUM((
-        SELECT COUNT(*)
-        FROM crawled_page cp
-        WHERE cp.job_id = cj.id
-    )), 0)::INTEGER AS total_pages_crawled,
-    MAX(cj.completed_at) FILTER (WHERE cj.status = 'completed') AS last_crawl_at
+    COALESCE(ps.total_pages_crawled, 0)::INTEGER AS total_pages_crawled,
+    js.last_crawl_at
 FROM website w
-LEFT JOIN crawl_job cj ON cj.website_id = w.id
-WHERE w.id = sqlc.arg(website_id)
-GROUP BY w.id;
+LEFT JOIN job_stats js ON w.id = js.website_id
+LEFT JOIN page_stats ps ON w.id = ps.website_id
+WHERE w.id = sqlc.arg(website_id);

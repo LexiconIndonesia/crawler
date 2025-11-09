@@ -61,13 +61,17 @@ class WebsiteService:
         self.crawl_job_repo = crawl_job_repo
 
     async def create_website(
-        self, request: CreateWebsiteRequest, next_run_time: datetime
+        self,
+        request: CreateWebsiteRequest,
+        next_run_time: datetime,
+        created_by: str | None = None,
     ) -> WebsiteResponse:
         """Create a new website with configuration and scheduling.
 
         Args:
             request: Website creation request
             next_run_time: Next scheduled run time
+            created_by: User/system making the creation (for audit trail)
 
         Returns:
             Created website response
@@ -102,6 +106,7 @@ class WebsiteService:
             base_url=str(request.base_url),
             config=config,
             cron_schedule=request.schedule.cron or "0 0 1,15 * *",
+            created_by=created_by,
         )
 
         if not website:
@@ -341,13 +346,19 @@ class WebsiteService:
 
         # Determine cron schedule
         new_cron = website.cron_schedule
-        if request.schedule and request.schedule.cron:
-            # Validate cron expression
-            is_valid, error_or_next_run = validate_and_calculate_next_run(request.schedule.cron)
-            if not is_valid:
-                logger.warning("invalid_cron", cron=request.schedule.cron, error=error_or_next_run)
-                raise ValueError(f"Invalid cron expression: {error_or_next_run}")
-            new_cron = request.schedule.cron
+        if request.schedule:
+            if request.schedule.cron:
+                # Validate cron expression
+                is_valid, error_or_next_run = validate_and_calculate_next_run(request.schedule.cron)
+                if not is_valid:
+                    logger.warning(
+                        "invalid_cron", cron=request.schedule.cron, error=error_or_next_run
+                    )
+                    raise ValueError(f"Invalid cron expression: {error_or_next_run}")
+                new_cron = request.schedule.cron
+            else:
+                # Allow clearing the cron schedule by sending cron: null
+                new_cron = None
             has_changes = True
 
         # Check if name changed
@@ -402,10 +413,10 @@ class WebsiteService:
             scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
 
             if request.schedule.enabled:
-                # Determine effective cron schedule
-                effective_cron = new_cron if new_cron else website.cron_schedule
-                if not effective_cron:
-                    effective_cron = "0 0 1,15 * *"  # Default bi-weekly
+                # Determine effective cron schedule for scheduled jobs
+                # Use new_cron if set, otherwise use default
+                # Note: new_cron could be None if user cleared it
+                effective_cron = new_cron if new_cron else "0 0 1,15 * *"
 
                 # Calculate next run time
                 is_valid, next_run = validate_and_calculate_next_run(effective_cron)
@@ -417,18 +428,18 @@ class WebsiteService:
                     next_run_time = datetime.now(UTC)
 
                 if scheduled_jobs:
-                    # Update existing scheduled job
+                    # Update existing scheduled job with effective cron
                     for job in scheduled_jobs:
                         await self.scheduled_job_repo.update(
                             job_id=job.id,
-                            cron_schedule=new_cron,
+                            cron_schedule=effective_cron,
                             next_run_time=next_run_time,
                             is_active=True,
                         )
                         scheduled_job_id = job.id
                         logger.info("scheduled_job_updated", job_id=job.id)
                 else:
-                    # Create new scheduled job
+                    # Create new scheduled job with effective cron
                     new_job = await self.scheduled_job_repo.create(
                         website_id=website_id,
                         cron_schedule=effective_cron,
@@ -505,7 +516,7 @@ class WebsiteService:
             raise ValueError(f"Website with ID '{website_id}' not found")
 
         # Check if already deleted
-        if hasattr(website, "deleted_at") and website.deleted_at:
+        if website.deleted_at:
             logger.warning("website_already_deleted", website_id=website_id)
             raise ValueError(f"Website with ID '{website_id}' is already deleted")
 
@@ -845,7 +856,7 @@ class WebsiteService:
             base_url=AnyUrl(updated_website.base_url),
             config=updated_website.config,
             status=api_status,
-            cron_schedule=updated_website.cron_schedule or "0 0 1,15 * *",
+            cron_schedule=updated_website.cron_schedule,
             created_at=updated_website.created_at,
             updated_at=updated_website.updated_at,
             created_by=updated_website.created_by,

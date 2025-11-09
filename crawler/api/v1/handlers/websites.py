@@ -67,6 +67,11 @@ async def create_website_handler(
 
     next_run_time = result if isinstance(result, datetime) else datetime.now(UTC)
 
+    # TODO(auth): Pass authenticated user identifier to service
+    # Once authentication is implemented, extract user ID from request context
+    # and pass to service: created_by=current_user.id
+    # This will populate website.created_by for audit trail
+
     # Delegate to service layer (error handling done by decorator)
     return await website_service.create_website(request, next_run_time)
 
@@ -156,6 +161,11 @@ async def update_website_handler(
         HTTPException: If website not found or validation fails
     """
     logger.info("update_website_request", website_id=website_id)
+
+    # TODO(auth): Pass authenticated user identifier to changed_by parameter
+    # Once authentication is implemented, extract user ID from request context
+    # and pass to service: changed_by=current_user.id
+    # This will populate website_config_history.changed_by for audit trail
 
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500

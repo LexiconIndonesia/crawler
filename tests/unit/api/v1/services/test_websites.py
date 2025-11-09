@@ -645,3 +645,75 @@ class TestWebsiteService:
             await website_service.delete_website(website_id, delete_data=False)
 
         website_service.website_repo.soft_delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_website_clear_cron_schedule(self, website_service) -> None:
+        """Test that cron schedule can be cleared by sending cron: null."""
+        # Arrange
+        from crawler.api.generated import ScheduleConfig, UpdateWebsiteRequest
+
+        website_id = str(uuid7())
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={"schedule": {"cron": "0 0 * * *", "enabled": True}},
+            status=StatusEnum.active,
+            cron_schedule="0 0 * * *",  # Has existing cron schedule
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        updated_website = Website(
+            id=mock_website.id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={"schedule": {"cron": None, "enabled": True}},
+            status=StatusEnum.active,
+            cron_schedule=None,  # Cron schedule cleared
+            created_at=mock_website.created_at,
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.config_history_repo.get_latest_version.return_value = 1
+        website_service.website_repo.update.return_value = updated_website
+        website_service.scheduled_job_repo.get_by_website_id.return_value = []
+
+        # Mock the created scheduled job with a proper UUID
+        mock_scheduled_job = MagicMock()
+        mock_scheduled_job.id = uuid7()
+        website_service.scheduled_job_repo.create.return_value = mock_scheduled_job
+
+        # Send schedule with cron: None to clear it
+        request = UpdateWebsiteRequest(
+            schedule=ScheduleConfig(cron=None, enabled=True),
+            change_reason="Clearing cron schedule",
+        )
+
+        # Act
+        result = await website_service.update_website(website_id, request)
+
+        # Assert
+        assert result.name == "Test Website"
+
+        # Verify update was called with cron_schedule=None
+        website_service.website_repo.update.assert_called_once()
+        call_args = website_service.website_repo.update.call_args
+        # cron_schedule parameter should be None (cleared)
+        assert call_args.kwargs["cron_schedule"] is None
+
+        # Verify config history was saved
+        website_service.config_history_repo.create.assert_called_once()
+
+        # Verify scheduled job was created with default cron since cron was cleared
+        # but schedule.enabled is True
+        website_service.scheduled_job_repo.create.assert_called_once()
+        job_call_args = website_service.scheduled_job_repo.create.call_args
+        # Should use default bi-weekly cron since new_cron is None
+        assert job_call_args.kwargs["cron_schedule"] == "0 0 1,15 * *"
