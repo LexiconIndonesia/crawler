@@ -72,13 +72,33 @@ WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
 
 
 GET_CRAWL_LOG_BY_ID = """-- name: get_crawl_log_by_id \\:one
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE id = :p1
 """
 
 
 GET_ERROR_LOGS = """-- name: get_error_logs \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = :p1
     AND log_level IN ('ERROR', 'CRITICAL')
 ORDER BY created_at DESC
@@ -87,7 +107,18 @@ LIMIT :p2
 
 
 GET_JOB_LOGS_FILTERED = """-- name: get_job_logs_filtered \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at,
+    COUNT(*) OVER() as total_count
+FROM crawl_log
 WHERE job_id = :p1
     AND log_level = COALESCE(:p2, log_level)
     AND (:p3\\:\\:TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= :p3\\:\\:TIMESTAMP WITH TIME ZONE)
@@ -96,6 +127,19 @@ WHERE job_id = :p1
 ORDER BY created_at ASC
 OFFSET :p6 LIMIT :p7
 """
+
+
+class GetJobLogsFilteredRow(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    website_id: uuid.UUID
+    step_name: Optional[str]
+    log_level: models.LogLevelEnum
+    message: str
+    context: Optional[Any]
+    trace_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+    total_count: int
 
 
 GET_LOG_STATS_BY_JOB = """-- name: get_log_stats_by_job \\:one
@@ -121,7 +165,17 @@ class GetLogStatsByJobRow(pydantic.BaseModel):
 
 
 GET_LOGS_BY_TIME_RANGE = """-- name: get_logs_by_time_range \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = :p1
     AND created_at >= :p2\\:\\:TIMESTAMP WITH TIME ZONE
     AND created_at <= :p3\\:\\:TIMESTAMP WITH TIME ZONE
@@ -132,7 +186,17 @@ OFFSET :p5 LIMIT :p6
 
 
 LIST_LOGS_BY_JOB = """-- name: list_logs_by_job \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
@@ -141,14 +205,34 @@ OFFSET :p3 LIMIT :p4
 
 
 LIST_LOGS_BY_TRACE_ID = """-- name: list_logs_by_trace_id \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE trace_id = :p1
 ORDER BY created_at ASC
 """
 
 
 LIST_LOGS_BY_WEBSITE = """-- name: list_logs_by_website \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE website_id = :p1
     AND log_level = COALESCE(:p2, log_level)
 ORDER BY created_at DESC
@@ -157,7 +241,17 @@ OFFSET :p3 LIMIT :p4
 
 
 STREAM_LOGS_BY_JOB = """-- name: stream_logs_by_job \\:many
-SELECT id, job_id, website_id, step_name, log_level, message, context, trace_id, created_at FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = :p1
     AND created_at > :p2\\:\\:TIMESTAMP WITH TIME ZONE
     AND log_level = COALESCE(:p3, log_level)
@@ -255,7 +349,7 @@ class AsyncQuerier:
                 created_at=row[8],
             )
 
-    async def get_job_logs_filtered(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, start_time: datetime.datetime, end_time: datetime.datetime, search_text: str, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
+    async def get_job_logs_filtered(self, *, job_id: uuid.UUID, log_level: models.LogLevelEnum, start_time: datetime.datetime, end_time: datetime.datetime, search_text: str, offset_count: int, limit_count: int) -> AsyncIterator[GetJobLogsFilteredRow]:
         result = await self._conn.stream(sqlalchemy.text(GET_JOB_LOGS_FILTERED), {
             "p1": job_id,
             "p2": log_level,
@@ -266,7 +360,7 @@ class AsyncQuerier:
             "p7": limit_count,
         })
         async for row in result:
-            yield models.CrawlLog(
+            yield GetJobLogsFilteredRow(
                 id=row[0],
                 job_id=row[1],
                 website_id=row[2],
@@ -276,6 +370,7 @@ class AsyncQuerier:
                 context=row[6],
                 trace_id=row[7],
                 created_at=row[8],
+                total_count=row[9],
             )
 
     async def get_log_stats_by_job(self, *, job_id: uuid.UUID) -> Optional[GetLogStatsByJobRow]:

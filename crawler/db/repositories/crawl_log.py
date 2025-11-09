@@ -165,8 +165,11 @@ class CrawlLogRepository:
         search_text: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[models.CrawlLog]:
-        """Get filtered logs for a job with pagination.
+    ) -> tuple[list[models.CrawlLog], int]:
+        """Get filtered logs for a job with pagination and total count.
+
+        Uses a window function to retrieve both logs and total count in a single query,
+        reducing database round trips and improving performance.
 
         Args:
             job_id: Job ID
@@ -178,14 +181,17 @@ class CrawlLogRepository:
             offset: Number of results to skip
 
         Returns:
-            List of CrawlLog models ordered by created_at ASC
+            Tuple of (logs list, total count) where:
+            - logs: List of CrawlLog models ordered by created_at ASC
+            - total: Total count of logs matching filters (for pagination)
 
         Note:
             SQL uses COALESCE and NULL checks, but sqlc generates non-optional types.
+            The total_count is extracted from the first row via window function.
         """
-        logs = [
-            log
-            async for log in self._querier.get_job_logs_filtered(
+        rows = [
+            row
+            async for row in self._querier.get_job_logs_filtered(
                 job_id=to_uuid(job_id),
                 log_level=log_level,  # type: ignore[arg-type]
                 start_time=start_time,  # type: ignore[arg-type]
@@ -195,7 +201,31 @@ class CrawlLogRepository:
                 offset_count=offset,
             )
         ]
-        return logs
+
+        # Guard: No results found
+        if not rows:
+            return [], 0
+
+        # Extract total count from first row (window function ensures all rows have same total)
+        total_count = rows[0].total_count
+
+        # Convert rows to CrawlLog models (excluding total_count field)
+        logs = [
+            models.CrawlLog(
+                id=row.id,
+                job_id=row.job_id,
+                website_id=row.website_id,
+                step_name=row.step_name,
+                log_level=row.log_level,
+                message=row.message,
+                context=row.context,
+                trace_id=row.trace_id,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+
+        return logs, total_count
 
     async def count_job_logs_filtered(
         self,
@@ -206,6 +236,10 @@ class CrawlLogRepository:
         search_text: str | None = None,
     ) -> int:
         """Count filtered logs for a job.
+
+        .. deprecated::
+            Use get_job_logs_filtered() instead, which returns both logs and count
+            in a single query using a window function for better performance.
 
         Args:
             job_id: Job ID

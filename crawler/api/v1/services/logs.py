@@ -82,8 +82,8 @@ class LogService:
         db_log_level = DBLogLevelEnum[log_level.value] if log_level else None
 
         try:
-            # Get filtered logs with pagination
-            logs = await self.crawl_log_repo.get_job_logs_filtered(
+            # Get filtered logs with pagination and total count in single query
+            logs, total = await self.crawl_log_repo.get_job_logs_filtered(
                 job_id=job_id,
                 log_level=db_log_level,
                 start_time=start_time,
@@ -91,15 +91,6 @@ class LogService:
                 search_text=search,
                 limit=limit,
                 offset=offset,
-            )
-
-            # Count total logs matching filters
-            total = await self.crawl_log_repo.count_job_logs_filtered(
-                job_id=job_id,
-                log_level=db_log_level,
-                start_time=start_time,
-                end_time=end_time,
-                search_text=search,
             )
 
             # Convert DB models to API models

@@ -1,23 +1,28 @@
 """Integration tests for job logs API endpoint."""
 
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from crawler.db.generated import models
 from crawler.db.generated.models import JobTypeEnum, LogLevelEnum
 from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository, WebsiteRepository
 
 
-@pytest.mark.asyncio
-async def test_get_job_logs_success(
-    test_client: AsyncClient,
+@pytest.fixture
+async def test_job(
     db_connection: AsyncConnection,
-) -> None:
-    """Test successful retrieval of job logs."""
-    # Create test website first (required for foreign key)
+) -> AsyncGenerator[tuple[models.CrawlJob, models.Website], None]:
+    """Create a test website and crawl job for log tests.
+
+    Returns:
+        Tuple of (job, website) that can be used in tests
+    """
+    # Create test website
     website_repo = WebsiteRepository(db_connection)
     unique_id = str(uuid.uuid4())[:8]
     website = await website_repo.create(
@@ -25,6 +30,7 @@ async def test_get_job_logs_success(
         base_url=f"https://example-{unique_id}.com",
         config={},
     )
+    assert website is not None
 
     # Create test job
     crawl_job_repo = CrawlJobRepository(db_connection)
@@ -34,6 +40,22 @@ async def test_get_job_logs_success(
         job_type=JobTypeEnum.ONE_TIME,
         priority=5,
     )
+    assert job is not None
+
+    # Commit so test_client can see the data
+    await db_connection.commit()
+
+    yield job, website
+
+
+@pytest.mark.asyncio
+async def test_get_job_logs_success(
+    test_client: AsyncClient,
+    db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
+) -> None:
+    """Test successful retrieval of job logs."""
+    job, website = test_job
 
     # Create test logs
     crawl_log_repo = CrawlLogRepository(db_connection)
@@ -91,25 +113,10 @@ async def test_get_job_logs_success(
 async def test_get_job_logs_with_log_level_filter(
     test_client: AsyncClient,
     db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test filtering logs by log level."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
-
-    # Create test job
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
+    job, website = test_job
 
     # Create test logs with different levels
     crawl_log_repo = CrawlLogRepository(db_connection)
@@ -144,25 +151,10 @@ async def test_get_job_logs_with_log_level_filter(
 async def test_get_job_logs_with_search(
     test_client: AsyncClient,
     db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test searching logs by text."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
-
-    # Create test job
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
+    job, website = test_job
 
     # Create test logs
     crawl_log_repo = CrawlLogRepository(db_connection)
@@ -196,25 +188,10 @@ async def test_get_job_logs_with_search(
 async def test_get_job_logs_with_pagination(
     test_client: AsyncClient,
     db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test pagination of logs."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
-
-    # Create test job
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
+    job, website = test_job
 
     # Create 10 test logs
     crawl_log_repo = CrawlLogRepository(db_connection)
@@ -254,25 +231,13 @@ async def test_get_job_logs_with_pagination(
 async def test_get_job_logs_with_time_range(
     test_client: AsyncClient,
     db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test filtering logs by time range."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
+    job, website = test_job
 
-    # Create test job
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
+    # Record timestamp well before creating logs
+    before_logs = datetime.now(UTC) - timedelta(seconds=2)
 
     # Create logs (they will have auto-generated timestamps)
     crawl_log_repo = CrawlLogRepository(db_connection)
@@ -282,20 +247,49 @@ async def test_get_job_logs_with_time_range(
         message="First log",
         log_level=LogLevelEnum.INFO,
     )
+    await crawl_log_repo.create(
+        job_id=job.id,
+        website_id=website.id,
+        message="Second log",
+        log_level=LogLevelEnum.INFO,
+    )
+
+    # Record timestamp well after creating logs
+    after_logs = datetime.now(UTC) + timedelta(seconds=2)
 
     # Commit transaction so test_client can see the data
     await db_connection.commit()
 
-    # Note: In real scenario, we'd have different timestamps
-    # For this test, we'll just verify the API accepts the parameters
-    # Use a timestamp that's before the log creation to ensure we get results
-    start_time = (
-        (datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=1))
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-    response = await test_client.get(f"/api/v1/jobs/{job.id}/logs?start_time={start_time}")
+    # Test 1: Query with start_time before logs - should get all logs
+    start_time_before = before_logs.isoformat().replace("+00:00", "Z")
+    response = await test_client.get(f"/api/v1/jobs/{job.id}/logs?start_time={start_time_before}")
     assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2, "Should get all logs when start_time is before creation"
+
+    # Test 2: Query with end_time before logs - should get no logs
+    end_time_before = (before_logs - timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+    response = await test_client.get(f"/api/v1/jobs/{job.id}/logs?end_time={end_time_before}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0, "Should get no logs when end_time is before creation"
+
+    # Test 3: Query with start_time and end_time spanning logs - should get all logs
+    start_time = before_logs.isoformat().replace("+00:00", "Z")
+    end_time = after_logs.isoformat().replace("+00:00", "Z")
+    response = await test_client.get(
+        f"/api/v1/jobs/{job.id}/logs?start_time={start_time}&end_time={end_time}"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2, "Should get all logs within time range"
+
+    # Test 4: Query with start_time after logs - should get no logs
+    start_time_after = after_logs.isoformat().replace("+00:00", "Z")
+    response = await test_client.get(f"/api/v1/jobs/{job.id}/logs?start_time={start_time_after}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0, "Should get no logs when start_time is after creation"
 
 
 @pytest.mark.asyncio
@@ -315,29 +309,10 @@ async def test_get_job_logs_job_not_found(
 @pytest.mark.asyncio
 async def test_get_job_logs_empty_result(
     test_client: AsyncClient,
-    db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test retrieving logs when there are no logs."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
-
-    # Create test job without logs
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
-
-    # Commit transaction so test_client can see the data
-    await db_connection.commit()
+    job, _website = test_job
 
     response = await test_client.get(f"/api/v1/jobs/{job.id}/logs")
     assert response.status_code == 200
@@ -352,29 +327,10 @@ async def test_get_job_logs_empty_result(
 @pytest.mark.asyncio
 async def test_get_job_logs_invalid_limit(
     test_client: AsyncClient,
-    db_connection: AsyncConnection,
+    test_job: tuple[models.CrawlJob, models.Website],
 ) -> None:
     """Test with invalid limit parameter."""
-    # Create test website
-    website_repo = WebsiteRepository(db_connection)
-    unique_id = str(uuid.uuid4())[:8]
-    website = await website_repo.create(
-        name=f"Test Website {unique_id}",
-        base_url=f"https://example-{unique_id}.com",
-        config={},
-    )
-
-    # Create test job
-    crawl_job_repo = CrawlJobRepository(db_connection)
-    job = await crawl_job_repo.create(
-        seed_url="https://example.com",
-        website_id=website.id,
-        job_type=JobTypeEnum.ONE_TIME,
-        priority=5,
-    )
-
-    # Commit transaction so test_client can see the data
-    await db_connection.commit()
+    job, _website = test_job
 
     # Try with limit > 1000
     response = await test_client.get(f"/api/v1/jobs/{job.id}/logs?limit=2000")
