@@ -219,6 +219,8 @@ class Website(pydantic.BaseModel):
     created_by: Optional[str]
     # Default cron schedule expression for this website (default: "0 0 1,15 * *" runs on 1st and 15th at midnight, approximately every 2 weeks)
     cron_schedule: Optional[str]
+    # Timestamp when website was soft deleted (NULL = active)
+    deleted_at: Optional[datetime.datetime]
 
 
 class WebsiteConfigHistory(pydantic.BaseModel):

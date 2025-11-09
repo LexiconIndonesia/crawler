@@ -5,6 +5,7 @@ and business logic services using dependency injection.
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException, status
 
@@ -155,3 +156,35 @@ async def update_website_handler(
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500
     return await website_service.update_website(website_id, request)
+
+
+@handle_service_errors(operation="deleting the website")
+async def delete_website_handler(
+    website_id: str,
+    delete_data: bool,
+    website_service: WebsiteService,
+) -> dict[str, Any]:
+    """Handle website deletion with soft delete.
+
+    This handler validates and delegates to the service layer which handles:
+    - Soft delete (sets deleted_at timestamp)
+    - Cancels all running/pending jobs
+    - Archives configuration for audit
+    - Disables scheduled jobs
+
+    Args:
+        website_id: Website ID
+        delete_data: Whether to delete all crawled data
+        website_service: Injected website service
+
+    Returns:
+        Deletion summary with cancelled jobs and archived config version
+
+    Raises:
+        HTTPException: If website not found or already deleted
+    """
+    logger.info("delete_website_request", website_id=website_id, delete_data=delete_data)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.delete_website(website_id, delete_data)

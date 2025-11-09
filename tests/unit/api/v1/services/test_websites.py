@@ -81,6 +81,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         mock_sched_job = MagicMock()
@@ -119,6 +120,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         website_service.website_repo.get_by_name.return_value = existing_website
@@ -162,6 +164,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         website_service.website_repo.get_by_name.return_value = None
@@ -191,6 +194,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         # Mock statistics
@@ -253,6 +257,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         website_service.website_repo.get_by_id.return_value = mock_website
@@ -285,6 +290,7 @@ class TestWebsiteService:
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
                 created_by=None,
+                deleted_at=None,
             ),
             Website(
                 id=uuid7(),
@@ -296,6 +302,7 @@ class TestWebsiteService:
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
                 created_by=None,
+                deleted_at=None,
             ),
         ]
 
@@ -338,6 +345,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         updated_website = Website(
@@ -350,6 +358,7 @@ class TestWebsiteService:
             created_at=mock_website.created_at,
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         website_service.website_repo.get_by_id.return_value = mock_website
@@ -401,6 +410,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         website_service.website_repo.get_by_id.return_value = mock_website
@@ -429,6 +439,7 @@ class TestWebsiteService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         updated_website = mock_website
@@ -450,3 +461,187 @@ class TestWebsiteService:
         # Assert
         assert result.recrawl_job_id == mock_job.id
         website_service.crawl_job_repo.create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_website_success(self, website_service) -> None:
+        """Test successful website deletion with job cancellation."""
+        # Arrange
+        website_id = str(uuid7())
+        w_id = uuid7()
+
+        mock_website = Website(
+            id=w_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={"steps": []},
+            status=StatusEnum.active,
+            cron_schedule="0 0 * * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        # Mock active jobs
+        mock_jobs = [
+            MagicMock(id=uuid7(), status="pending"),
+            MagicMock(id=uuid7(), status="running"),
+        ]
+
+        deleted_website = Website(
+            id=w_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={"steps": []},
+            status=StatusEnum.inactive,
+            cron_schedule="0 0 * * *",
+            created_at=mock_website.created_at,
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=datetime.now(UTC),
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.crawl_job_repo.get_active_by_website.return_value = mock_jobs
+        website_service.crawl_job_repo.cancel.return_value = MagicMock(id=uuid7())
+        website_service.config_history_repo.get_latest_version.return_value = 3
+        website_service.config_history_repo.create.return_value = MagicMock(version=4)
+        website_service.website_repo.soft_delete.return_value = deleted_website
+
+        # Act
+        result = await website_service.delete_website(website_id, delete_data=False)
+
+        # Assert
+        assert result["id"] == str(w_id)
+        assert result["name"] == "Test Website"
+        assert result["cancelled_jobs"] == 2
+        assert len(result["cancelled_job_ids"]) == 2
+        assert result["config_archived_version"] == 4
+        assert "deleted successfully" in result["message"]
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.crawl_job_repo.get_active_by_website.assert_called_once_with(website_id)
+        assert website_service.crawl_job_repo.cancel.call_count == 2
+        website_service.config_history_repo.create.assert_called_once()
+        website_service.website_repo.soft_delete.assert_called_once_with(website_id)
+
+    @pytest.mark.asyncio
+    async def test_delete_website_not_found(self, website_service) -> None:
+        """Test deletion fails when website not found."""
+        # Arrange
+        website_id = str(uuid7())
+        website_service.website_repo.get_by_id.return_value = None
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="not found"):
+            await website_service.delete_website(website_id, delete_data=False)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.website_repo.soft_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_website_already_deleted(self, website_service) -> None:
+        """Test deletion fails when website already deleted."""
+        # Arrange
+        website_id = str(uuid7())
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.inactive,
+            cron_schedule="0 0 * * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=datetime.now(UTC),  # Already deleted
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="already deleted"):
+            await website_service.delete_website(website_id, delete_data=False)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.website_repo.soft_delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_website_no_active_jobs(self, website_service) -> None:
+        """Test deletion with no active jobs to cancel."""
+        # Arrange
+        website_id = str(uuid7())
+        w_id = uuid7()
+
+        mock_website = Website(
+            id=w_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={"steps": []},
+            status=StatusEnum.active,
+            cron_schedule="0 0 * * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        deleted_website = Website(
+            id=w_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={"steps": []},
+            status=StatusEnum.inactive,
+            cron_schedule="0 0 * * *",
+            created_at=mock_website.created_at,
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=datetime.now(UTC),
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.crawl_job_repo.get_active_by_website.return_value = []  # No jobs
+        website_service.config_history_repo.get_latest_version.return_value = 1
+        website_service.config_history_repo.create.return_value = MagicMock(version=2)
+        website_service.website_repo.soft_delete.return_value = deleted_website
+
+        # Act
+        result = await website_service.delete_website(website_id, delete_data=False)
+
+        # Assert
+        assert result["cancelled_jobs"] == 0
+        assert result["cancelled_job_ids"] == []
+        website_service.crawl_job_repo.cancel.assert_not_called()
+        website_service.website_repo.soft_delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_website_soft_delete_fails(self, website_service) -> None:
+        """Test deletion fails when soft delete returns None."""
+        # Arrange
+        website_id = str(uuid7())
+        w_id = uuid7()
+
+        mock_website = Website(
+            id=w_id,
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.active,
+            cron_schedule="0 0 * * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.crawl_job_repo.get_active_by_website.return_value = []
+        website_service.config_history_repo.get_latest_version.return_value = 1
+        website_service.config_history_repo.create.return_value = MagicMock(version=2)
+        website_service.website_repo.soft_delete.return_value = None  # Simulate failure
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="Failed to delete website"):
+            await website_service.delete_website(website_id, delete_data=False)
+
+        website_service.website_repo.soft_delete.assert_called_once()

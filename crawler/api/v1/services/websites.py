@@ -1,6 +1,7 @@
 """Website service with business logic."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import AnyUrl
 
@@ -471,3 +472,84 @@ class WebsiteService:
             config_version=new_version,
             recrawl_job_id=recrawl_job_id,
         )
+
+    async def delete_website(
+        self,
+        website_id: str,
+        delete_data: bool = False,
+    ) -> dict[str, Any]:
+        """Delete website with soft delete and job cancellation.
+
+        Args:
+            website_id: Website ID
+            delete_data: Whether to delete all crawled data (not implemented yet)
+
+        Returns:
+            Dict with deletion details
+
+        Raises:
+            ValueError: If website not found or already deleted
+            RuntimeError: If deletion operation fails
+        """
+        logger.info("delete_website", website_id=website_id, delete_data=delete_data)
+
+        # Get current website
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Check if already deleted
+        if hasattr(website, "deleted_at") and website.deleted_at:
+            logger.warning("website_already_deleted", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' is already deleted")
+
+        # Cancel all active jobs for this website
+        active_jobs = await self.crawl_job_repo.get_active_by_website(website_id)
+        cancelled_job_ids = []
+
+        for job in active_jobs:
+            cancelled_job = await self.crawl_job_repo.cancel(
+                job_id=job.id,
+                cancelled_by="system",
+                reason=f"Website {website_id} deleted",
+            )
+            if cancelled_job:
+                cancelled_job_ids.append(str(cancelled_job.id))
+                logger.info("job_cancelled", job_id=cancelled_job.id, website_id=website_id)
+
+        # Save configuration to history before deletion
+        latest_version = await self.config_history_repo.get_latest_version(website_id)
+        new_version = latest_version + 1
+
+        await self.config_history_repo.create(
+            website_id=website_id,
+            version=new_version,
+            config=website.config if website.config else {},
+            changed_by="system",
+            change_reason="Website deleted - config archived",
+        )
+        logger.info("config_archived", website_id=website_id, version=new_version)
+
+        # Soft delete the website
+        deleted_website = await self.website_repo.soft_delete(website_id)
+
+        if not deleted_website:
+            raise RuntimeError("Failed to delete website")
+
+        logger.info(
+            "website_deleted",
+            website_id=website_id,
+            cancelled_jobs=len(cancelled_job_ids),
+            config_version=new_version,
+        )
+
+        return {
+            "id": str(deleted_website.id),
+            "name": deleted_website.name,
+            "deleted_at": deleted_website.deleted_at,
+            "cancelled_jobs": len(cancelled_job_ids),
+            "cancelled_job_ids": cancelled_job_ids,
+            "config_archived_version": new_version,
+            "message": f"Website '{deleted_website.name}' deleted successfully",
+        }

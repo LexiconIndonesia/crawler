@@ -39,6 +39,7 @@ class TestWebsiteRepository:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
             cron_schedule=None,
         )
         repo._querier.create_website = AsyncMock(return_value=mock_website)  # type: ignore[method-assign]
@@ -53,7 +54,7 @@ class TestWebsiteRepository:
             config=json.dumps(config),
             cron_schedule="0 0 1,15 * *",  # Default bi-weekly schedule
             created_by=None,
-            status="active",  # Default status enum value
+            status=StatusEnum.ACTIVE,  # Default status enum
         )
         assert result == mock_website
 
@@ -71,6 +72,7 @@ class TestWebsiteRepository:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
             cron_schedule=None,
         )
         repo._querier.get_website_by_id = AsyncMock(return_value=mock_website)  # type: ignore[method-assign]
@@ -98,6 +100,7 @@ class TestWebsiteRepository:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
             cron_schedule=None,
         )
         repo._querier.get_website_by_id = AsyncMock(return_value=mock_website)  # type: ignore[method-assign]
@@ -124,6 +127,7 @@ class TestWebsiteRepository:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
             cron_schedule=None,
         )
         repo._querier.update_website = AsyncMock(return_value=mock_website)  # type: ignore[method-assign]
@@ -151,6 +155,7 @@ class TestWebsiteRepository:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
             cron_schedule=None,
         )
         repo._querier.update_website = AsyncMock(return_value=mock_website)  # type: ignore[method-assign]
@@ -180,6 +185,7 @@ class TestWebsiteRepository:
                 created_at=now,
                 updated_at=now,
                 created_by=None,
+                deleted_at=None,
                 cron_schedule=None,
             )
             for i in range(3)

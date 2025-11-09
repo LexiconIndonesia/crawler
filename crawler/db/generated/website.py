@@ -34,7 +34,7 @@ INSERT INTO website (
     :p5,
     :p6
 )
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -45,13 +45,13 @@ WHERE id = :p1
 
 
 GET_WEBSITE_BY_ID = """-- name: get_website_by_id \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE id = :p1
 """
 
 
 GET_WEBSITE_BY_NAME = """-- name: get_website_by_name \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE name = :p1
 """
 
@@ -90,10 +90,22 @@ class GetWebsiteStatisticsRow(pydantic.BaseModel):
 
 
 LIST_WEBSITES = """-- name: list_websites \\:many
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE status = COALESCE(:p1, status)
 ORDER BY created_at DESC
 OFFSET :p2 LIMIT :p3
+"""
+
+
+SOFT_DELETE_WEBSITE = """-- name: soft_delete_website \\:one
+UPDATE website
+SET
+    deleted_at = CURRENT_TIMESTAMP,
+    status = 'inactive',
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = :p1
+  AND deleted_at IS NULL
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -107,7 +119,7 @@ SET
     status = COALESCE(:p5, status),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p6
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -117,7 +129,7 @@ SET
     status = :p1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p2
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -152,6 +164,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def delete_website(self, *, id: uuid.UUID) -> None:
@@ -171,6 +184,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def get_website_by_name(self, *, name: str) -> Optional[models.Website]:
@@ -187,6 +201,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def get_website_statistics(self, *, website_id: uuid.UUID) -> Optional[GetWebsiteStatisticsRow]:
@@ -216,7 +231,25 @@ class AsyncQuerier:
                 updated_at=row[6],
                 created_by=row[7],
                 cron_schedule=row[8],
+                deleted_at=row[9],
             )
+
+    async def soft_delete_website(self, *, id: uuid.UUID) -> Optional[models.Website]:
+        row = (await self._conn.execute(sqlalchemy.text(SOFT_DELETE_WEBSITE), {"p1": id})).first()
+        if row is None:
+            return None
+        return models.Website(
+            id=row[0],
+            name=row[1],
+            base_url=row[2],
+            config=row[3],
+            status=row[4],
+            created_at=row[5],
+            updated_at=row[6],
+            created_by=row[7],
+            cron_schedule=row[8],
+            deleted_at=row[9],
+        )
 
     async def update_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[str], status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE), {
@@ -239,6 +272,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def update_website_status(self, *, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
@@ -255,4 +289,5 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )

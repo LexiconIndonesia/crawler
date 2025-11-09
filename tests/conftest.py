@@ -22,6 +22,7 @@ from crawler.db.repositories import (
     CrawlJobRepository,
     CrawlLogRepository,
     ScheduledJobRepository,
+    WebsiteConfigHistoryRepository,
     WebsiteRepository,
 )
 from main import create_app
@@ -221,6 +222,14 @@ async def crawl_log_repo(db_connection: AsyncConnection) -> CrawlLogRepository:
 async def scheduled_job_repo(db_connection: AsyncConnection) -> ScheduledJobRepository:
     """Create scheduled job repository fixture."""
     return ScheduledJobRepository(db_connection)
+
+
+@pytest_asyncio.fixture
+async def website_config_history_repo(
+    db_connection: AsyncConnection,
+) -> WebsiteConfigHistoryRepository:
+    """Create website config history repository fixture."""
+    return WebsiteConfigHistoryRepository(db_connection)
 
 
 @pytest_asyncio.fixture

@@ -9,6 +9,7 @@ from .jobs import (
 from .logs import get_job_logs_handler
 from .websites import (
     create_website_handler,
+    delete_website_handler,
     get_website_by_id_handler,
     list_websites_handler,
     update_website_handler,
@@ -16,6 +17,7 @@ from .websites import (
 
 __all__ = [
     "create_website_handler",
+    "delete_website_handler",
     "get_website_by_id_handler",
     "list_websites_handler",
     "update_website_handler",

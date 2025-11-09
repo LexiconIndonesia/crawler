@@ -16,6 +16,7 @@ from crawler.api.generated import (
 from crawler.api.v1.dependencies import WebsiteServiceDep
 from crawler.api.v1.handlers import (
     create_website_handler,
+    delete_website_handler,
     get_website_by_id_handler,
     list_websites_handler,
     update_website_handler,
@@ -299,3 +300,113 @@ async def update_website(
         HTTPException: If website not found or validation fails
     """
     return await update_website_handler(id, request, website_service)
+
+
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete website (soft delete)",
+    operation_id="deleteWebsite",
+    description="""
+    Soft delete a website and cancel all running jobs.
+
+    This endpoint:
+    1. Validates the website exists and is not already deleted
+    2. Cancels all active (pending/running) jobs for this website
+    3. Archives the current configuration for audit purposes
+    4. Soft deletes the website (sets deleted_at timestamp)
+    5. Sets status to 'inactive'
+    6. Returns deletion summary with cancelled jobs
+
+    Soft delete behavior:
+    - Website is not permanently removed from the database
+    - Sets `deleted_at` timestamp to current time
+    - Sets status to 'inactive'
+    - Configuration is preserved in history table
+    - Can be restored by clearing deleted_at (not yet implemented)
+
+    Job cancellation:
+    - All pending and running jobs are automatically cancelled
+    - Jobs are marked with cancellation reason
+    - Returns list of cancelled job IDs
+
+    Future feature (delete_data parameter):
+    - Option to delete all crawled pages and data (not yet implemented)
+    - When true, removes all crawled_page entries
+    - When false (default), preserves crawled data for audit
+    """,
+    responses={
+        200: {
+            "description": "Website deleted successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                        "name": "Example Website",
+                        "deleted_at": "2025-11-09T12:00:00Z",
+                        "cancelled_jobs": 2,
+                        "cancelled_job_ids": [
+                            "660e8400-e29b-41d4-a716-446655440000",
+                            "770e8400-e29b-41d4-a716-446655440000",
+                        ],
+                        "config_archived_version": 5,
+                        "message": "Website 'Example Website' deleted successfully",
+                    }
+                }
+            },
+        },
+        400: {
+            "description": "Website not found or already deleted",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "not_found": {
+                            "value": {
+                                "detail": (
+                                    "Website with ID '550e8400-e29b-41d4-a716-446655440000' "
+                                    "not found"
+                                ),
+                                "error_code": "WEBSITE_NOT_FOUND",
+                            }
+                        },
+                        "already_deleted": {
+                            "value": {
+                                "detail": (
+                                    "Website with ID '550e8400-e29b-41d4-a716-446655440000' "
+                                    "is already deleted"
+                                ),
+                                "error_code": "WEBSITE_ALREADY_DELETED",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        422: {"description": "Validation error"},
+    },
+)
+async def delete_website(
+    id: Annotated[str, Path(description="Website ID")],
+    website_service: WebsiteServiceDep,
+    delete_data: Annotated[
+        bool,
+        Query(
+            description=("Delete all crawled data (not yet implemented, reserved for future use)")
+        ),
+    ] = False,
+) -> dict:
+    """Delete a website with soft delete.
+
+    Args:
+        id: Website ID (UUID format)
+        website_service: Injected website service
+        delete_data: Whether to delete all crawled data (not yet implemented)
+
+    Returns:
+        Deletion summary including cancelled jobs and archived config version
+
+    Raises:
+        HTTPException: If website not found or already deleted
+    """
+    return await delete_website_handler(id, delete_data, website_service)

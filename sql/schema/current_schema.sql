@@ -424,7 +424,8 @@ CREATE TABLE website (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_by character varying(255),
-    cron_schedule character varying(255) DEFAULT '0 0 1,15 * *'::character varying
+    cron_schedule character varying(255) DEFAULT '0 0 1,15 * *'::character varying,
+    deleted_at timestamp with time zone
 );
 
 
@@ -440,6 +441,13 @@ COMMENT ON TABLE website IS 'Stores website configurations and metadata';
 --
 
 COMMENT ON COLUMN website.cron_schedule IS 'Default cron schedule expression for this website (default: "0 0 1,15 * *" runs on 1st and 15th at midnight, approximately every 2 weeks)';
+
+
+--
+-- Name: COLUMN website.deleted_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN website.deleted_at IS 'Timestamp when website was soft deleted (NULL = active)';
 
 
 --
@@ -1116,6 +1124,13 @@ CREATE INDEX ix_website_config_history_website_version ON website_config_history
 --
 
 CREATE INDEX ix_website_created_at ON website USING btree (created_at);
+
+
+--
+-- Name: ix_website_deleted_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_website_deleted_at ON website USING btree (deleted_at) WHERE (deleted_at IS NULL);
 
 
 --

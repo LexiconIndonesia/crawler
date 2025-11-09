@@ -50,6 +50,16 @@ RETURNING *;
 DELETE FROM website
 WHERE id = sqlc.arg(id);
 
+-- name: SoftDeleteWebsite :one
+UPDATE website
+SET
+    deleted_at = CURRENT_TIMESTAMP,
+    status = 'inactive',
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg(id)
+  AND deleted_at IS NULL
+RETURNING *;
+
 -- name: UpdateWebsiteStatus :one
 UPDATE website
 SET
