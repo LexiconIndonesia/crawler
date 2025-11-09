@@ -106,14 +106,14 @@ class TestWorkerIntegration:
         transaction = await db_connection.begin()
 
         # Mock HTTP response
-        mock_html = b'<html><body><a href="/product1">Product 1</a></body></html>'
+        mock_html = '<html><body><a href="/product1">Product 1</a></body></html>'
 
-        with patch("httpx.AsyncClient.get") as mock_get:
+        with patch("httpx.AsyncClient.request") as mock_request:
             mock_response = AsyncMock()
             mock_response.status_code = 200
-            mock_response.content = mock_html
+            mock_response.text = mock_html
             mock_response.headers = {"content-type": "text/html"}
-            mock_get.return_value = mock_response
+            mock_request.return_value = mock_response
 
             # Process the job - pass connection so worker uses same transaction
             result = await worker.process_job(
@@ -278,11 +278,11 @@ class TestWorkerIntegration:
         transaction = await db_connection.begin()
 
         # Mock 404 response
-        with patch("httpx.AsyncClient.get") as mock_get:
+        with patch("httpx.AsyncClient.request") as mock_request:
             mock_response = AsyncMock()
             mock_response.status_code = 404
-            mock_response.content = b"Not Found"
-            mock_get.return_value = mock_response
+            mock_response.text = "Not Found"
+            mock_request.return_value = mock_response
 
             # Process the job - pass connection
             result = await worker.process_job(
