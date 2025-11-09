@@ -619,6 +619,149 @@ class JobProgressCache:
             return False
 
 
+class LogBuffer:
+    """Redis-based log buffer for WebSocket reconnection support.
+
+    Buffers recent logs (max 1000) for each job to support reconnection with resume.
+    When a WebSocket reconnects, it can request logs after a specific log_id.
+    """
+
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
+        """Initialize log buffer.
+
+        Args:
+            redis_client: Redis client from connection pool.
+            settings: Application settings.
+        """
+        self.settings = settings
+        self.redis = redis_client
+        self.key_prefix = "logs:buffer:"
+        self.max_buffer_size = 1000
+        self.buffer_ttl = 3600  # 1 hour
+
+    def _make_key(self, job_id: str) -> str:
+        """Create Redis key for job's log buffer.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Redis key string.
+        """
+        return f"{self.key_prefix}{job_id}"
+
+    async def add_log(self, job_id: str, log_id: int, log_data: dict[str, Any]) -> bool:
+        """Add a log to the buffer (FIFO with max 1000 entries).
+
+        Args:
+            job_id: Job UUID.
+            log_id: Log entry ID.
+            log_data: Log data dict (WebSocketLogMessage format).
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            key = self._make_key(job_id)
+
+            # Store log_id:log_data as JSON in Redis LIST
+            log_entry = json.dumps({"id": log_id, "data": log_data})
+
+            # Use pipeline for atomic operations
+            async with self.redis.pipeline() as pipe:
+                # Add to list
+                await pipe.rpush(key, log_entry)
+                # Trim to max size (keep only last 1000)
+                await pipe.ltrim(key, -self.max_buffer_size, -1)
+                # Set expiry
+                await pipe.expire(key, self.buffer_ttl)
+                await pipe.execute()
+
+            logger.debug("log_buffer_added", job_id=job_id, log_id=log_id)
+            return True
+
+        except Exception as e:
+            logger.error("log_buffer_add_error", job_id=job_id, log_id=log_id, error=str(e))
+            return False
+
+    async def get_logs_after_id(self, job_id: str, after_log_id: int) -> list[dict[str, Any]]:
+        """Get all buffered logs after a specific log ID.
+
+        Args:
+            job_id: Job UUID.
+            after_log_id: Return logs with ID greater than this.
+
+        Returns:
+            List of log data dicts (WebSocketLogMessage format), ordered by ID.
+        """
+        try:
+            key = self._make_key(job_id)
+
+            # Get all buffered logs
+            log_entries = await self.redis.lrange(key, 0, -1)
+
+            # Parse and filter logs after the specified ID
+            result: list[dict[str, Any]] = []
+            for entry in log_entries:
+                if isinstance(entry, bytes):
+                    entry = entry.decode("utf-8")
+                log_obj = json.loads(entry)
+                if log_obj["id"] > after_log_id:
+                    result.append(log_obj["data"])
+
+            logger.debug(
+                "log_buffer_retrieved",
+                job_id=job_id,
+                after_log_id=after_log_id,
+                count=len(result),
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                "log_buffer_get_error",
+                job_id=job_id,
+                after_log_id=after_log_id,
+                error=str(e),
+            )
+            return []
+
+    async def clear_buffer(self, job_id: str) -> bool:
+        """Clear the log buffer for a job.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            key = self._make_key(job_id)
+            await self.redis.delete(key)
+            logger.info("log_buffer_cleared", job_id=job_id)
+            return True
+        except Exception as e:
+            logger.error("log_buffer_clear_error", job_id=job_id, error=str(e))
+            return False
+
+    async def get_buffer_size(self, job_id: str) -> int:
+        """Get the current buffer size for a job.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Number of logs in buffer.
+        """
+        try:
+            key = self._make_key(job_id)
+            size = await self.redis.llen(key)
+            return size or 0
+        except Exception as e:
+            logger.error("log_buffer_size_error", job_id=job_id, error=str(e))
+            return 0
+
+
 class WebSocketTokenService:
     """Redis-based WebSocket authentication token service.
 

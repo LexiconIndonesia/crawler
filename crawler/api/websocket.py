@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from crawler.api.websocket_models import WebSocketLogMessage
 from crawler.core.dependencies import (
+    LogBufferDep,
     LogPublisherDep,
     NATSQueueDep,
     WebSocketTokenServiceDep,
@@ -29,21 +30,30 @@ async def stream_job_logs(
     ws_token_service: WebSocketTokenServiceDep,
     nats_queue_service: NATSQueueDep,
     log_publisher: LogPublisherDep,
+    log_buffer: LogBufferDep,
+    last_log_id: int | None = None,
 ) -> None:
-    """WebSocket endpoint for real-time job log streaming via NATS.
+    """WebSocket endpoint for real-time job log streaming via NATS with reconnection support.
 
     This endpoint provides true real-time log streaming for crawl jobs using
     NATS pub/sub. Logs are published to NATS after database insertion and
     immediately streamed to WebSocket clients (<50ms latency).
 
+    Reconnection support:
+    - Client can reconnect with last_log_id parameter to resume from where it left off
+    - Server first tries to serve missed logs from Redis buffer (fast, <1ms)
+    - Falls back to database if logs not in buffer or buffer unavailable
+    - Buffers last 1000 logs per job in Redis with 1-hour TTL
+
     Connection flow:
     1. Client obtains token from POST /api/v1/jobs/{job_id}/ws-token
-    2. Client connects to /ws/v1/jobs/{job_id}/logs?token={token}
+    2. Client connects to /ws/v1/jobs/{job_id}/logs?token={token}&last_log_id={id}
     3. Server validates token (single-use, 10-minute TTL)
-    4. Server sends initial logs from database (last 50)
-    5. Server subscribes to NATS subject: logs.{job_id}
-    6. New logs are streamed in real-time via NATS (<50ms latency)
-    7. Falls back to database polling if NATS unavailable (2s latency)
+    4. Server sends missed logs (from Redis buffer or DB) if last_log_id provided
+    5. Server sends initial logs from database (last 50) if no last_log_id
+    6. Server subscribes to NATS subject: logs.{job_id}
+    7. New logs are streamed in real-time via NATS (<50ms latency)
+    8. Falls back to database polling if NATS unavailable (2s latency)
 
     Message format: See WebSocketLogMessage model for complete schema.
 
@@ -54,6 +64,8 @@ async def stream_job_logs(
         ws_token_service: WebSocket token service from dependency
         nats_queue_service: NATS queue service (provides NATS client)
         log_publisher: Log publisher (checks if NATS enabled)
+        log_buffer: Redis log buffer for reconnection support
+        last_log_id: Optional last log ID received by client (for reconnection)
     """
     # Validate token before accepting connection
     is_valid = await ws_token_service.validate_and_consume_token(token, job_id)
@@ -77,8 +89,14 @@ async def stream_job_logs(
             conn = await db_session.connection()
             log_repo = CrawlLogRepository(conn, log_publisher=log_publisher)
 
-            # Send initial logs (last 50)
-            last_timestamp = await _send_initial_logs(websocket, log_repo, job_id)
+            # Send initial logs (last 50) or resume from last_log_id
+            last_timestamp = await _send_initial_logs(
+                websocket=websocket,
+                log_repo=log_repo,
+                log_buffer=log_buffer,
+                job_id=job_id,
+                last_log_id=last_log_id,
+            )
 
             # Choose streaming strategy based on NATS availability
             use_nats = log_publisher.is_enabled and nats_queue_service.client
@@ -117,27 +135,97 @@ async def stream_job_logs(
 async def _send_initial_logs(
     websocket: WebSocket,
     log_repo: CrawlLogRepository,
+    log_buffer: Any,
     job_id: str,
+    last_log_id: int | None = None,
+    timeout: float = 30.0,
 ) -> datetime:
-    """Send initial logs from database (last 50).
+    """Send initial logs or resume from last_log_id with reconnection support.
+
+    Reconnection strategy:
+    1. If last_log_id provided: Try Redis buffer first, fall back to database
+    2. If no last_log_id: Send last 50 logs from database (initial connection)
 
     Args:
         websocket: WebSocket connection
         log_repo: Log repository
+        log_buffer: Redis log buffer for reconnection
         job_id: Job ID
+        last_log_id: Optional last log ID received by client (for reconnection)
+        timeout: Timeout in seconds for sending initial logs (default: 30s)
 
     Returns:
         Timestamp of the last sent log (for polling fallback)
     """
     last_timestamp = datetime.now(UTC)
 
+    async def _send_logs() -> datetime:
+        """Internal function to send logs with timeout wrapper."""
+        nonlocal last_timestamp
+
+        # Reconnection case: client provides last_log_id
+        if last_log_id is not None:
+            logger.info("ws_reconnection_resume", job_id=job_id, last_log_id=last_log_id)
+
+            # Try Redis buffer first (fast path)
+            buffered_logs = await log_buffer.get_logs_after_id(
+                job_id=job_id, after_log_id=last_log_id
+            )
+
+            if buffered_logs:
+                # Send buffered logs
+                for log_data in buffered_logs:
+                    await websocket.send_json(log_data)
+                    if "created_at" in log_data:
+                        last_timestamp = datetime.fromisoformat(log_data["created_at"])
+
+                logger.info(
+                    "ws_resume_from_buffer",
+                    job_id=job_id,
+                    last_log_id=last_log_id,
+                    count=len(buffered_logs),
+                )
+            else:
+                # Fall back to database (slower but reliable)
+                logger.info("ws_resume_fallback_to_db", job_id=job_id, last_log_id=last_log_id)
+                db_logs = await log_repo.get_logs_after_id(
+                    job_id=job_id, after_log_id=last_log_id, limit=1000
+                )
+
+                for log in db_logs:
+                    message = WebSocketLogMessage.from_crawl_log(log)
+                    await websocket.send_json(message.model_dump())
+                    last_timestamp = log.created_at
+
+                logger.info(
+                    "ws_resume_from_db",
+                    job_id=job_id,
+                    last_log_id=last_log_id,
+                    count=len(db_logs),
+                )
+
+        # Initial connection case: send last 50 logs
+        else:
+            initial_logs = await log_repo.list_by_job(job_id=job_id, limit=50, offset=0)
+            for log in reversed(initial_logs):  # Reverse to send oldest first
+                message = WebSocketLogMessage.from_crawl_log(log)
+                await websocket.send_json(message.model_dump())
+                last_timestamp = log.created_at
+            logger.info("ws_initial_logs_sent", job_id=job_id, count=len(initial_logs))
+
+        return last_timestamp
+
     try:
-        initial_logs = await log_repo.list_by_job(job_id=job_id, limit=50, offset=0)
-        for log in reversed(initial_logs):  # Reverse to send oldest first
-            message = WebSocketLogMessage.from_crawl_log(log)
-            await websocket.send_json(message.model_dump())
-            last_timestamp = log.created_at
-        logger.info("ws_initial_logs_sent", job_id=job_id, count=len(initial_logs))
+        # Execute with timeout to prevent hanging on slow database/Redis operations
+        last_timestamp = await asyncio.wait_for(_send_logs(), timeout=timeout)
+    except TimeoutError:
+        logger.error(
+            "ws_initial_logs_timeout",
+            job_id=job_id,
+            timeout=timeout,
+            last_log_id=last_log_id,
+        )
+        # Return current timestamp as fallback
     except Exception as e:
         logger.error("ws_initial_logs_error", job_id=job_id, error=str(e))
 

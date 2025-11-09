@@ -164,6 +164,26 @@ class GetLogStatsByJobRow(pydantic.BaseModel):
     critical_count: int
 
 
+GET_LOGS_AFTER_ID = """-- name: get_logs_after_id \\:many
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
+WHERE job_id = :p1
+    AND id > :p2
+    AND log_level = COALESCE(:p3, log_level)
+ORDER BY id ASC
+LIMIT :p4
+"""
+
+
 GET_LOGS_BY_TIME_RANGE = """-- name: get_logs_by_time_range \\:many
 SELECT
     id,
@@ -385,6 +405,26 @@ class AsyncQuerier:
             error_count=row[4],
             critical_count=row[5],
         )
+
+    async def get_logs_after_id(self, *, job_id: uuid.UUID, after_log_id: int, log_level: models.LogLevelEnum, limit_count: int) -> AsyncIterator[models.CrawlLog]:
+        result = await self._conn.stream(sqlalchemy.text(GET_LOGS_AFTER_ID), {
+            "p1": job_id,
+            "p2": after_log_id,
+            "p3": log_level,
+            "p4": limit_count,
+        })
+        async for row in result:
+            yield models.CrawlLog(
+                id=row[0],
+                job_id=row[1],
+                website_id=row[2],
+                step_name=row[3],
+                log_level=row[4],
+                message=row[5],
+                context=row[6],
+                trace_id=row[7],
+                created_at=row[8],
+            )
 
     async def get_logs_by_time_range(self, *, job_id: uuid.UUID, start_time: datetime.datetime, end_time: datetime.datetime, log_level: models.LogLevelEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.CrawlLog]:
         result = await self._conn.stream(sqlalchemy.text(GET_LOGS_BY_TIME_RANGE), {
