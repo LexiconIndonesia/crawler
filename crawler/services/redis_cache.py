@@ -619,6 +619,159 @@ class JobProgressCache:
             return False
 
 
+class LogBuffer:
+    """Redis-based log buffer for WebSocket reconnection support.
+
+    Buffers recent logs (max 1000) for each job to support reconnection with resume.
+    When a WebSocket reconnects, it can request logs after a specific log_id.
+
+    Implementation uses Redis Sorted Set (ZSET) with log_id as score for efficient
+    range queries. This allows Redis to handle filtering server-side, reducing
+    network transfer and improving performance.
+    """
+
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
+        """Initialize log buffer.
+
+        Args:
+            redis_client: Redis client from connection pool.
+            settings: Application settings.
+        """
+        self.settings = settings
+        self.redis = redis_client
+        self.key_prefix = "logs:buffer:"
+        self.max_buffer_size = 1000
+        self.buffer_ttl = 3600  # 1 hour
+
+    def _make_key(self, job_id: str) -> str:
+        """Create Redis key for job's log buffer.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Redis key string.
+        """
+        return f"{self.key_prefix}{job_id}"
+
+    async def add_log(self, job_id: str, log_id: int, log_data: dict[str, Any]) -> bool:
+        """Add a log to the buffer using a sorted set (FIFO with max 1000 entries).
+
+        Uses Redis ZSET with log_id as score for efficient range queries.
+
+        Args:
+            job_id: Job UUID.
+            log_id: Log entry ID (used as score in sorted set).
+            log_data: Log data dict (WebSocketLogMessage format).
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            key = self._make_key(job_id)
+
+            # Serialize log data as JSON (member of sorted set)
+            log_entry = json.dumps(log_data)
+
+            # Use pipeline for atomic operations
+            async with self.redis.pipeline() as pipe:
+                # Add to sorted set with log_id as score
+                await pipe.zadd(key, {log_entry: log_id})
+                # Trim to max size (keep only last N entries by removing oldest)
+                await pipe.zremrangebyrank(key, 0, -self.max_buffer_size - 1)
+                # Set/reset expiry on each add
+                await pipe.expire(key, self.buffer_ttl)
+                await pipe.execute()
+
+            logger.debug("log_buffer_added", job_id=job_id, log_id=log_id)
+            return True
+
+        except Exception as e:
+            logger.error("log_buffer_add_error", job_id=job_id, log_id=log_id, error=str(e))
+            return False
+
+    async def get_logs_after_id(self, job_id: str, after_log_id: int) -> list[dict[str, Any]]:
+        """Get buffered logs after a specific log ID using sorted set range query.
+
+        Uses ZRANGEBYSCORE to efficiently fetch only logs with ID > after_log_id.
+        Filtering happens in Redis (optimized C code) rather than in Python.
+
+        Args:
+            job_id: Job UUID.
+            after_log_id: Return logs with ID greater than this.
+
+        Returns:
+            List of log data dicts (WebSocketLogMessage format), ordered by ID.
+        """
+        try:
+            key = self._make_key(job_id)
+
+            # Use ZRANGEBYSCORE with exclusive range to get logs with ID > after_log_id
+            # The '(' prefix makes the range exclusive (excluding after_log_id itself)
+            log_entries = await self.redis.zrangebyscore(key, f"({after_log_id}", "+inf")
+
+            # Parse JSON entries
+            result: list[dict[str, Any]] = []
+            for entry in log_entries:
+                if isinstance(entry, bytes):
+                    entry = entry.decode("utf-8")
+                result.append(json.loads(entry))
+
+            logger.debug(
+                "log_buffer_retrieved",
+                job_id=job_id,
+                after_log_id=after_log_id,
+                count=len(result),
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                "log_buffer_get_error",
+                job_id=job_id,
+                after_log_id=after_log_id,
+                error=str(e),
+            )
+            return []
+
+    async def clear_buffer(self, job_id: str) -> bool:
+        """Clear the log buffer for a job.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            key = self._make_key(job_id)
+            await self.redis.delete(key)
+            logger.info("log_buffer_cleared", job_id=job_id)
+            return True
+        except Exception as e:
+            logger.error("log_buffer_clear_error", job_id=job_id, error=str(e))
+            return False
+
+    async def get_buffer_size(self, job_id: str) -> int:
+        """Get the current buffer size for a job.
+
+        Uses ZCARD for O(1) cardinality check on the sorted set.
+
+        Args:
+            job_id: Job UUID.
+
+        Returns:
+            Number of logs in buffer.
+        """
+        try:
+            key = self._make_key(job_id)
+            size = await self.redis.zcard(key)
+            return size or 0
+        except Exception as e:
+            logger.error("log_buffer_size_error", job_id=job_id, error=str(e))
+            return 0
+
+
 class WebSocketTokenService:
     """Redis-based WebSocket authentication token service.
 

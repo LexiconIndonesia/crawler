@@ -164,6 +164,24 @@ WHERE job_id = sqlc.arg(job_id)
 ORDER BY created_at ASC
 LIMIT sqlc.arg(limit_count);
 
+-- name: GetLogsAfterID :many
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND id > sqlc.arg(after_log_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+ORDER BY id ASC
+LIMIT sqlc.arg(limit_count);
+
 -- name: GetJobLogsFiltered :many
 SELECT
     id,

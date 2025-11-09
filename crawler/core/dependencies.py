@@ -24,6 +24,7 @@ from crawler.services.redis_cache import (
     BrowserPoolStatus,
     JobCancellationFlag,
     JobProgressCache,
+    LogBuffer,
     RateLimiter,
     URLDeduplicationCache,
     WebSocketTokenService,
@@ -245,6 +246,24 @@ async def get_websocket_token_service(
     return WebSocketTokenService(redis_client=redis_client, settings=settings)
 
 
+async def get_log_buffer(
+    redis_client: RedisDep,
+    settings: SettingsDep,
+) -> LogBuffer:
+    """Get log buffer for WebSocket reconnection support.
+
+    Args:
+        redis_client: Redis client from dependency
+        settings: Application settings from dependency
+
+    Returns:
+        LogBuffer instance
+    """
+    from crawler.services.redis_cache import LogBuffer
+
+    return LogBuffer(redis_client=redis_client, settings=settings)
+
+
 # Global NATS queue service instance (singleton pattern)
 _nats_queue_service: NATSQueueService | None = None
 
@@ -282,14 +301,17 @@ async def get_nats_queue_service(
 
 async def get_log_publisher(
     nats_queue_service: NATSQueueDep,
+    log_buffer: LogBufferDep,
 ) -> LogPublisher:
-    """Get log publisher for real-time log streaming via NATS.
+    """Get log publisher for real-time log streaming via NATS with Redis buffering.
 
     The log publisher uses the NATS client from the queue service
     to publish logs to NATS subjects for WebSocket consumption.
+    It also buffers logs in Redis for reconnection support.
 
     Args:
         nats_queue_service: NATS queue service (provides NATS client)
+        log_buffer: Redis-based log buffer for reconnection support
 
     Returns:
         LogPublisher instance
@@ -302,7 +324,7 @@ async def get_log_publisher(
 
     # Get NATS client from queue service (may be None if not connected)
     nats_client = nats_queue_service.client if nats_queue_service else None
-    return LogPublisher(nats_client=nats_client)
+    return LogPublisher(nats_client=nats_client, log_buffer=log_buffer)
 
 
 async def connect_nats_queue() -> None:
@@ -341,3 +363,4 @@ RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
 BrowserPoolStatusDep = Annotated[BrowserPoolStatus, Depends(get_browser_pool_status)]
 JobProgressCacheDep = Annotated[JobProgressCache, Depends(get_job_progress_cache)]
 WebSocketTokenServiceDep = Annotated[WebSocketTokenService, Depends(get_websocket_token_service)]
+LogBufferDep = Annotated[LogBuffer, Depends(get_log_buffer)]

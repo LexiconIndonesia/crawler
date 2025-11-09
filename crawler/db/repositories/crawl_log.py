@@ -156,6 +156,41 @@ class CrawlLogRepository:
         ]
         return logs
 
+    async def get_logs_after_id(
+        self,
+        job_id: str | UUID,
+        after_log_id: int,
+        log_level: LogLevelEnum | None = None,
+        limit: int = 1000,
+    ) -> list[models.CrawlLog]:
+        """Get logs for a job after a specific log ID.
+
+        This method is used for WebSocket reconnection with resume support.
+        It returns logs with ID greater than the specified log ID.
+
+        Args:
+            job_id: Job ID
+            after_log_id: Only return logs with ID greater than this
+            log_level: Optional log level filter
+            limit: Maximum number of results (default 1000)
+
+        Returns:
+            List of CrawlLog models ordered by id ASC
+
+        Note:
+            SQL uses COALESCE, but sqlc generates non-optional type.
+        """
+        logs = [
+            log
+            async for log in self._querier.get_logs_after_id(
+                job_id=to_uuid(job_id),
+                after_log_id=after_log_id,
+                log_level=log_level,  # type: ignore[arg-type]
+                limit_count=limit,
+            )
+        ]
+        return logs
+
     async def get_job_logs_filtered(
         self,
         job_id: str | UUID,
