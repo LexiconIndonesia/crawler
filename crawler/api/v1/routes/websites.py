@@ -5,9 +5,13 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Query, status
 
 from crawler.api.generated import (
+    ConfigHistoryListResponse,
+    ConfigHistoryResponse,
     CreateWebsiteRequest,
     ErrorResponse,
     ListWebsitesResponse,
+    RollbackConfigRequest,
+    RollbackConfigResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -17,8 +21,11 @@ from crawler.api.v1.dependencies import WebsiteServiceDep
 from crawler.api.v1.handlers import (
     create_website_handler,
     delete_website_handler,
+    get_config_history_handler,
+    get_config_version_handler,
     get_website_by_id_handler,
     list_websites_handler,
+    rollback_config_handler,
     update_website_handler,
 )
 
@@ -410,3 +417,187 @@ async def delete_website(
         HTTPException: If website not found or already deleted
     """
     return await delete_website_handler(id, delete_data, website_service)
+
+
+@router.get(
+    "/{id}/config-history",
+    response_model=ConfigHistoryListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get website configuration history",
+    operation_id="getWebsiteConfigHistory",
+    description="""
+    Retrieve the configuration version history for a website.
+
+    This endpoint:
+    1. Lists all configuration versions for the website
+    2. Returns versions in descending order (newest first)
+    3. Includes full config snapshot for each version
+    4. Shows who made each change and why
+    5. Supports pagination for large histories
+
+    Use cases:
+    - Audit trail for configuration changes
+    - Understanding configuration evolution
+    - Identifying when/why a change was made
+    - Preparing for rollback operations
+    """,
+    responses={
+        200: {"description": "Configuration history retrieved successfully"},
+        404: {
+            "description": "Website not found",
+            "model": ErrorResponse,
+        },
+        422: {"description": "Validation error"},
+    },
+)
+async def get_config_history(
+    id: Annotated[str, Path(description="Website ID")],
+    website_service: WebsiteServiceDep,
+    limit: Annotated[int, Query(ge=1, le=100, description="Number of versions to return")] = 10,
+    offset: Annotated[int, Query(ge=0, description="Number of versions to skip")] = 0,
+) -> ConfigHistoryListResponse:
+    """Get configuration history for a website.
+
+    Args:
+        id: Website ID (UUID format)
+        website_service: Injected website service
+        limit: Maximum number of versions to return (default: 10, max: 100)
+        offset: Number of versions to skip (default: 0)
+
+    Returns:
+        Paginated list of configuration versions
+
+    Raises:
+        HTTPException: If website not found or operation fails
+    """
+    return await get_config_history_handler(id, limit, offset, website_service)
+
+
+@router.get(
+    "/{id}/config-history/{version}",
+    response_model=ConfigHistoryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a specific configuration version",
+    operation_id="getWebsiteConfigVersion",
+    description="""
+    Retrieve a specific version of the website configuration.
+
+    This endpoint:
+    1. Fetches a specific version by version number
+    2. Returns the complete configuration snapshot
+    3. Includes change metadata (who, when, why)
+
+    Use cases:
+    - Viewing exact configuration at a point in time
+    - Comparing configurations before rollback
+    - Detailed audit investigation
+    """,
+    responses={
+        200: {"description": "Configuration version retrieved successfully"},
+        404: {
+            "description": "Website or version not found",
+            "model": ErrorResponse,
+        },
+        422: {"description": "Validation error"},
+    },
+)
+async def get_config_version(
+    id: Annotated[str, Path(description="Website ID")],
+    version: Annotated[int, Path(ge=1, description="Version number")],
+    website_service: WebsiteServiceDep,
+) -> ConfigHistoryResponse:
+    """Get a specific configuration version.
+
+    Args:
+        id: Website ID (UUID format)
+        version: Version number to retrieve
+        website_service: Injected website service
+
+    Returns:
+        Configuration version details
+
+    Raises:
+        HTTPException: If website or version not found
+    """
+    return await get_config_version_handler(id, version, website_service)
+
+
+@router.post(
+    "/{id}/config-history/{version}",
+    response_model=RollbackConfigResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rollback website configuration to a previous version",
+    operation_id="rollbackWebsiteConfig",
+    description="""
+    Rollback the website configuration to a specific previous version.
+
+    This endpoint:
+    1. Validates the target version exists
+    2. Saves the current configuration as a new version (audit trail)
+    3. Restores the configuration from the target version
+    4. Updates the website with the restored configuration
+    5. Optionally triggers an immediate re-crawl with the restored config
+
+    Safety features:
+    - Current config is preserved in history before rollback
+    - All rollbacks are logged with reason and user
+    - Rollback itself creates a new version (reversible)
+    - Optional re-crawl to validate restored configuration
+
+    Important:
+    - Rolling back does NOT delete newer versions
+    - Creates a new version that's a copy of the target version
+    - Full audit trail is maintained
+    """,
+    responses={
+        200: {"description": "Configuration rolled back successfully"},
+        400: {
+            "description": "Invalid rollback request",
+            "model": ErrorResponse,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "version_not_found": {
+                            "value": {
+                                "detail": "Configuration version 10 not found",
+                                "error_code": "VERSION_NOT_FOUND",
+                            }
+                        },
+                        "same_version": {
+                            "value": {
+                                "detail": "Cannot rollback to the current version",
+                                "error_code": "INVALID_ROLLBACK",
+                            }
+                        },
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Website not found",
+            "model": ErrorResponse,
+        },
+        422: {"description": "Validation error"},
+    },
+)
+async def rollback_config(
+    id: Annotated[str, Path(description="Website ID")],
+    version: Annotated[int, Path(ge=1, description="Target version number to rollback to")],
+    website_service: WebsiteServiceDep,
+    request: RollbackConfigRequest | None = None,
+) -> RollbackConfigResponse:
+    """Rollback configuration to a previous version.
+
+    Args:
+        id: Website ID (UUID format)
+        version: Target version number to rollback to
+        website_service: Injected website service
+        request: Optional rollback request with reason and recrawl flag
+
+    Returns:
+        Rollback response with updated website and version info
+
+    Raises:
+        HTTPException: If website or version not found, or rollback fails
+    """
+    return await rollback_config_handler(id, version, request, website_service)

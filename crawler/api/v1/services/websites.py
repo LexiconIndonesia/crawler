@@ -6,8 +6,12 @@ from typing import Any
 from pydantic import AnyUrl
 
 from crawler.api.generated import (
+    ConfigHistoryListResponse,
+    ConfigHistoryResponse,
     CreateWebsiteRequest,
     ListWebsitesResponse,
+    RollbackConfigRequest,
+    RollbackConfigResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -553,3 +557,253 @@ class WebsiteService:
             "config_archived_version": new_version,
             "message": f"Website '{deleted_website.name}' deleted successfully",
         }
+
+    async def get_config_history(
+        self,
+        website_id: str,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> ConfigHistoryListResponse:
+        """Get configuration history for a website.
+
+        Args:
+            website_id: Website ID
+            limit: Maximum number of versions to return
+            offset: Number of versions to skip
+
+        Returns:
+            Paginated list of configuration versions
+
+        Raises:
+            ValueError: If website not found
+            RuntimeError: If history retrieval fails
+        """
+        logger.info("get_config_history", website_id=website_id, limit=limit, offset=offset)
+
+        # Guard: Verify website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get history entries
+        history = await self.config_history_repo.list_history(
+            website_id=website_id, limit=limit, offset=offset
+        )
+
+        # Get total count
+        latest_version = await self.config_history_repo.get_latest_version(website_id)
+
+        # Convert to response models
+        versions = [
+            ConfigHistoryResponse(
+                id=entry.id,
+                website_id=entry.website_id,
+                version=entry.version,
+                config=entry.config,
+                changed_by=entry.changed_by,
+                change_reason=entry.change_reason,
+                created_at=entry.created_at,
+            )
+            for entry in history
+        ]
+
+        logger.info("config_history_retrieved", website_id=website_id, count=len(versions))
+
+        return ConfigHistoryListResponse(
+            versions=versions,
+            total=latest_version,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_config_version(
+        self,
+        website_id: str,
+        version: int,
+    ) -> ConfigHistoryResponse:
+        """Get a specific configuration version.
+
+        Args:
+            website_id: Website ID
+            version: Version number
+
+        Returns:
+            Configuration version details
+
+        Raises:
+            ValueError: If website or version not found
+            RuntimeError: If version retrieval fails
+        """
+        logger.info("get_config_version", website_id=website_id, version=version)
+
+        # Guard: Verify website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get specific version
+        entry = await self.config_history_repo.get_by_version(website_id, version)
+        if not entry:
+            logger.warning("version_not_found", website_id=website_id, version=version)
+            raise ValueError(f"Configuration version {version} not found for website")
+
+        logger.info("config_version_retrieved", website_id=website_id, version=version)
+
+        return ConfigHistoryResponse(
+            id=entry.id,
+            website_id=entry.website_id,
+            version=entry.version,
+            config=entry.config,
+            changed_by=entry.changed_by,
+            change_reason=entry.change_reason,
+            created_at=entry.created_at,
+        )
+
+    async def rollback_config(
+        self,
+        website_id: str,
+        target_version: int,
+        request: RollbackConfigRequest | None,
+    ) -> RollbackConfigResponse:
+        """Rollback website configuration to a previous version.
+
+        Args:
+            website_id: Website ID
+            target_version: Version number to rollback to
+            request: Optional rollback request with reason and recrawl flag
+
+        Returns:
+            Rollback response with updated website and version info
+
+        Raises:
+            ValueError: If website or version not found, or invalid rollback
+            RuntimeError: If rollback operation fails
+        """
+        rollback_reason = request.rollback_reason if request else "Configuration rollback"
+        trigger_recrawl = request.trigger_recrawl if request else False
+
+        logger.info(
+            "rollback_config",
+            website_id=website_id,
+            target_version=target_version,
+            trigger_recrawl=trigger_recrawl,
+        )
+
+        # Guard: Verify website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Guard: Get target version configuration
+        target_config_entry = await self.config_history_repo.get_by_version(
+            website_id, target_version
+        )
+        if not target_config_entry:
+            logger.warning(
+                "target_version_not_found", website_id=website_id, target_version=target_version
+            )
+            raise ValueError(f"Configuration version {target_version} not found")
+
+        # Save current configuration to history before rollback
+        current_version = await self.config_history_repo.get_latest_version(website_id)
+        new_version = current_version + 1
+
+        await self.config_history_repo.create(
+            website_id=website_id,
+            version=new_version,
+            config=website.config if website.config else {},
+            changed_by="system",
+            change_reason=(
+                f"Pre-rollback snapshot (rolling back from v{current_version} to "
+                f"v{target_version}): {rollback_reason}"
+            ),
+        )
+
+        logger.info(
+            "pre_rollback_snapshot_saved",
+            website_id=website_id,
+            version=new_version,
+            target_version=target_version,
+        )
+
+        # Restore configuration from target version
+        rollback_version = new_version + 1
+        await self.config_history_repo.create(
+            website_id=website_id,
+            version=rollback_version,
+            config=target_config_entry.config,
+            changed_by="system",
+            change_reason=f"Rolled back to version {target_version}: {rollback_reason}",
+        )
+
+        # Update website with restored configuration
+        updated_website = await self.website_repo.update(
+            website_id=website_id,
+            name=website.name,
+            config=target_config_entry.config,
+            cron_schedule=website.cron_schedule,
+            status=website.status,
+        )
+
+        if not updated_website:
+            raise RuntimeError("Failed to update website during rollback")
+
+        logger.info(
+            "config_rolled_back",
+            website_id=website_id,
+            from_version=current_version,
+            to_version=target_version,
+            new_version=rollback_version,
+        )
+
+        # Get scheduled job info
+        scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
+        scheduled_job_id = None
+        next_run_time = None
+        if scheduled_jobs:
+            active_job = next((job for job in scheduled_jobs if job.is_active), None)
+            if active_job:
+                scheduled_job_id = active_job.id
+                next_run_time = active_job.next_run_time
+
+        # Trigger re-crawl if requested
+        recrawl_job_id = None
+        if trigger_recrawl:
+            crawl_job = await self.crawl_job_repo.create(
+                website_id=website_id,
+                seed_url=updated_website.base_url,
+                job_type=JobTypeEnum.ONE_TIME,
+                priority=5,
+                max_retries=3,
+            )
+            if crawl_job:
+                recrawl_job_id = crawl_job.id
+                logger.info(
+                    "recrawl_triggered_after_rollback",
+                    job_id=recrawl_job_id,
+                    website_id=website_id,
+                )
+
+        # Build response
+        api_status = ApiStatusEnum(updated_website.status.value)
+
+        return RollbackConfigResponse(
+            id=updated_website.id,
+            name=updated_website.name,
+            base_url=AnyUrl(updated_website.base_url),
+            config=updated_website.config,
+            status=api_status,
+            cron_schedule=updated_website.cron_schedule or "0 0 1,15 * *",
+            created_at=updated_website.created_at,
+            updated_at=updated_website.updated_at,
+            created_by=updated_website.created_by,
+            next_run_time=next_run_time,
+            scheduled_job_id=scheduled_job_id,
+            config_version=rollback_version,
+            rolled_back_from_version=current_version,
+            rolled_back_to_version=target_version,
+            recrawl_job_id=recrawl_job_id,
+        )

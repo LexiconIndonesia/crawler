@@ -707,6 +707,295 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidationError'
 
+  /api/v1/websites/{id}/config-history:
+    get:
+      tags:
+        - Websites
+      summary: Get website configuration history
+      description: |
+        Retrieve the configuration version history for a website.
+
+        This endpoint:
+        1. Lists all configuration versions for the website
+        2. Returns versions in descending order (newest first)
+        3. Includes full config snapshot for each version
+        4. Shows who made each change and why
+        5. Supports pagination for large histories
+
+        **Use Cases:**
+        - Audit trail for configuration changes
+        - Understanding configuration evolution
+        - Identifying when/why a change was made
+        - Preparing for rollback operations
+      operationId: getWebsiteConfigHistory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          description: Number of versions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: offset
+          in: query
+          required: false
+          description: Number of versions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Configuration history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryListResponse'
+              examples:
+                success:
+                  value:
+                    versions:
+                      - id: "880e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        version: 3
+                        config:
+                          steps:
+                            - name: "crawl_list"
+                              type: "crawl"
+                              method: "http"
+                          global_config:
+                            rate_limit:
+                              requests_per_second: 1.0
+                        changed_by: "admin"
+                        change_reason: "Reduced rate limit for testing"
+                        created_at: "2025-11-09T12:00:00Z"
+                      - id: "770e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        version: 2
+                        config:
+                          steps:
+                            - name: "crawl_list"
+                              type: "crawl"
+                              method: "http"
+                          global_config:
+                            rate_limit:
+                              requests_per_second: 2.0
+                        changed_by: "system"
+                        change_reason: "Initial configuration update"
+                        created_at: "2025-11-01T10:00:00Z"
+                    total: 2
+                    limit: 10
+                    offset: 0
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /api/v1/websites/{id}/config-history/{version}:
+    get:
+      tags:
+        - Websites
+      summary: Get a specific configuration version
+      description: |
+        Retrieve a specific version of the website configuration.
+
+        This endpoint:
+        1. Fetches a specific version by version number
+        2. Returns the complete configuration snapshot
+        3. Includes change metadata (who, when, why)
+
+        **Use Cases:**
+        - Viewing exact configuration at a point in time
+        - Comparing configurations before rollback
+        - Detailed audit investigation
+      operationId: getWebsiteConfigVersion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: path
+          required: true
+          description: Version number
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Configuration version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryResponse'
+              examples:
+                success:
+                  value:
+                    id: "880e8400-e29b-41d4-a716-446655440000"
+                    website_id: "550e8400-e29b-41d4-a716-446655440000"
+                    version: 2
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    changed_by: "admin"
+                    change_reason: "Updated crawl configuration"
+                    created_at: "2025-11-01T10:00:00Z"
+        '404':
+          description: Website or version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                version_not_found:
+                  value:
+                    detail: "Configuration version 5 not found for website"
+                    error_code: "VERSION_NOT_FOUND"
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+    post:
+      tags:
+        - Websites
+      summary: Rollback website configuration to a previous version
+      description: |
+        Rollback the website configuration to a specific previous version.
+
+        This endpoint:
+        1. Validates the target version exists
+        2. Saves the current configuration as a new version (audit trail)
+        3. Restores the configuration from the target version
+        4. Updates the website with the restored configuration
+        5. Optionally triggers an immediate re-crawl with the restored config
+
+        **Safety Features:**
+        - Current config is preserved in history before rollback
+        - All rollbacks are logged with reason and user
+        - Rollback itself creates a new version (reversible)
+        - Optional re-crawl to validate restored configuration
+
+        **Important:**
+        - Rolling back does NOT delete newer versions
+        - Creates a new version that's a copy of the target version
+        - Full audit trail is maintained
+      operationId: rollbackWebsiteConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: path
+          required: true
+          description: Target version number to rollback to
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackConfigRequest'
+            examples:
+              simple_rollback:
+                summary: Rollback without re-crawl
+                value:
+                  rollback_reason: "Reverting to previous working configuration"
+              rollback_with_recrawl:
+                summary: Rollback and trigger re-crawl
+                value:
+                  rollback_reason: "Emergency rollback due to crawl failures"
+                  trigger_recrawl: true
+      responses:
+        '200':
+          description: Configuration rolled back successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackConfigResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    base_url: "https://news.example.com"
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    status: "active"
+                    cron_schedule: "0 0 1,15 * *"
+                    created_at: "2025-10-27T10:00:00Z"
+                    updated_at: "2025-11-09T14:00:00Z"
+                    config_version: 5
+                    rolled_back_from_version: 4
+                    rolled_back_to_version: 2
+                    recrawl_job_id: null
+        '400':
+          description: Invalid rollback request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                version_not_found:
+                  value:
+                    detail: "Configuration version 10 not found"
+                    error_code: "VERSION_NOT_FOUND"
+                same_version:
+                  value:
+                    detail: "Cannot rollback to the current version"
+                    error_code: "INVALID_ROLLBACK"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
   /api/v1/jobs/seed:
     post:
       tags:
@@ -2334,6 +2623,175 @@ components:
           type: integer
           description: Offset for pagination
           example: 0
+
+    ConfigHistoryResponse:
+      type: object
+      required:
+        - id
+        - website_id
+        - version
+        - config
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: History entry ID
+          example: "880e8400-e29b-41d4-a716-446655440000"
+        website_id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        version:
+          type: integer
+          minimum: 1
+          description: Version number
+          example: 3
+        config:
+          type: object
+          description: Full configuration snapshot at this version
+          additionalProperties: true
+        changed_by:
+          type: string
+          nullable: true
+          description: User or system that made the change
+          example: "admin"
+        change_reason:
+          type: string
+          nullable: true
+          description: Reason for the configuration change
+          example: "Updated rate limits for better performance"
+        created_at:
+          type: string
+          format: date-time
+          description: When this version was created
+          example: "2025-11-09T12:00:00Z"
+
+    ConfigHistoryListResponse:
+      type: object
+      required:
+        - versions
+        - total
+        - limit
+        - offset
+      properties:
+        versions:
+          type: array
+          description: List of configuration versions
+          items:
+            $ref: '#/components/schemas/ConfigHistoryResponse'
+        total:
+          type: integer
+          description: Total number of versions for this website
+          example: 15
+        limit:
+          type: integer
+          description: Number of versions per page
+          example: 10
+        offset:
+          type: integer
+          description: Offset for pagination
+          example: 0
+
+    RollbackConfigRequest:
+      type: object
+      properties:
+        rollback_reason:
+          type: string
+          description: Reason for rolling back the configuration
+          example: "Reverting to stable configuration due to crawl failures"
+        trigger_recrawl:
+          type: boolean
+          default: false
+          description: Whether to trigger an immediate re-crawl after rollback
+          example: false
+
+    RollbackConfigResponse:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - config
+        - status
+        - cron_schedule
+        - created_at
+        - updated_at
+        - config_version
+        - rolled_back_from_version
+        - rolled_back_to_version
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        base_url:
+          type: string
+          format: uri
+          description: Base URL of the website
+          example: "https://news.example.com"
+        config:
+          type: object
+          description: Restored configuration (from target version)
+          additionalProperties: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        cron_schedule:
+          type: string
+          nullable: true
+          description: Default cron schedule
+          example: "0 0 1,15 * *"
+        created_at:
+          type: string
+          format: date-time
+          description: Website creation timestamp
+          example: "2025-10-27T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-09T14:00:00Z"
+        created_by:
+          type: string
+          nullable: true
+          description: User who created the website
+          example: null
+        next_run_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next scheduled run time
+          example: "2025-11-15T00:00:00Z"
+        scheduled_job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated scheduled job ID
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        config_version:
+          type: integer
+          description: New version number created by the rollback
+          example: 5
+        rolled_back_from_version:
+          type: integer
+          description: Version that was active before rollback
+          example: 4
+        rolled_back_to_version:
+          type: integer
+          description: Target version that was restored
+          example: 2
+        recrawl_job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of re-crawl job if triggered
+          example: null
 
   securitySchemes:
     BearerAuth:

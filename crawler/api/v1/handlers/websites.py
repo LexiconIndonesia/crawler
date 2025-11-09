@@ -10,8 +10,12 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from crawler.api.generated import (
+    ConfigHistoryListResponse,
+    ConfigHistoryResponse,
     CreateWebsiteRequest,
     ListWebsitesResponse,
+    RollbackConfigRequest,
+    RollbackConfigResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -188,3 +192,103 @@ async def delete_website_handler(
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500
     return await website_service.delete_website(website_id, delete_data)
+
+
+@handle_service_errors(operation="retrieving configuration history")
+async def get_config_history_handler(
+    website_id: str,
+    limit: int,
+    offset: int,
+    website_service: WebsiteService,
+) -> ConfigHistoryListResponse:
+    """Handle configuration history retrieval.
+
+    This handler delegates to the service layer to retrieve the configuration
+    version history for a website.
+
+    Args:
+        website_id: Website ID
+        limit: Maximum number of versions to return
+        offset: Number of versions to skip
+        website_service: Injected website service
+
+    Returns:
+        Paginated list of configuration versions
+
+    Raises:
+        HTTPException: If website not found or operation fails
+    """
+    logger.info("get_config_history_request", website_id=website_id, limit=limit, offset=offset)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.get_config_history(website_id, limit, offset)
+
+
+@handle_service_errors(operation="retrieving configuration version")
+async def get_config_version_handler(
+    website_id: str,
+    version: int,
+    website_service: WebsiteService,
+) -> ConfigHistoryResponse:
+    """Handle specific configuration version retrieval.
+
+    This handler delegates to the service layer to retrieve a specific
+    configuration version.
+
+    Args:
+        website_id: Website ID
+        version: Version number to retrieve
+        website_service: Injected website service
+
+    Returns:
+        Configuration version details
+
+    Raises:
+        HTTPException: If website or version not found
+    """
+    logger.info("get_config_version_request", website_id=website_id, version=version)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.get_config_version(website_id, version)
+
+
+@handle_service_errors(operation="rolling back configuration")
+async def rollback_config_handler(
+    website_id: str,
+    version: int,
+    request: RollbackConfigRequest | None,
+    website_service: WebsiteService,
+) -> RollbackConfigResponse:
+    """Handle configuration rollback to a previous version.
+
+    This handler validates and delegates to the service layer which handles:
+    - Validation that target version exists
+    - Saving current config to history
+    - Restoring configuration from target version
+    - Updating scheduled jobs if needed
+    - Optional re-crawl triggering
+
+    Args:
+        website_id: Website ID
+        version: Target version number to rollback to
+        request: Optional rollback request with reason and recrawl flag
+        website_service: Injected website service
+
+    Returns:
+        Rollback response with updated website and version info
+
+    Raises:
+        HTTPException: If website or version not found, or rollback fails
+    """
+    logger.info(
+        "rollback_config_request",
+        website_id=website_id,
+        version=version,
+        trigger_recrawl=request.trigger_recrawl if request else False,
+    )
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400, RuntimeError -> 500
+    return await website_service.rollback_config(website_id, version, request)
