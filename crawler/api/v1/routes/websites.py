@@ -8,6 +8,7 @@ from crawler.api.generated import (
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
     CreateWebsiteRequest,
+    DeleteWebsiteResponse,
     ErrorResponse,
     ListWebsitesResponse,
     RollbackConfigRequest,
@@ -311,6 +312,7 @@ async def update_website(
 
 @router.delete(
     "/{id}",
+    response_model=DeleteWebsiteResponse,
     status_code=status.HTTP_200_OK,
     summary="Delete website (soft delete)",
     operation_id="deleteWebsite",
@@ -402,7 +404,7 @@ async def delete_website(
             description=("Delete all crawled data (not yet implemented, reserved for future use)")
         ),
     ] = False,
-) -> dict:
+) -> DeleteWebsiteResponse:
     """Delete a website with soft delete.
 
     Args:
@@ -523,7 +525,7 @@ async def get_config_version(
 
 
 @router.post(
-    "/{id}/config-history/{version}",
+    "/{id}/rollback",
     response_model=RollbackConfigResponse,
     status_code=status.HTTP_200_OK,
     summary="Rollback website configuration to a previous version",
@@ -582,17 +584,15 @@ async def get_config_version(
 )
 async def rollback_config(
     id: Annotated[str, Path(description="Website ID")],
-    version: Annotated[int, Path(ge=1, description="Target version number to rollback to")],
+    request: RollbackConfigRequest,
     website_service: WebsiteServiceDep,
-    request: RollbackConfigRequest | None = None,
 ) -> RollbackConfigResponse:
     """Rollback configuration to a previous version.
 
     Args:
         id: Website ID (UUID format)
-        version: Target version number to rollback to
+        request: Rollback request with target version, reason, and recrawl flag
         website_service: Injected website service
-        request: Optional rollback request with reason and recrawl flag
 
     Returns:
         Rollback response with updated website and version info
@@ -600,4 +600,4 @@ async def rollback_config(
     Raises:
         HTTPException: If website or version not found, or rollback fails
     """
-    return await rollback_config_handler(id, version, request, website_service)
+    return await rollback_config_handler(id, request, website_service)

@@ -5,7 +5,6 @@ and business logic services using dependency injection.
 """
 
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import HTTPException, status
 
@@ -13,6 +12,7 @@ from crawler.api.generated import (
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
     CreateWebsiteRequest,
+    DeleteWebsiteResponse,
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
@@ -167,7 +167,7 @@ async def delete_website_handler(
     website_id: str,
     delete_data: bool,
     website_service: WebsiteService,
-) -> dict[str, Any]:
+) -> DeleteWebsiteResponse:
     """Handle website deletion with soft delete.
 
     This handler validates and delegates to the service layer which handles:
@@ -257,8 +257,7 @@ async def get_config_version_handler(
 @handle_service_errors(operation="rolling back configuration")
 async def rollback_config_handler(
     website_id: str,
-    version: int,
-    request: RollbackConfigRequest | None,
+    request: RollbackConfigRequest,
     website_service: WebsiteService,
 ) -> RollbackConfigResponse:
     """Handle configuration rollback to a previous version.
@@ -272,8 +271,7 @@ async def rollback_config_handler(
 
     Args:
         website_id: Website ID
-        version: Target version number to rollback to
-        request: Optional rollback request with reason and recrawl flag
+        request: Rollback request with target version, reason, and recrawl flag
         website_service: Injected website service
 
     Returns:
@@ -285,10 +283,10 @@ async def rollback_config_handler(
     logger.info(
         "rollback_config_request",
         website_id=website_id,
-        version=version,
-        trigger_recrawl=request.trigger_recrawl if request else False,
+        version=request.version,
+        trigger_recrawl=request.trigger_recrawl,
     )
 
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500
-    return await website_service.rollback_config(website_id, version, request)
+    return await website_service.rollback_config(website_id, request.version, request)

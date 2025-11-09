@@ -512,12 +512,12 @@ class TestWebsiteService:
         result = await website_service.delete_website(website_id, delete_data=False)
 
         # Assert
-        assert result["id"] == str(w_id)
-        assert result["name"] == "Test Website"
-        assert result["cancelled_jobs"] == 2
-        assert len(result["cancelled_job_ids"]) == 2
-        assert result["config_archived_version"] == 4
-        assert "deleted successfully" in result["message"]
+        assert str(result.id) == str(w_id)
+        assert result.name == "Test Website"
+        assert result.cancelled_jobs == 2
+        assert len(result.cancelled_job_ids) == 2
+        assert result.config_archived_version == 4
+        assert "deleted successfully" in result.message
         website_service.website_repo.get_by_id.assert_called_once_with(website_id)
         website_service.crawl_job_repo.get_active_by_website.assert_called_once_with(website_id)
         assert website_service.crawl_job_repo.cancel.call_count == 2
@@ -609,8 +609,8 @@ class TestWebsiteService:
         result = await website_service.delete_website(website_id, delete_data=False)
 
         # Assert
-        assert result["cancelled_jobs"] == 0
-        assert result["cancelled_job_ids"] == []
+        assert result.cancelled_jobs == 0
+        assert result.cancelled_job_ids == []
         website_service.crawl_job_repo.cancel.assert_not_called()
         website_service.website_repo.soft_delete.assert_called_once()
 

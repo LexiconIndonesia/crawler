@@ -1,7 +1,7 @@
 """Website service with business logic."""
 
 from datetime import UTC, datetime
-from typing import Any
+from uuid import UUID
 
 from pydantic import AnyUrl
 
@@ -9,6 +9,7 @@ from crawler.api.generated import (
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
     CreateWebsiteRequest,
+    DeleteWebsiteResponse,
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
@@ -481,7 +482,7 @@ class WebsiteService:
         self,
         website_id: str,
         delete_data: bool = False,
-    ) -> dict[str, Any]:
+    ) -> DeleteWebsiteResponse:
         """Delete website with soft delete and job cancellation.
 
         Args:
@@ -489,7 +490,7 @@ class WebsiteService:
             delete_data: Whether to delete all crawled data (not implemented yet)
 
         Returns:
-            Dict with deletion details
+            DeleteWebsiteResponse with deletion details
 
         Raises:
             ValueError: If website not found or already deleted
@@ -541,6 +542,10 @@ class WebsiteService:
         if not deleted_website:
             raise RuntimeError("Failed to delete website")
 
+        # Guard: deleted_at must be set after soft delete
+        if not deleted_website.deleted_at:
+            raise RuntimeError("Soft delete failed: deleted_at not set")
+
         logger.info(
             "website_deleted",
             website_id=website_id,
@@ -548,15 +553,15 @@ class WebsiteService:
             config_version=new_version,
         )
 
-        return {
-            "id": str(deleted_website.id),
-            "name": deleted_website.name,
-            "deleted_at": deleted_website.deleted_at,
-            "cancelled_jobs": len(cancelled_job_ids),
-            "cancelled_job_ids": cancelled_job_ids,
-            "config_archived_version": new_version,
-            "message": f"Website '{deleted_website.name}' deleted successfully",
-        }
+        return DeleteWebsiteResponse(
+            id=deleted_website.id,
+            name=deleted_website.name,
+            deleted_at=deleted_website.deleted_at,
+            cancelled_jobs=len(cancelled_job_ids),
+            cancelled_job_ids=[UUID(job_id) for job_id in cancelled_job_ids],
+            config_archived_version=new_version,
+            message=f"Website '{deleted_website.name}' deleted successfully",
+        )
 
     async def get_config_history(
         self,
@@ -709,6 +714,17 @@ class WebsiteService:
 
         # Save current configuration to history before rollback
         current_version = await self.config_history_repo.get_latest_version(website_id)
+
+        # Guard: Prevent rollback to current version (no-op that creates unnecessary history)
+        if target_version == current_version:
+            logger.warning(
+                "rollback_to_current_version_attempted",
+                website_id=website_id,
+                current_version=current_version,
+                target_version=target_version,
+            )
+            raise ValueError("Cannot rollback to the current version")
+
         new_version = current_version + 1
 
         await self.config_history_repo.create(
@@ -740,11 +756,16 @@ class WebsiteService:
         )
 
         # Update website with restored configuration
+        # Extract cron_schedule from target config to maintain data integrity
+        target_config = target_config_entry.config or {}
+        target_schedule = target_config.get("schedule", {})
+        target_cron = target_schedule.get("cron")
+
         updated_website = await self.website_repo.update(
             website_id=website_id,
             name=website.name,
-            config=target_config_entry.config,
-            cron_schedule=website.cron_schedule,
+            config=target_config,
+            cron_schedule=target_cron,  # Use cron from restored config
             status=website.status,
         )
 
@@ -759,11 +780,39 @@ class WebsiteService:
             new_version=rollback_version,
         )
 
-        # Get scheduled job info
+        # Update scheduled job with restored cron_schedule
         scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
         scheduled_job_id = None
         next_run_time = None
-        if scheduled_jobs:
+
+        if scheduled_jobs and target_cron:
+            # Calculate next run time from restored cron schedule
+            is_valid, result = validate_and_calculate_next_run(target_cron)
+            if is_valid and isinstance(result, datetime):
+                next_run_time = result
+            else:
+                # Fallback to current time if cron validation fails
+                next_run_time = datetime.now(UTC)
+
+            # Update all scheduled jobs with restored cron_schedule
+            for job in scheduled_jobs:
+                await self.scheduled_job_repo.update(
+                    job_id=job.id,
+                    cron_schedule=target_cron,
+                    next_run_time=next_run_time,
+                    is_active=job.is_active,  # Preserve active status
+                )
+                if job.is_active:
+                    scheduled_job_id = job.id
+
+            logger.info(
+                "scheduled_jobs_updated_after_rollback",
+                website_id=website_id,
+                cron_schedule=target_cron,
+                next_run_time=next_run_time,
+            )
+        elif scheduled_jobs:
+            # No target_cron, just get existing job info
             active_job = next((job for job in scheduled_jobs if job.is_active), None)
             if active_job:
                 scheduled_job_id = active_job.id

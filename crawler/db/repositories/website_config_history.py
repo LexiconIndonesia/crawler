@@ -60,7 +60,7 @@ class WebsiteConfigHistoryRepository:
             Latest version number (0 if no history exists)
         """
         result = await self._querier.get_latest_config_version(website_id=to_uuid(website_id))
-        return result.latest_version if result else 0
+        return result if result is not None else 0
 
     async def list_history(
         self, website_id: str | UUID, limit: int = 10, offset: int = 0
