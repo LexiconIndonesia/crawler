@@ -8,9 +8,14 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from crawler.api.v1.services import JobService, WebsiteService
+from crawler.api.v1.services import JobService, LogService, WebsiteService
 from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep, NATSQueueDep
-from crawler.db.repositories import CrawlJobRepository, ScheduledJobRepository, WebsiteRepository
+from crawler.db.repositories import (
+    CrawlJobRepository,
+    CrawlLogRepository,
+    ScheduledJobRepository,
+    WebsiteRepository,
+)
 
 
 async def get_website_service(
@@ -89,6 +94,42 @@ async def get_job_service(
     )
 
 
+async def get_log_service(
+    db: DBSessionDep,
+) -> LogService:
+    """Get log service with injected dependencies.
+
+    Args:
+        db: Database session from centralized dependency injection
+
+    Returns:
+        LogService instance with injected repositories
+
+    Usage:
+        async def my_route(log_service: LogServiceDep):
+            logs = await log_service.get_job_logs(job_id)
+
+    Note:
+        This function properly manages database connections from the session's
+        connection pool to avoid concurrent operation errors with asyncpg.
+    """
+    # Get connection from session - this uses the connection pool
+    # The connection is managed by the session's transaction context
+    conn = await db.connection()
+
+    # Create repositories with the connection
+    # Each repository will execute queries sequentially within the transaction
+    crawl_log_repo = CrawlLogRepository(conn)
+    crawl_job_repo = CrawlJobRepository(conn)
+
+    # Return service with injected repositories
+    return LogService(
+        crawl_log_repo=crawl_log_repo,
+        crawl_job_repo=crawl_job_repo,
+    )
+
+
 # Type aliases for dependency injection
 WebsiteServiceDep = Annotated[WebsiteService, Depends(get_website_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
+LogServiceDep = Annotated[LogService, Depends(get_log_service)]

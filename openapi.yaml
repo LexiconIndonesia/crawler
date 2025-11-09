@@ -684,6 +684,156 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/jobs/{job_id}/logs:
+    get:
+      tags:
+        - Jobs
+      summary: Retrieve historical logs for a crawl job
+      description: |
+        Get historical logs for a completed or running crawl job with pagination and filtering.
+
+        This endpoint:
+        1. Validates that the job exists
+        2. Retrieves logs from the database with optional filters
+        3. Supports pagination for large log volumes
+        4. Returns logs in chronological order (oldest first)
+
+        **Filtering options:**
+        - `log_level`: Filter by specific log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        - `start_time`: Only return logs after this timestamp
+        - `end_time`: Only return logs before this timestamp
+        - `search`: Search for text in log messages (case-insensitive)
+
+        **Pagination:**
+        - Use `limit` and `offset` for pagination
+        - Default limit is 100, max is 1000
+        - `total` field indicates total logs matching filters
+      operationId: getJobLogs
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: ID of the job to retrieve logs for
+          schema:
+            type: string
+            format: uuid
+            example: "770e8400-e29b-41d4-a716-446655440000"
+        - name: log_level
+          in: query
+          required: false
+          description: Filter by log level
+          schema:
+            $ref: '#/components/schemas/LogLevelEnum'
+        - name: start_time
+          in: query
+          required: false
+          description: Filter logs after this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-29T00:00:00Z"
+        - name: end_time
+          in: query
+          required: false
+          description: Filter logs before this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-29T23:59:59Z"
+        - name: search
+          in: query
+          required: false
+          description: Search text in log messages (case-insensitive)
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
+            example: "error connecting"
+        - name: limit
+          in: query
+          required: false
+          description: Number of logs to return (max 1000)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+            example: 100
+        - name: offset
+          in: query
+          required: false
+          description: Number of logs to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: Logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CrawlLogsResponse'
+              examples:
+                success:
+                  value:
+                    logs:
+                      - id: 12345
+                        job_id: "770e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        step_name: "crawl_step_1"
+                        log_level: "INFO"
+                        message: "Starting crawl for URL: https://example.com"
+                        context:
+                          url: "https://example.com"
+                        trace_id: null
+                        created_at: "2025-10-29T10:00:00Z"
+                      - id: 12346
+                        job_id: "770e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        step_name: "crawl_step_1"
+                        log_level: "INFO"
+                        message: "Successfully fetched page"
+                        context:
+                          url: "https://example.com"
+                          status_code: 200
+                        trace_id: null
+                        created_at: "2025-10-29T10:00:05Z"
+                    total: 150
+                    limit: 100
+                    offset: 0
+                empty:
+                  summary: No logs found
+                  value:
+                    logs: []
+                    total: 0
+                    limit: 100
+                    offset: 0
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Job with ID '770e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "JOB_NOT_FOUND"
+        '422':
+          description: Validation error (invalid parameters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     # ============================================================================
@@ -821,6 +971,16 @@ components:
         - playwright
         - undetected_chromedriver
       description: Browser type for automation
+
+    LogLevelEnum:
+      type: string
+      enum:
+        - DEBUG
+        - INFO
+        - WARNING
+        - ERROR
+        - CRITICAL
+      description: Log level for crawl logs
 
     # ============================================================================
     # Configuration Schemas
@@ -1477,6 +1637,88 @@ components:
           format: uuid
           description: Job ID this token is valid for
           example: "770e8400-e29b-41d4-a716-446655440000"
+
+    CrawlLogEntry:
+      type: object
+      required:
+        - id
+        - job_id
+        - website_id
+        - log_level
+        - message
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Log entry ID
+          example: 12345
+        job_id:
+          type: string
+          format: uuid
+          description: Job ID
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        website_id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        step_name:
+          type: string
+          description: Step name that generated the log
+          nullable: true
+          example: "crawl_step_1"
+        log_level:
+          $ref: '#/components/schemas/LogLevelEnum'
+        message:
+          type: string
+          description: Log message
+          example: "Successfully fetched page: https://example.com"
+        context:
+          type: object
+          description: Additional context data (JSON)
+          nullable: true
+          additionalProperties: true
+          example:
+            url: "https://example.com"
+            status_code: 200
+        trace_id:
+          type: string
+          format: uuid
+          description: Trace ID for distributed tracing
+          nullable: true
+          example: "a1b2c3d4-e5f6-47h8-i9j0-k1l2m3n4o5p6"
+        created_at:
+          type: string
+          format: date-time
+          description: Log creation timestamp
+          example: "2025-10-29T10:30:15Z"
+
+    CrawlLogsResponse:
+      type: object
+      required:
+        - logs
+        - total
+        - limit
+        - offset
+      properties:
+        logs:
+          type: array
+          description: List of log entries
+          items:
+            $ref: '#/components/schemas/CrawlLogEntry'
+        total:
+          type: integer
+          description: Total number of logs matching the filters
+          example: 150
+        limit:
+          type: integer
+          description: Number of logs per page
+          example: 100
+        offset:
+          type: integer
+          description: Offset for pagination
+          example: 0
 
   securitySchemes:
     BearerAuth:

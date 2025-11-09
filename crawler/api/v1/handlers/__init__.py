@@ -6,6 +6,7 @@ from .jobs import (
     create_seed_job_inline_handler,
     generate_ws_token_handler,
 )
+from .logs import get_job_logs_handler
 from .websites import create_website_handler
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "create_seed_job_inline_handler",
     "cancel_job_handler",
     "generate_ws_token_handler",
+    "get_job_logs_handler",
 ]

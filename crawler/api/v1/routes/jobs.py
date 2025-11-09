@@ -1,22 +1,27 @@
 """Crawl job management routes for API v1."""
 
-from fastapi import APIRouter, status
+from datetime import datetime
+
+from fastapi import APIRouter, Query, status
 
 from crawler.api.generated import (
     CancelJobRequest,
     CancelJobResponse,
+    CrawlLogsResponse,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     ErrorResponse,
+    LogLevelEnum,
     SeedJobResponse,
     WSTokenResponse,
 )
-from crawler.api.v1.dependencies import JobServiceDep
+from crawler.api.v1.dependencies import JobServiceDep, LogServiceDep
 from crawler.api.v1.handlers import (
     cancel_job_handler,
     create_seed_job_handler,
     create_seed_job_inline_handler,
     generate_ws_token_handler,
+    get_job_logs_handler,
 )
 from crawler.core.dependencies import DBSessionDep, WebSocketTokenServiceDep
 from crawler.db.repositories import CrawlJobRepository
@@ -333,3 +338,84 @@ async def generate_ws_token(
     conn = await db.connection()
     crawl_job_repo = CrawlJobRepository(conn)
     return await generate_ws_token_handler(job_id, crawl_job_repo, ws_token_service)
+
+
+@router.get(
+    "/{job_id}/logs",
+    response_model=CrawlLogsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve historical logs for a crawl job",
+    operation_id="getJobLogs",
+    description="""
+    Get historical logs for a completed or running crawl job with pagination and filtering.
+
+    This endpoint:
+    1. Validates that the job exists
+    2. Retrieves logs from the database with optional filters
+    3. Supports pagination for large log volumes
+    4. Returns logs in chronological order (oldest first)
+
+    **Filtering options:**
+    - `log_level`: Filter by specific log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    - `start_time`: Only return logs after this timestamp
+    - `end_time`: Only return logs before this timestamp
+    - `search`: Search for text in log messages (case-insensitive)
+
+    **Pagination:**
+    - Use `limit` and `offset` for pagination
+    - Default limit is 100, max is 1000
+    - `total` field indicates total logs matching filters
+    """,
+    responses={
+        200: {"description": "Logs retrieved successfully"},
+        404: {
+            "description": "Job not found",
+            "model": ErrorResponse,
+        },
+        422: {"description": "Validation error (invalid parameters)"},
+        500: {
+            "description": "Internal server error",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def get_job_logs(
+    job_id: str,
+    log_service: LogServiceDep,
+    log_level: LogLevelEnum | None = Query(None, description="Filter by log level"),
+    start_time: datetime | None = Query(None, description="Filter logs after this timestamp"),
+    end_time: datetime | None = Query(None, description="Filter logs before this timestamp"),
+    search: str | None = Query(
+        None, min_length=1, max_length=500, description="Search text in log messages"
+    ),
+    limit: int = Query(100, ge=1, le=1000, description="Number of logs to return (max 1000)"),
+    offset: int = Query(0, ge=0, description="Number of logs to skip for pagination"),
+) -> CrawlLogsResponse:
+    """Get historical logs for a crawl job.
+
+    Args:
+        job_id: Job ID to retrieve logs for
+        log_service: Injected log service
+        log_level: Optional log level filter
+        start_time: Optional start timestamp filter
+        end_time: Optional end timestamp filter
+        search: Optional text search in message
+        limit: Number of logs per page
+        offset: Offset for pagination
+
+    Returns:
+        Paginated log response
+
+    Raises:
+        HTTPException: If job not found or retrieval fails
+    """
+    return await get_job_logs_handler(
+        job_id=job_id,
+        log_service=log_service,
+        log_level=log_level,
+        start_time=start_time,
+        end_time=end_time,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )

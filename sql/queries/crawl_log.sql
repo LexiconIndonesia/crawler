@@ -19,11 +19,31 @@ INSERT INTO crawl_log (
 RETURNING *;
 
 -- name: GetCrawlLogByID :one
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE id = sqlc.arg(id);
 
 -- name: ListLogsByJob :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = sqlc.arg(job_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
@@ -35,7 +55,17 @@ WHERE job_id = sqlc.arg(job_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level);
 
 -- name: ListLogsByWebsite :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE website_id = sqlc.arg(website_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at DESC
@@ -47,12 +77,32 @@ WHERE website_id = sqlc.arg(website_id)
     AND log_level = COALESCE(sqlc.arg(log_level), log_level);
 
 -- name: ListLogsByTraceID :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE trace_id = sqlc.arg(trace_id)
 ORDER BY created_at ASC;
 
 -- name: GetLogsByTimeRange :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = sqlc.arg(job_id)
     AND created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE
     AND created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE
@@ -61,7 +111,17 @@ ORDER BY created_at DESC
 OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
 
 -- name: GetErrorLogs :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = sqlc.arg(job_id)
     AND log_level IN ('ERROR', 'CRITICAL')
 ORDER BY created_at DESC
@@ -87,9 +147,48 @@ FROM crawl_log
 WHERE job_id = sqlc.arg(job_id);
 
 -- name: StreamLogsByJob :many
-SELECT * FROM crawl_log
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at
+FROM crawl_log
 WHERE job_id = sqlc.arg(job_id)
     AND created_at > sqlc.arg(after_timestamp)::TIMESTAMP WITH TIME ZONE
     AND log_level = COALESCE(sqlc.arg(log_level), log_level)
 ORDER BY created_at ASC
 LIMIT sqlc.arg(limit_count);
+
+-- name: GetJobLogsFiltered :many
+SELECT
+    id,
+    job_id,
+    website_id,
+    step_name,
+    log_level,
+    message,
+    context,
+    trace_id,
+    created_at,
+    COUNT(*) OVER() as total_count
+FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+    AND (sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(search_text)::TEXT IS NULL OR message ILIKE '%' || sqlc.arg(search_text)::TEXT || '%')
+ORDER BY created_at ASC
+OFFSET sqlc.arg(offset_count) LIMIT sqlc.arg(limit_count);
+
+-- name: CountJobLogsFiltered :one
+SELECT COUNT(*) FROM crawl_log
+WHERE job_id = sqlc.arg(job_id)
+    AND log_level = COALESCE(sqlc.arg(log_level), log_level)
+    AND (sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at >= sqlc.arg(start_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE IS NULL OR created_at <= sqlc.arg(end_time)::TIMESTAMP WITH TIME ZONE)
+    AND (sqlc.arg(search_text)::TEXT IS NULL OR message ILIKE '%' || sqlc.arg(search_text)::TEXT || '%');
