@@ -340,6 +340,290 @@ class TestCreateWebsiteEndpoint:
 
 
 @pytest.mark.asyncio
+class TestGetWebsiteEndpoints:
+    """Tests for GET /api/v1/websites endpoints."""
+
+    async def test_list_websites_structure(self, test_client: AsyncClient) -> None:
+        """Test listing websites response structure."""
+        response = await test_client.get("/api/v1/websites")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "websites" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert data["limit"] == 20
+        assert data["offset"] == 0
+        assert isinstance(data["websites"], list)
+        assert isinstance(data["total"], int)
+        assert len(data["websites"]) <= data["total"]
+
+    async def test_list_websites(self, test_client: AsyncClient) -> None:
+        """Test listing websites with multiple websites."""
+        # Get initial count
+        initial_response = await test_client.get("/api/v1/websites")
+        initial_total = initial_response.json()["total"]
+
+        # Create websites with unique names
+        import time
+
+        timestamp = int(time.time() * 1000)
+        website1 = {
+            "name": f"Test List Website 1 {timestamp}",
+            "base_url": "https://list-example1.com",
+            "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+        }
+        website2 = {
+            "name": f"Test List Website 2 {timestamp}",
+            "base_url": "https://list-example2.com",
+            "steps": [{"name": "crawl", "type": "crawl", "method": "http"}],
+        }
+
+        await test_client.post("/api/v1/websites", json=website1)
+        await test_client.post("/api/v1/websites", json=website2)
+
+        # List websites
+        response = await test_client.get("/api/v1/websites")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total"] == initial_total + 2
+        # Check that our websites are in the list
+        website_names = [w["name"] for w in data["websites"]]
+        assert website1["name"] in website_names
+        assert website2["name"] in website_names
+
+    async def test_list_websites_with_pagination(self, test_client: AsyncClient) -> None:
+        """Test listing websites with pagination."""
+        # Get initial count
+        initial_response = await test_client.get("/api/v1/websites")
+        initial_total = initial_response.json()["total"]
+
+        # Create 3 websites with unique names
+        import time
+
+        timestamp = int(time.time() * 1000)
+        created_ids = []
+        for i in range(3):
+            resp = await test_client.post(
+                "/api/v1/websites",
+                json={
+                    "name": f"Test Pagination Website {i} {timestamp}",
+                    "base_url": f"https://pagination-example{i}-{timestamp}.com",
+                    "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+                },
+            )
+            if resp.status_code == 201:
+                created_ids.append(resp.json()["id"])
+
+        # Get first page (limit 2)
+        response = await test_client.get("/api/v1/websites?limit=2&offset=0")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["websites"]) == 2
+        assert data["total"] == initial_total + len(created_ids)
+        assert data["limit"] == 2
+        assert data["offset"] == 0
+
+        # Get second page
+        response = await test_client.get(f"/api/v1/websites?limit=2&offset={initial_total}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["total"] == initial_total + len(created_ids)
+        assert data["offset"] == initial_total
+
+    async def test_list_websites_filter_by_status(self, test_client: AsyncClient) -> None:
+        """Test listing websites filtered by status."""
+        # Create active and inactive websites
+        await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Active Website",
+                "base_url": "https://active.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+
+        # Filter by active status
+        response = await test_client.get("/api/v1/websites?status=active")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert len(data["websites"]) >= 1
+        assert all(w["status"] == "active" for w in data["websites"])
+
+    async def test_get_website_by_id(self, test_client: AsyncClient) -> None:
+        """Test retrieving a website by ID with statistics."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Test Website for GET",
+                "base_url": "https://example-get.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        assert create_response.status_code == 201
+
+        website_id = create_response.json()["id"]
+
+        # Get website by ID
+        response = await test_client.get(f"/api/v1/websites/{website_id}")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["id"] == website_id
+        assert data["name"] == "Test Website for GET"
+        assert data["base_url"] == "https://example-get.com/"
+        assert "statistics" in data
+        assert data["statistics"]["total_jobs"] == 0  # No jobs run yet
+        assert data["statistics"]["completed_jobs"] == 0
+        assert data["statistics"]["success_rate"] == 0.0
+        assert data["statistics"]["total_pages_crawled"] == 0
+        assert data["statistics"]["last_crawl_at"] is None
+
+    async def test_get_website_by_id_not_found(self, test_client: AsyncClient) -> None:
+        """Test retrieving a non-existent website returns 404."""
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await test_client.get(f"/api/v1/websites/{fake_id}")
+        assert response.status_code == 400  # ValueError -> 400 via decorator
+
+        error = response.json()
+        assert "not found" in error["detail"].lower()
+
+    async def test_get_website_by_id_invalid_uuid(self, test_client: AsyncClient) -> None:
+        """Test retrieving a website with invalid UUID format."""
+        response = await test_client.get("/api/v1/websites/invalid-uuid")
+        assert response.status_code in [400, 422]  # Validation error
+
+
+@pytest.mark.asyncio
+class TestUpdateWebsiteEndpoint:
+    """Tests for PUT /api/v1/websites/{id} endpoint."""
+
+    async def test_update_website_name(self, test_client: AsyncClient) -> None:
+        """Test updating website name."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Original Name",
+                "base_url": "https://example.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        assert create_response.status_code == 201
+        website_id = create_response.json()["id"]
+
+        # Update website
+        update_response = await test_client.put(
+            f"/api/v1/websites/{website_id}",
+            json={
+                "name": "Updated Name",
+                "change_reason": "Testing name update",
+            },
+        )
+        assert update_response.status_code == 200
+
+        data = update_response.json()
+        assert data["name"] == "Updated Name"
+        assert data["config_version"] == 1
+        assert data["recrawl_job_id"] is None
+
+    async def test_update_website_with_recrawl(self, test_client: AsyncClient) -> None:
+        """Test updating website with re-crawl trigger."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Test Site",
+                "base_url": "https://example.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Update with recrawl
+        update_response = await test_client.put(
+            f"/api/v1/websites/{website_id}",
+            json={
+                "status": "active",
+                "trigger_recrawl": True,
+                "change_reason": "Testing recrawl",
+            },
+        )
+        assert update_response.status_code == 200
+
+        data = update_response.json()
+        assert data["recrawl_job_id"] is not None
+        assert data["config_version"] == 1
+
+    async def test_update_website_not_found(self, test_client: AsyncClient) -> None:
+        """Test updating non-existent website."""
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await test_client.put(
+            f"/api/v1/websites/{fake_id}",
+            json={"name": "New Name"},
+        )
+        assert response.status_code == 400
+        assert "not found" in response.json()["detail"].lower()
+
+    async def test_update_website_no_changes(self, test_client: AsyncClient) -> None:
+        """Test updating with no changes returns error."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Test",
+                "base_url": "https://example.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Update with no changes
+        response = await test_client.put(
+            f"/api/v1/websites/{website_id}",
+            json={},
+        )
+        assert response.status_code == 400
+        assert "no changes" in response.json()["detail"].lower()
+
+    async def test_update_website_schedule(self, test_client: AsyncClient) -> None:
+        """Test updating website schedule."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Test Schedule",
+                "base_url": "https://example.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Update schedule
+        response = await test_client.put(
+            f"/api/v1/websites/{website_id}",
+            json={
+                "schedule": {
+                    "cron": "0 0 * * *",
+                    "enabled": True,
+                },
+                "change_reason": "Change to daily schedule",
+            },
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["cron_schedule"] == "0 0 * * *"
+        assert data["next_run_time"] is not None
+
+
+@pytest.mark.asyncio
 class TestCreateSeedJobInlineEndpoint:
     """Tests for POST /api/v1/jobs/seed-inline endpoint."""
 
@@ -600,3 +884,191 @@ class TestCreateSeedJobInlineEndpoint:
 
         error = response.json()
         assert "browser_type" in str(error).lower()
+
+
+@pytest.mark.asyncio
+class TestDeleteWebsiteEndpoint:
+    """Tests for DELETE /api/v1/websites/{id} endpoint."""
+
+    async def test_delete_website_success(self, test_client: AsyncClient) -> None:
+        """Test successful website deletion with soft delete."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Website to Delete",
+                "base_url": "https://example-delete.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        assert create_response.status_code == 201
+        website_id = create_response.json()["id"]
+
+        # Delete website
+        delete_response = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response.status_code == 200
+
+        data = delete_response.json()
+        assert data["id"] == website_id
+        assert data["name"] == "Website to Delete"
+        assert "deleted_at" in data
+        assert data["deleted_at"] is not None
+        assert "message" in data
+        assert "deleted successfully" in data["message"].lower()
+        assert data["cancelled_jobs"] >= 0
+        assert "cancelled_job_ids" in data
+        assert "config_archived_version" in data
+
+        # Verify website is soft deleted (should return 400 when trying to delete again)
+        delete_again_response = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_again_response.status_code == 400
+        assert "already deleted" in delete_again_response.json()["detail"].lower()
+
+    async def test_delete_website_with_active_jobs(
+        self, test_client: AsyncClient, crawl_job_repo
+    ) -> None:
+        """Test deleting website with active jobs cancels them."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Website with Jobs",
+                "base_url": "https://example-jobs.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        assert create_response.status_code == 201
+        website_id = create_response.json()["id"]
+
+        # Create a job for this website
+        job_response = await test_client.post(
+            "/api/v1/jobs/seed",
+            json={
+                "website_id": website_id,
+                "seed_url": "https://example-jobs.com/articles",
+            },
+        )
+        assert job_response.status_code == 201
+        job_id = job_response.json()["id"]
+
+        # Delete website (should cancel the job)
+        delete_response = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response.status_code == 200
+
+        data = delete_response.json()
+        assert data["cancelled_jobs"] >= 1
+        assert len(data["cancelled_job_ids"]) >= 1
+
+        # Verify job was cancelled
+        job = await crawl_job_repo.get_by_id(job_id)
+        assert job is not None
+        assert job.status == "cancelled"
+
+    async def test_delete_website_not_found(self, test_client: AsyncClient) -> None:
+        """Test deleting non-existent website returns 400."""
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await test_client.delete(f"/api/v1/websites/{fake_id}")
+        assert response.status_code == 400
+
+        error = response.json()
+        assert "not found" in error["detail"].lower()
+
+    async def test_delete_website_already_deleted(self, test_client: AsyncClient) -> None:
+        """Test deleting already deleted website returns 400."""
+        # Create and delete website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Already Deleted",
+                "base_url": "https://example-already-deleted.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # First delete
+        delete_response1 = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response1.status_code == 200
+
+        # Second delete (should fail)
+        delete_response2 = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response2.status_code == 400
+
+        error = delete_response2.json()
+        assert "already deleted" in error["detail"].lower()
+
+    async def test_delete_website_invalid_uuid(self, test_client: AsyncClient) -> None:
+        """Test deleting with invalid UUID format."""
+        response = await test_client.delete("/api/v1/websites/invalid-uuid")
+        assert response.status_code in [400, 422]  # Validation error
+
+    async def test_delete_website_with_delete_data_param(self, test_client: AsyncClient) -> None:
+        """Test delete endpoint with delete_data parameter (reserved for future)."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Delete with Data",
+                "base_url": "https://example-delete-data.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Delete with delete_data=true (currently does nothing, reserved for future)
+        response = await test_client.delete(f"/api/v1/websites/{website_id}?delete_data=true")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["id"] == website_id
+        assert "deleted successfully" in data["message"].lower()
+
+    async def test_delete_website_no_active_jobs(self, test_client: AsyncClient) -> None:
+        """Test deleting website with no active jobs."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "No Jobs Website",
+                "base_url": "https://example-no-jobs.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Delete website (no jobs to cancel)
+        delete_response = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response.status_code == 200
+
+        data = delete_response.json()
+        assert data["cancelled_jobs"] == 0
+        assert data["cancelled_job_ids"] == []
+
+    async def test_delete_website_archives_config(
+        self, test_client: AsyncClient, website_config_history_repo
+    ) -> None:
+        """Test that deletion archives configuration to history table."""
+        # Create website
+        create_response = await test_client.post(
+            "/api/v1/websites",
+            json={
+                "name": "Archive Test",
+                "base_url": "https://example-archive.com",
+                "steps": [{"name": "crawl", "type": "crawl", "method": "api"}],
+            },
+        )
+        website_id = create_response.json()["id"]
+
+        # Delete website
+        delete_response = await test_client.delete(f"/api/v1/websites/{website_id}")
+        assert delete_response.status_code == 200
+
+        data = delete_response.json()
+        assert "config_archived_version" in data
+        assert data["config_archived_version"] >= 1
+
+        # Verify config was archived
+        history = await website_config_history_repo.list_history(website_id)
+        assert len(history) >= 1
+        latest_version = max(h.version for h in history)
+        assert latest_version == data["config_archived_version"]

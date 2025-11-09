@@ -2,6 +2,7 @@
 # versions:
 #   sqlc v1.30.0
 # source: website.sql
+import pydantic
 from typing import Any, AsyncIterator, Optional
 import uuid
 
@@ -33,7 +34,7 @@ INSERT INTO website (
     :p5,
     :p6
 )
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -44,22 +45,84 @@ WHERE id = :p1
 
 
 GET_WEBSITE_BY_ID = """-- name: get_website_by_id \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE id = :p1
 """
 
 
 GET_WEBSITE_BY_NAME = """-- name: get_website_by_name \\:one
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE name = :p1
 """
 
 
+GET_WEBSITE_STATISTICS = """-- name: get_website_statistics \\:one
+WITH job_stats AS (
+    SELECT
+        website_id,
+        COUNT(*) AS total_jobs,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed_jobs,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs,
+        COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_jobs,
+        MAX(completed_at) FILTER (WHERE status = 'completed') AS last_crawl_at
+    FROM crawl_job
+    WHERE website_id = :p1
+    GROUP BY website_id
+),
+page_stats AS (
+    SELECT
+        cj.website_id,
+        COUNT(cp.id) AS total_pages_crawled
+    FROM crawl_job cj
+    JOIN crawled_page cp ON cp.job_id = cj.id
+    WHERE cj.website_id = :p1
+    GROUP BY cj.website_id
+)
+SELECT
+    COALESCE(js.total_jobs, 0)\\:\\:INTEGER AS total_jobs,
+    COALESCE(js.completed_jobs, 0)\\:\\:INTEGER AS completed_jobs,
+    COALESCE(js.failed_jobs, 0)\\:\\:INTEGER AS failed_jobs,
+    COALESCE(js.cancelled_jobs, 0)\\:\\:INTEGER AS cancelled_jobs,
+    CASE
+        WHEN COALESCE(js.total_jobs, 0) = 0 THEN 0.0
+        ELSE (COALESCE(js.completed_jobs, 0)\\:\\:FLOAT / js.total_jobs\\:\\:FLOAT * 100.0)
+    END AS success_rate,
+    COALESCE(ps.total_pages_crawled, 0)\\:\\:INTEGER AS total_pages_crawled,
+    js.last_crawl_at
+FROM website w
+LEFT JOIN job_stats js ON w.id = js.website_id
+LEFT JOIN page_stats ps ON w.id = ps.website_id
+WHERE w.id = :p1
+"""
+
+
+class GetWebsiteStatisticsRow(pydantic.BaseModel):
+    total_jobs: int
+    completed_jobs: int
+    failed_jobs: int
+    cancelled_jobs: int
+    success_rate: Optional[Any]
+    total_pages_crawled: int
+    last_crawl_at: Optional[Any]
+
+
 LIST_WEBSITES = """-- name: list_websites \\:many
-SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule FROM website
+SELECT id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at FROM website
 WHERE status = COALESCE(:p1, status)
 ORDER BY created_at DESC
 OFFSET :p2 LIMIT :p3
+"""
+
+
+SOFT_DELETE_WEBSITE = """-- name: soft_delete_website \\:one
+UPDATE website
+SET
+    deleted_at = CURRENT_TIMESTAMP,
+    status = 'inactive',
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = :p1
+  AND deleted_at IS NULL
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -73,7 +136,7 @@ SET
     status = COALESCE(:p5, status),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p6
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -83,7 +146,7 @@ SET
     status = :p1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p2
-RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule
+RETURNING id, name, base_url, config, status, created_at, updated_at, created_by, cron_schedule, deleted_at
 """
 
 
@@ -118,6 +181,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def delete_website(self, *, id: uuid.UUID) -> None:
@@ -137,6 +201,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def get_website_by_name(self, *, name: str) -> Optional[models.Website]:
@@ -153,6 +218,21 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
+        )
+
+    async def get_website_statistics(self, *, website_id: uuid.UUID) -> Optional[GetWebsiteStatisticsRow]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_WEBSITE_STATISTICS), {"p1": website_id})).first()
+        if row is None:
+            return None
+        return GetWebsiteStatisticsRow(
+            total_jobs=row[0],
+            completed_jobs=row[1],
+            failed_jobs=row[2],
+            cancelled_jobs=row[3],
+            success_rate=row[4],
+            total_pages_crawled=row[5],
+            last_crawl_at=row[6],
         )
 
     async def list_websites(self, *, status: models.StatusEnum, offset_count: int, limit_count: int) -> AsyncIterator[models.Website]:
@@ -168,7 +248,25 @@ class AsyncQuerier:
                 updated_at=row[6],
                 created_by=row[7],
                 cron_schedule=row[8],
+                deleted_at=row[9],
             )
+
+    async def soft_delete_website(self, *, id: uuid.UUID) -> Optional[models.Website]:
+        row = (await self._conn.execute(sqlalchemy.text(SOFT_DELETE_WEBSITE), {"p1": id})).first()
+        if row is None:
+            return None
+        return models.Website(
+            id=row[0],
+            name=row[1],
+            base_url=row[2],
+            config=row[3],
+            status=row[4],
+            created_at=row[5],
+            updated_at=row[6],
+            created_by=row[7],
+            cron_schedule=row[8],
+            deleted_at=row[9],
+        )
 
     async def update_website(self, *, name: str, base_url: str, config: Any, cron_schedule: Optional[str], status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_WEBSITE), {
@@ -191,6 +289,7 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )
 
     async def update_website_status(self, *, status: models.StatusEnum, id: uuid.UUID) -> Optional[models.Website]:
@@ -207,4 +306,5 @@ class AsyncQuerier:
             updated_at=row[6],
             created_by=row[7],
             cron_schedule=row[8],
+            deleted_at=row[9],
         )

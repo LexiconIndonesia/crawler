@@ -87,6 +87,7 @@ class TestJobService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
     @pytest.fixture
@@ -487,6 +488,7 @@ class TestJobService:
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
             created_by=None,
+            deleted_at=None,
         )
 
         mock_crawl_job.max_retries = 5

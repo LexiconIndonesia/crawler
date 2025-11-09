@@ -30,6 +30,9 @@ from .models import (
     GlobalConfig as _GlobalConfig,
 )
 from .models import (
+    UpdateWebsiteRequest as _UpdateWebsiteRequest,
+)
+from .models import (
     RetryConfig as _RetryConfig,
 )
 from .models import (
@@ -78,7 +81,7 @@ class StepNamesValidationMixin(BaseModel):
         Raises:
             ValueError: If duplicate step names are found
         """
-        if hasattr(self, "steps"):
+        if hasattr(self, "steps") and self.steps is not None:
             step_names = [step.name for step in self.steps]
             if len(step_names) != len(set(step_names)):
                 raise ValueError("Step names must be unique")
@@ -104,7 +107,7 @@ class BrowserTypeValidationMixin(BaseModel):
         Raises:
             ValueError: If a step has method='browser' but browser_type is None
         """
-        if hasattr(self, "steps"):
+        if hasattr(self, "steps") and self.steps is not None:
             for step in self.steps:
                 if step.method == MethodEnum.browser and step.browser_type is None:
                     raise ValueError("browser_type is required when method is 'browser'")
@@ -119,10 +122,17 @@ class CreateSeedJobRequest(_CreateSeedJobRequest):
 
 
 class ScheduleConfig(_ScheduleConfig):
-    """Extended ScheduleConfig with proper enum defaults."""
+    """Extended ScheduleConfig with proper enum defaults and validation."""
 
     # Override to use enum instead of string
     type: ScheduleTypeEnum = ScheduleTypeEnum.recurring
+
+    @model_validator(mode="after")
+    def ensure_type_is_enum(self) -> "ScheduleConfig":
+        """Ensure type is always an enum, converting string defaults if needed."""
+        if isinstance(self.type, str):
+            self.type = ScheduleTypeEnum(self.type)
+        return self
 
 
 class RetryConfig(EnumSerializationMixin, _RetryConfig):
@@ -216,3 +226,19 @@ class CreateSeedJobInlineRequest(
         if not url_str.startswith(("http://", "https://")):
             raise ValueError("seed_url must start with http:// or https://")
         return v
+
+
+class UpdateWebsiteRequest(
+    StepNamesValidationMixin, BrowserTypeValidationMixin, _UpdateWebsiteRequest
+):
+    """Extended UpdateWebsiteRequest that uses extended ScheduleConfig.
+
+    This ensures proper enum handling for the schedule.type field.
+    """
+
+    # Override schedule field to use our extended ScheduleConfig
+    schedule: ScheduleConfig | None = None
+    # Override steps field to use our extended CrawlStep
+    steps: list[CrawlStep] | None = None
+    # Override global_config field to use our extended GlobalConfig
+    global_config: GlobalConfig | None = None

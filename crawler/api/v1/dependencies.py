@@ -14,6 +14,7 @@ from crawler.db.repositories import (
     CrawlJobRepository,
     CrawlLogRepository,
     ScheduledJobRepository,
+    WebsiteConfigHistoryRepository,
     WebsiteRepository,
 )
 
@@ -45,11 +46,15 @@ async def get_website_service(
     # Each repository will execute queries sequentially within the transaction
     website_repo = WebsiteRepository(conn)
     scheduled_job_repo = ScheduledJobRepository(conn)
+    config_history_repo = WebsiteConfigHistoryRepository(conn)
+    crawl_job_repo = CrawlJobRepository(conn)
 
     # Return service with injected repositories
     return WebsiteService(
         website_repo=website_repo,
         scheduled_job_repo=scheduled_job_repo,
+        config_history_repo=config_history_repo,
+        crawl_job_repo=crawl_job_repo,
     )
 
 

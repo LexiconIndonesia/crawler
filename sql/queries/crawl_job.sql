@@ -76,6 +76,12 @@ SELECT * FROM crawl_job
 WHERE status = 'running'
 ORDER BY started_at ASC;
 
+-- name: GetActiveJobsByWebsite :many
+SELECT * FROM crawl_job
+WHERE website_id = sqlc.arg(website_id)
+  AND status IN ('pending', 'running')
+ORDER BY created_at DESC;
+
 -- name: GetFailedJobsForRetry :many
 SELECT * FROM crawl_job
 WHERE status = 'failed'

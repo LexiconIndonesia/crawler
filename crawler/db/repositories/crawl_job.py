@@ -132,6 +132,20 @@ class CrawlJobRepository:
             jobs.append(job)
         return jobs
 
+    async def get_active_by_website(self, website_id: str | UUID) -> list[models.CrawlJob]:
+        """Get active (pending or running) jobs for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            List of active CrawlJob models
+        """
+        jobs = []
+        async for job in self._querier.get_active_jobs_by_website(website_id=to_uuid(website_id)):
+            jobs.append(job)
+        return jobs
+
     async def update_status(
         self,
         job_id: str | UUID,

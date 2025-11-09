@@ -284,6 +284,693 @@ paths:
                   value:
                     detail: "Internal server error: database connection failed"
                     error_code: "INTERNAL_ERROR"
+    get:
+      tags:
+        - Websites
+      summary: List all website configurations
+      description: |
+        Retrieve a paginated list of website configurations with optional filtering.
+
+        This endpoint:
+        1. Retrieves websites with pagination support
+        2. Optionally filters by status (active, inactive)
+        3. Returns basic website information
+        4. Includes total count for pagination
+
+        Filtering:
+        - status: Filter by website status (active/inactive)
+
+        Pagination:
+        - limit: Number of results per page (default: 20, max: 100)
+        - offset: Number of results to skip
+      operationId: listWebsites
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter by website status
+          schema:
+            type: string
+            enum: [active, inactive]
+            example: "active"
+        - name: limit
+          in: query
+          required: false
+          description: Number of websites to return (max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+            example: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of websites to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: List of websites retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListWebsitesResponse'
+              examples:
+                success:
+                  value:
+                    websites:
+                      - id: "550e8400-e29b-41d4-a716-446655440000"
+                        name: "Example News Site"
+                        base_url: "https://news.example.com"
+                        status: "active"
+                        cron_schedule: "0 0 1,15 * *"
+                        created_at: "2025-10-27T10:00:00Z"
+                        updated_at: "2025-10-27T10:00:00Z"
+                      - id: "660e8400-e29b-41d4-a716-446655440000"
+                        name: "Tech Blog"
+                        base_url: "https://blog.example.com"
+                        status: "active"
+                        cron_schedule: "0 2 * * 1"
+                        created_at: "2025-10-28T10:00:00Z"
+                        updated_at: "2025-10-28T10:00:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+        '422':
+          description: Validation error (invalid query parameters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/websites/{id}:
+    get:
+      tags:
+        - Websites
+      summary: Get website configuration by ID
+      description: |
+        Retrieve a single website configuration by ID with statistics.
+
+        This endpoint:
+        1. Retrieves website configuration and metadata
+        2. Calculates statistics from crawl history:
+           - Total crawl jobs executed
+           - Success rate (completed jobs / total jobs)
+           - Total pages crawled across all jobs
+           - Last successful crawl timestamp
+           - Next scheduled run time
+
+        Statistics are calculated from the database and reflect historical data.
+      operationId: getWebsiteById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Website retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebsiteWithStatsResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    base_url: "https://news.example.com"
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    status: "active"
+                    cron_schedule: "0 0 1,15 * *"
+                    created_at: "2025-10-27T10:00:00Z"
+                    updated_at: "2025-10-27T10:00:00Z"
+                    created_by: null
+                    next_run_time: "2025-11-01T00:00:00Z"
+                    scheduled_job_id: "660e8400-e29b-41d4-a716-446655440000"
+                    statistics:
+                      total_jobs: 15
+                      completed_jobs: 12
+                      failed_jobs: 2
+                      cancelled_jobs: 1
+                      success_rate: 80.0
+                      total_pages_crawled: 1250
+                      last_crawl_at: "2025-10-30T10:30:00Z"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+        '422':
+          description: Validation error (invalid UUID format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - Websites
+      summary: Update website configuration
+      description: |
+        Update an existing website configuration with versioning and optional re-crawl.
+
+        This endpoint:
+        1. Validates the updated configuration
+        2. Saves the current configuration as a new version in history
+        3. Updates the website with new configuration
+        4. Updates scheduled jobs if schedule changed
+        5. Optionally triggers an immediate re-crawl
+        6. Returns the updated website with version info
+
+        **Configuration Versioning:**
+        - Every update creates a new version in the history table
+        - Versions are auto-incremented (1, 2, 3, ...)
+        - Full configuration snapshots are preserved
+        - Audit trail includes who changed it and why
+
+        **Schedule Updates:**
+        - If cron schedule changes, scheduled job is updated
+        - If schedule.enabled changes, job is activated/deactivated
+        - New scheduled job created if none existed
+
+        **Re-crawl Triggering:**
+        - Set trigger_recrawl=true to start immediate crawl
+        - Creates new one-time job with updated configuration
+        - Useful after significant configuration changes
+      operationId: updateWebsite
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebsiteRequest'
+            examples:
+              update_steps:
+                summary: Update crawl steps
+                value:
+                  steps:
+                    - name: "crawl_list"
+                      type: "crawl"
+                      method: "http"
+                      config:
+                        url: "https://api.example.com/v2/items"
+                  change_reason: "Updated API endpoint to v2"
+              update_schedule:
+                summary: Change schedule frequency
+                value:
+                  schedule:
+                    cron: "0 0 * * *"
+                    enabled: true
+                  change_reason: "Increase crawl frequency to daily"
+              pause_website:
+                summary: Pause website crawling
+                value:
+                  status: "inactive"
+                  schedule:
+                    enabled: false
+                  change_reason: "Temporarily pausing due to site maintenance"
+              trigger_recrawl:
+                summary: Update and trigger immediate re-crawl
+                value:
+                  global_config:
+                    rate_limit:
+                      requests_per_second: 1.0
+                  trigger_recrawl: true
+                  change_reason: "Reduced rate limit and testing new configuration"
+      responses:
+        '200':
+          description: Website updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateWebsiteResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    base_url: "https://news.example.com"
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 1.0
+                    status: "active"
+                    cron_schedule: "0 0 * * *"
+                    created_at: "2025-10-27T10:00:00Z"
+                    updated_at: "2025-11-09T12:00:00Z"
+                    created_by: null
+                    next_run_time: "2025-11-10T00:00:00Z"
+                    scheduled_job_id: "660e8400-e29b-41d4-a716-446655440000"
+                    config_version: 3
+                    recrawl_job_id: null
+        '400':
+          description: Validation error or invalid configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_cron:
+                  value:
+                    detail: "Invalid cron expression: expected 5 fields"
+                    error_code: "INVALID_CRON_EXPRESSION"
+                no_changes:
+                  value:
+                    detail: "No changes detected in the update request"
+                    error_code: "NO_CHANGES"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity (validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Websites
+      summary: Delete website (soft delete)
+      description: |
+        Soft delete a website and cancel all running jobs.
+
+        This endpoint:
+        1. Validates the website exists and is not already deleted
+        2. Cancels all active (pending/running) jobs for this website
+        3. Archives the current configuration for audit purposes
+        4. Soft deletes the website (sets deleted_at timestamp)
+        5. Sets status to 'inactive'
+        6. Returns deletion summary with cancelled jobs
+
+        **Soft Delete Behavior:**
+        - Website is not permanently removed from the database
+        - Sets `deleted_at` timestamp to current time
+        - Sets status to 'inactive'
+        - Configuration is preserved in history table
+        - Can be restored by clearing deleted_at (not yet implemented)
+
+        **Job Cancellation:**
+        - All pending and running jobs are automatically cancelled
+        - Jobs are marked with cancellation reason
+        - Returns list of cancelled job IDs
+
+        **Future Feature:**
+        - `delete_data` parameter will allow deletion of all crawled pages (not yet implemented)
+      operationId: deleteWebsite
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: delete_data
+          in: query
+          required: false
+          description: Delete all crawled data (not yet implemented, reserved for future use)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Website deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteWebsiteResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example Website"
+                    deleted_at: "2025-11-09T12:00:00Z"
+                    cancelled_jobs: 2
+                    cancelled_job_ids:
+                      - "660e8400-e29b-41d4-a716-446655440000"
+                      - "770e8400-e29b-41d4-a716-446655440000"
+                    config_archived_version: 5
+                    message: "Website 'Example Website' deleted successfully"
+        '400':
+          description: Website not found or already deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+                already_deleted:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' is already deleted"
+                    error_code: "WEBSITE_ALREADY_DELETED"
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /api/v1/websites/{id}/config-history:
+    get:
+      tags:
+        - Websites
+      summary: Get website configuration history
+      description: |
+        Retrieve the configuration version history for a website.
+
+        This endpoint:
+        1. Lists all configuration versions for the website
+        2. Returns versions in descending order (newest first)
+        3. Includes full config snapshot for each version
+        4. Shows who made each change and why
+        5. Supports pagination for large histories
+
+        **Use Cases:**
+        - Audit trail for configuration changes
+        - Understanding configuration evolution
+        - Identifying when/why a change was made
+        - Preparing for rollback operations
+      operationId: getWebsiteConfigHistory
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          description: Number of versions to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: offset
+          in: query
+          required: false
+          description: Number of versions to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Configuration history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryListResponse'
+              examples:
+                success:
+                  value:
+                    versions:
+                      - id: "880e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        version: 3
+                        config:
+                          steps:
+                            - name: "crawl_list"
+                              type: "crawl"
+                              method: "http"
+                          global_config:
+                            rate_limit:
+                              requests_per_second: 1.0
+                        changed_by: "admin"
+                        change_reason: "Reduced rate limit for testing"
+                        created_at: "2025-11-09T12:00:00Z"
+                      - id: "770e8400-e29b-41d4-a716-446655440000"
+                        website_id: "550e8400-e29b-41d4-a716-446655440000"
+                        version: 2
+                        config:
+                          steps:
+                            - name: "crawl_list"
+                              type: "crawl"
+                              method: "http"
+                          global_config:
+                            rate_limit:
+                              requests_per_second: 2.0
+                        changed_by: "system"
+                        change_reason: "Initial configuration update"
+                        created_at: "2025-11-01T10:00:00Z"
+                    total: 2
+                    limit: 10
+                    offset: 0
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /api/v1/websites/{id}/config-history/{version}:
+    get:
+      tags:
+        - Websites
+      summary: Get a specific configuration version
+      description: |
+        Retrieve a specific version of the website configuration.
+
+        This endpoint:
+        1. Fetches a specific version by version number
+        2. Returns the complete configuration snapshot
+        3. Includes change metadata (who, when, why)
+
+        **Use Cases:**
+        - Viewing exact configuration at a point in time
+        - Comparing configurations before rollback
+        - Detailed audit investigation
+      operationId: getWebsiteConfigVersion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+        - name: version
+          in: path
+          required: true
+          description: Version number
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Configuration version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryResponse'
+              examples:
+                success:
+                  value:
+                    id: "880e8400-e29b-41d4-a716-446655440000"
+                    website_id: "550e8400-e29b-41d4-a716-446655440000"
+                    version: 2
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    changed_by: "admin"
+                    change_reason: "Updated crawl configuration"
+                    created_at: "2025-11-01T10:00:00Z"
+        '404':
+          description: Website or version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                version_not_found:
+                  value:
+                    detail: "Configuration version 5 not found for website"
+                    error_code: "VERSION_NOT_FOUND"
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /api/v1/websites/{id}/rollback:
+    post:
+      tags:
+        - Websites
+      summary: Rollback website configuration to a previous version
+      description: |
+        Rollback the website configuration to a specific previous version.
+
+        This endpoint:
+        1. Validates the target version exists
+        2. Saves the current configuration as a new version (audit trail)
+        3. Restores the configuration from the target version
+        4. Updates the website with the restored configuration
+        5. Optionally triggers an immediate re-crawl with the restored config
+
+        **Safety Features:**
+        - Current config is preserved in history before rollback
+        - All rollbacks are logged with reason and user
+        - Rollback itself creates a new version (reversible)
+        - Optional re-crawl to validate restored configuration
+
+        **Important:**
+        - Rolling back does NOT delete newer versions
+        - Creates a new version that's a copy of the target version
+        - Full audit trail is maintained
+      operationId: rollbackWebsiteConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackConfigRequest'
+            examples:
+              simple_rollback:
+                summary: Rollback without re-crawl
+                value:
+                  version: 2
+                  rollback_reason: "Reverting to previous working configuration"
+              rollback_with_recrawl:
+                summary: Rollback and trigger re-crawl
+                value:
+                  version: 3
+                  rollback_reason: "Emergency rollback due to crawl failures"
+                  trigger_recrawl: true
+      responses:
+        '200':
+          description: Configuration rolled back successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackConfigResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    base_url: "https://news.example.com"
+                    config:
+                      steps:
+                        - name: "crawl_list"
+                          type: "crawl"
+                          method: "http"
+                      global_config:
+                        rate_limit:
+                          requests_per_second: 2.0
+                    status: "active"
+                    cron_schedule: "0 0 1,15 * *"
+                    created_at: "2025-10-27T10:00:00Z"
+                    updated_at: "2025-11-09T14:00:00Z"
+                    config_version: 5
+                    rolled_back_from_version: 4
+                    rolled_back_to_version: 2
+                    recrawl_job_id: null
+        '400':
+          description: Invalid rollback request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                version_not_found:
+                  value:
+                    detail: "Configuration version 10 not found"
+                    error_code: "VERSION_NOT_FOUND"
+                same_version:
+                  value:
+                    detail: "Cannot rollback to the current version"
+                    error_code: "INVALID_ROLLBACK"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
 
   /api/v1/jobs/seed:
     post:
@@ -1450,6 +2137,199 @@ components:
           nullable: true
           example: "660e8400-e29b-41d4-a716-446655440000"
 
+    UpdateWebsiteRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Updated website name
+          minLength: 1
+          maxLength: 255
+          nullable: true
+          example: "Updated News Site"
+        steps:
+          type: array
+          description: Updated list of crawl/scrape steps
+          items:
+            $ref: '#/components/schemas/CrawlStep'
+          minLength: 1
+          nullable: true
+        variables:
+          type: object
+          description: Updated variables for substitution
+          additionalProperties: true
+          nullable: true
+        global_config:
+          $ref: '#/components/schemas/GlobalConfig'
+          nullable: true
+        schedule:
+          $ref: '#/components/schemas/ScheduleConfig'
+          nullable: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+          nullable: true
+        change_reason:
+          type: string
+          description: Reason for this configuration change (for audit trail)
+          maxLength: 1000
+          nullable: true
+          example: "Updated API endpoint to v2"
+        trigger_recrawl:
+          type: boolean
+          description: If true, immediately trigger a new crawl job with updated config
+          default: false
+          example: false
+
+    UpdateWebsiteResponse:
+      allOf:
+        - $ref: '#/components/schemas/WebsiteResponse'
+        - type: object
+          required:
+            - config_version
+          properties:
+            config_version:
+              type: integer
+              description: Current configuration version number after update
+              minimum: 1
+              example: 3
+            recrawl_job_id:
+              type: string
+              format: uuid
+              description: ID of the triggered crawl job (if trigger_recrawl was true)
+              nullable: true
+              example: "770e8400-e29b-41d4-a716-446655440000"
+
+    WebsiteStatistics:
+      type: object
+      required:
+        - total_jobs
+        - completed_jobs
+        - failed_jobs
+        - cancelled_jobs
+        - success_rate
+        - total_pages_crawled
+      properties:
+        total_jobs:
+          type: integer
+          description: Total number of crawl jobs for this website
+          minimum: 0
+          example: 15
+        completed_jobs:
+          type: integer
+          description: Number of successfully completed jobs
+          minimum: 0
+          example: 12
+        failed_jobs:
+          type: integer
+          description: Number of failed jobs
+          minimum: 0
+          example: 2
+        cancelled_jobs:
+          type: integer
+          description: Number of cancelled jobs
+          minimum: 0
+          example: 1
+        success_rate:
+          type: number
+          format: float
+          description: Success rate as percentage (completed / total * 100)
+          minimum: 0
+          maximum: 100
+          example: 80.0
+        total_pages_crawled:
+          type: integer
+          description: Total pages crawled across all jobs
+          minimum: 0
+          example: 1250
+        last_crawl_at:
+          type: string
+          format: date-time
+          description: Timestamp of last successful crawl
+          nullable: true
+          example: "2025-10-30T10:30:00Z"
+
+    WebsiteWithStatsResponse:
+      allOf:
+        - $ref: '#/components/schemas/WebsiteResponse'
+        - type: object
+          required:
+            - statistics
+          properties:
+            statistics:
+              $ref: '#/components/schemas/WebsiteStatistics'
+
+    WebsiteSummary:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        base_url:
+          type: string
+          format: uri
+          description: Base URL
+          example: "https://example.com"
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        cron_schedule:
+          type: string
+          description: Cron schedule expression
+          nullable: true
+          example: "0 0 1,15 * *"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2025-10-27T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-10-27T10:00:00Z"
+
+    ListWebsitesResponse:
+      type: object
+      required:
+        - websites
+        - total
+        - limit
+        - offset
+      properties:
+        websites:
+          type: array
+          description: List of websites
+          items:
+            $ref: '#/components/schemas/WebsiteSummary'
+        total:
+          type: integer
+          description: Total number of websites matching the filters
+          minimum: 0
+          example: 2
+        limit:
+          type: integer
+          description: Number of websites per page
+          minimum: 1
+          maximum: 100
+          example: 20
+        offset:
+          type: integer
+          description: Number of websites skipped
+          minimum: 0
+          example: 0
+
     CreateSeedJobRequest:
       type: object
       required:
@@ -1719,6 +2599,231 @@ components:
           type: integer
           description: Offset for pagination
           example: 0
+
+    ConfigHistoryResponse:
+      type: object
+      required:
+        - id
+        - website_id
+        - version
+        - config
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: History entry ID
+          example: "880e8400-e29b-41d4-a716-446655440000"
+        website_id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        version:
+          type: integer
+          minimum: 1
+          description: Version number
+          example: 3
+        config:
+          type: object
+          description: Full configuration snapshot at this version
+          additionalProperties: true
+        changed_by:
+          type: string
+          nullable: true
+          description: User or system that made the change
+          example: "admin"
+        change_reason:
+          type: string
+          nullable: true
+          description: Reason for the configuration change
+          example: "Updated rate limits for better performance"
+        created_at:
+          type: string
+          format: date-time
+          description: When this version was created
+          example: "2025-11-09T12:00:00Z"
+
+    ConfigHistoryListResponse:
+      type: object
+      required:
+        - versions
+        - total
+        - limit
+        - offset
+      properties:
+        versions:
+          type: array
+          description: List of configuration versions
+          items:
+            $ref: '#/components/schemas/ConfigHistoryResponse'
+        total:
+          type: integer
+          description: Total number of versions for this website
+          example: 15
+        limit:
+          type: integer
+          description: Number of versions per page
+          example: 10
+        offset:
+          type: integer
+          description: Offset for pagination
+          example: 0
+
+    RollbackConfigRequest:
+      type: object
+      required:
+        - version
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: Target version number to rollback to
+          example: 2
+        rollback_reason:
+          type: string
+          description: Reason for rolling back the configuration
+          nullable: true
+          example: "Reverting to stable configuration due to crawl failures"
+        trigger_recrawl:
+          type: boolean
+          default: false
+          description: Whether to trigger an immediate re-crawl after rollback
+          example: false
+
+    RollbackConfigResponse:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - config
+        - status
+        - created_at
+        - updated_at
+        - config_version
+        - rolled_back_from_version
+        - rolled_back_to_version
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        base_url:
+          type: string
+          format: uri
+          description: Base URL of the website
+          example: "https://news.example.com"
+        config:
+          type: object
+          description: Restored configuration (from target version)
+          additionalProperties: true
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        cron_schedule:
+          type: string
+          nullable: true
+          description: Default cron schedule
+          example: "0 0 1,15 * *"
+        created_at:
+          type: string
+          format: date-time
+          description: Website creation timestamp
+          example: "2025-10-27T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-11-09T14:00:00Z"
+        created_by:
+          type: string
+          nullable: true
+          description: User who created the website
+          example: null
+        next_run_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next scheduled run time
+          example: "2025-11-15T00:00:00Z"
+        scheduled_job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated scheduled job ID
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        config_version:
+          type: integer
+          description: New version number created by the rollback
+          example: 5
+        rolled_back_from_version:
+          type: integer
+          description: Version that was active before rollback
+          example: 4
+        rolled_back_to_version:
+          type: integer
+          description: Target version that was restored
+          example: 2
+        recrawl_job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of re-crawl job if triggered
+          example: null
+
+    DeleteWebsiteResponse:
+      type: object
+      required:
+        - id
+        - name
+        - deleted_at
+        - cancelled_jobs
+        - cancelled_job_ids
+        - config_archived_version
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example Website"
+        deleted_at:
+          type: string
+          format: date-time
+          description: Timestamp when website was deleted
+          example: "2025-11-09T12:00:00Z"
+        cancelled_jobs:
+          type: integer
+          description: Number of jobs cancelled
+          minimum: 0
+          example: 2
+        cancelled_job_ids:
+          type: array
+          description: List of cancelled job IDs
+          items:
+            type: string
+            format: uuid
+          example:
+            - "660e8400-e29b-41d4-a716-446655440000"
+            - "770e8400-e29b-41d4-a716-446655440000"
+        config_archived_version:
+          type: integer
+          description: Version number of archived configuration
+          minimum: 1
+          example: 5
+        message:
+          type: string
+          description: Success message
+          example: "Website 'Example Website' deleted successfully"
 
   securitySchemes:
     BearerAuth:

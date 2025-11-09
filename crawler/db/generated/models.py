@@ -32,6 +32,10 @@ class StatusEnum(str, enum.Enum):
     INACTIVE = "inactive"
 
 
+class AlembicVersion(pydantic.BaseModel):
+    version_num: str
+
+
 class ContentHash(pydantic.BaseModel):
     """Tracks content hash occurrences for duplicate detection"""
     content_hash: str
@@ -203,14 +207,6 @@ class ScheduledJob(pydantic.BaseModel):
     updated_at: datetime.datetime
 
 
-class SchemaMigration(pydantic.BaseModel):
-    """Tracks applied database migrations"""
-    version: str
-    applied_at: datetime.datetime
-    description: Optional[str]
-    checksum: Optional[str]
-
-
 class Website(pydantic.BaseModel):
     """Stores website configurations and metadata"""
     id: uuid.UUID
@@ -223,3 +219,20 @@ class Website(pydantic.BaseModel):
     created_by: Optional[str]
     # Default cron schedule expression for this website (default: "0 0 1,15 * *" runs on 1st and 15th at midnight, approximately every 2 weeks)
     cron_schedule: Optional[str]
+    # Timestamp when website was soft deleted (NULL = active)
+    deleted_at: Optional[datetime.datetime]
+
+
+class WebsiteConfigHistory(pydantic.BaseModel):
+    """Stores configuration history for websites to track changes over time"""
+    id: uuid.UUID
+    website_id: uuid.UUID
+    # Version number, incremented with each change (starts at 1)
+    version: int
+    # Full configuration snapshot at this version
+    config: Any
+    # User or system that made the change
+    changed_by: Optional[str]
+    # Optional description of why the change was made
+    change_reason: Optional[str]
+    created_at: datetime.datetime

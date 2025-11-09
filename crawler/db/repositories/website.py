@@ -142,5 +142,42 @@ class WebsiteRepository:
         )
 
     async def delete(self, website_id: str | UUID) -> None:
-        """Delete website."""
+        """Delete website (hard delete)."""
         await self._querier.delete_website(id=to_uuid(website_id))
+
+    async def soft_delete(self, website_id: str | UUID) -> models.Website | None:
+        """Soft delete website by setting deleted_at timestamp.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Soft deleted Website model or None if already deleted or not found
+
+        Note:
+            This sets deleted_at to current timestamp and status to 'inactive'.
+            Only affects websites where deleted_at IS NULL.
+        """
+        return await self._querier.soft_delete_website(id=to_uuid(website_id))
+
+    async def get_statistics(
+        self, website_id: str | UUID
+    ) -> website.GetWebsiteStatisticsRow | None:
+        """Get statistics for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Website statistics or None if no data
+
+        Statistics include:
+            - total_jobs: Total number of crawl jobs
+            - completed_jobs: Number of completed jobs
+            - failed_jobs: Number of failed jobs
+            - cancelled_jobs: Number of cancelled jobs
+            - success_rate: Success rate as percentage (0-100)
+            - total_pages_crawled: Total pages crawled across all jobs
+            - last_crawl_at: Timestamp of last successful crawl (nullable)
+        """
+        return await self._querier.get_website_statistics(website_id=to_uuid(website_id))
