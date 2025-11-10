@@ -246,7 +246,7 @@ class StepOrchestrator:
                 result.metadata["execution_time_seconds"] = round(execution_time, 3)
                 result.metadata["timeout_configured"] = timeout_seconds
 
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 # Step timeout exceeded
                 execution_time = time.time() - start_time
                 logger.error(

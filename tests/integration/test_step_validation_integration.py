@@ -74,11 +74,22 @@ class TestStepValidationIntegration:
             # Execute workflow
             context = await orchestrator.execute_workflow()
 
-            # Verify step completed but output validation may have warnings
+            # Verify step completed successfully
             assert "test_step" in context.step_results
-            # Step should succeed even with invalid output (non-strict mode)
-            # The crawl will return empty extracted_data which violates schema
-            # but we use strict=False for output validation
+            step_result = context.step_results["test_step"]
+
+            # Step should succeed even with minimal output
+            # The crawl executor adds _crawl_metadata so extracted_data is not empty
+            # Output validation passes because at least one field is present
+            assert step_result.success is True
+
+            # Verify that extracted_data contains at least the metadata field
+            assert "_crawl_metadata" in step_result.extracted_data
+            assert step_result.extracted_data["_crawl_metadata"]["total_urls"] == 0
+
+            # No output validation warnings since _crawl_metadata satisfies schema
+            # (at least one field present)
+            assert "output_validation_warnings" not in step_result.metadata
 
     @pytest.mark.asyncio
     async def test_valid_crawl_step_passes_validation(self):
