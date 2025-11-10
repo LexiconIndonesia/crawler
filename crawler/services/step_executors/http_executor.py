@@ -141,4 +141,5 @@ class HTTPExecutor(BaseStepExecutor):
         """Clean up HTTP client resources."""
         if self._client is not None and self._owns_client:
             await self._client.aclose()
+            self._client = None  # Clear reference to allow new client creation
             logger.debug("http_client_closed")

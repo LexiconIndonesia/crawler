@@ -1,6 +1,6 @@
 """Integration tests for step orchestrator."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -373,3 +373,68 @@ class TestStepOrchestrator:
         # Should raise ValueError about missing dependency
         with pytest.raises(ValueError, match="depends on non-existent step"):
             await orchestrator.execute_workflow()
+
+    @pytest.mark.asyncio
+    async def test_workflow_cancellation_between_steps(self):
+        """Test that workflow can be cancelled between steps."""
+        steps = [
+            {
+                "name": "step1",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/step1"},
+                "selectors": {"data": ".data"},
+            },
+            {
+                "name": "step2",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/step2"},
+                "selectors": {"data": ".data"},
+            },
+            {
+                "name": "step3",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/step3"},
+                "selectors": {"data": ".data"},
+            },
+        ]
+
+        # Mock cancellation flag
+        mock_cancellation_flag = MagicMock()
+        # Return False first (step1 runs), then True (cancel before step2)
+        mock_cancellation_flag.is_cancelled = AsyncMock(side_effect=[False, True])
+
+        orchestrator = StepOrchestrator(
+            job_id="test-job-cancel",
+            website_id="test-site-cancel",
+            base_url="https://example.com",
+            steps=steps,
+            cancellation_flag=mock_cancellation_flag,
+        )
+
+        with patch("httpx.AsyncClient.request") as mock_request:
+            mock_response = AsyncMock()
+            mock_response.status_code = 200
+            mock_response.text = '<html><div class="data">Test</div></html>'
+            mock_response.headers = {"content-type": "text/html"}
+            mock_request.return_value = mock_response
+
+            context = await orchestrator.execute_workflow()
+
+            # Verify workflow was cancelled
+            assert context.metadata.get("cancelled") is True
+
+            # Only first step in execution order should have executed
+            # (dependency validator determines order, not definition order)
+            assert len(context.step_results) == 1
+            first_step = list(context.step_results.keys())[0]
+            assert context.step_results[first_step].success
+
+            # Other steps should not have executed
+            assert len(context.step_results) < len(steps)
+
+            # Cancellation flag should have been checked twice:
+            # once before first step (returns False), once before second step (returns True)
+            assert mock_cancellation_flag.is_cancelled.call_count == 2

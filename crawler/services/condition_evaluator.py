@@ -13,6 +13,9 @@ from crawler.services.variable_resolver import VariableResolver
 
 logger = get_logger(__name__)
 
+# Type alias for values that can be compared in conditions
+ComparableValue = str | int | float | bool | None
+
 
 class ConditionEvaluator:
     """Evaluates conditions for step execution control.
@@ -104,20 +107,24 @@ class ConditionEvaluator:
         left = self._resolve_value(left_str)
         right = self._resolve_value(right_str)
 
-        # Perform comparison
+        # Perform comparison with proper type handling
         try:
+            # Equality operators work on all types
             if operator == "==":
-                return bool(left == right)
+                return left == right
             elif operator == "!=":
-                return bool(left != right)
+                return left != right
+
+            # Ordering operators require comparable types
+            # Dict/list comparisons don't make sense, will raise TypeError
             elif operator == ">":
-                return bool(left > right)
+                return self._safe_compare(left, right, lambda lhs, rhs: lhs > rhs)
             elif operator == "<":
-                return bool(left < right)
+                return self._safe_compare(left, right, lambda lhs, rhs: lhs < rhs)
             elif operator == ">=":
-                return bool(left >= right)
+                return self._safe_compare(left, right, lambda lhs, rhs: lhs >= rhs)
             elif operator == "<=":
-                return bool(left <= right)
+                return self._safe_compare(left, right, lambda lhs, rhs: lhs <= rhs)
             else:
                 return False
         except TypeError as e:
@@ -129,6 +136,32 @@ class ConditionEvaluator:
                 error=str(e),
             )
             return False
+
+    def _safe_compare(
+        self,
+        left: ComparableValue | dict[str, Any] | list[Any],
+        right: ComparableValue | dict[str, Any] | list[Any],
+        comparison: Any,  # Callable but Any to avoid more complex typing
+    ) -> bool:
+        """Safely perform comparison, handling non-comparable types.
+
+        Args:
+            left: Left operand
+            right: Right operand
+            comparison: Comparison function (e.g., lambda l, r: l > r)
+
+        Returns:
+            Result of comparison
+
+        Raises:
+            TypeError: If types cannot be compared
+        """
+        # Dict and list types cannot be ordered
+        if isinstance(left, (dict, list)) or isinstance(right, (dict, list)):
+            raise TypeError(f"Cannot compare {type(left).__name__} with {type(right).__name__}")
+
+        # For comparable values, perform the comparison
+        return bool(comparison(left, right))
 
     def _evaluate_exists(self, condition: str) -> bool:
         """Evaluate an 'exists' condition.
@@ -200,14 +233,14 @@ class ConditionEvaluator:
 
         return bool(value)
 
-    def _resolve_value(self, value_str: str) -> Any:
+    def _resolve_value(self, value_str: str) -> ComparableValue | dict[str, Any] | list[Any]:
         """Resolve a value string to its actual value.
 
         Args:
             value_str: String that may contain variables or literals
 
         Returns:
-            Resolved value
+            Resolved value (primitives for comparisons, or dict/list for other checks)
 
         """
         value_str = value_str.strip()

@@ -6,7 +6,7 @@ of multi-step workflows, handling dependencies, data flow, and error recovery.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from crawler.core.logging import get_logger
 from crawler.services.condition_evaluator import ConditionEvaluator
@@ -19,6 +19,9 @@ from crawler.services.step_executors import (
     HTTPExecutor,
 )
 from crawler.services.variable_resolver import VariableResolver
+
+if TYPE_CHECKING:
+    from crawler.services.redis_cache import JobCancellationFlag
 
 logger = get_logger(__name__)
 
@@ -43,6 +46,7 @@ class StepOrchestrator:
         base_url: str,
         steps: list[dict[str, Any]],
         global_config: dict[str, Any] | None = None,
+        cancellation_flag: JobCancellationFlag | None = None,
     ):
         """Initialize step orchestrator.
 
@@ -52,12 +56,14 @@ class StepOrchestrator:
             base_url: Base URL for the website
             steps: List of step configurations
             global_config: Global configuration (timeout, headers, etc.)
+            cancellation_flag: Optional cancellation flag for mid-execution cancellation
         """
         self.job_id = job_id
         self.website_id = website_id
         self.base_url = base_url
         self.steps = steps
         self.global_config = global_config or {}
+        self.cancellation_flag = cancellation_flag
 
         # Initialize context
         self.context = StepExecutionContext(
@@ -106,6 +112,18 @@ class StepOrchestrator:
 
             # Step 2: Execute steps in order
             for step_name in self.execution_order:
+                # Check for cancellation between steps
+                if await self._check_cancellation():
+                    logger.info(
+                        "workflow_cancelled",
+                        job_id=self.job_id,
+                        completed_steps=len(self.context.step_results),
+                        total_steps=len(self.steps),
+                    )
+                    # Mark context as cancelled
+                    self.context.metadata["cancelled"] = True
+                    return self.context
+
                 step_config = self._get_step_config(step_name)
                 if not step_config:
                     logger.error("step_not_found", step_name=step_name)
@@ -139,7 +157,7 @@ class StepOrchestrator:
             logger.info("step_starting", job_id=self.job_id, step_name=step_name)
 
             # Step 1: Check if step should be skipped
-            if await self._should_skip_step(step_config):
+            if self._should_skip_step(step_config):
                 logger.info("step_skipped", step_name=step_name)
                 self.context.add_result(
                     StepResult(
@@ -150,7 +168,7 @@ class StepOrchestrator:
                 return
 
             # Step 2: Resolve input URL(s)
-            urls = await self._resolve_step_urls(step_config)
+            urls = self._resolve_step_urls(step_config)
             if not urls:
                 logger.warning("step_no_urls", step_name=step_name)
                 self.context.add_result(
@@ -257,7 +275,7 @@ class StepOrchestrator:
                 )
             )
 
-    async def _should_skip_step(self, step_config: dict[str, Any]) -> bool:
+    def _should_skip_step(self, step_config: dict[str, Any]) -> bool:
         """Check if step should be skipped based on conditions.
 
         Args:
@@ -314,7 +332,7 @@ class StepOrchestrator:
         # No conditions configured, don't skip
         return False
 
-    async def _resolve_step_urls(self, step_config: dict[str, Any]) -> list[str] | str:
+    def _resolve_step_urls(self, step_config: dict[str, Any]) -> list[str] | str:
         """Resolve URL(s) for step execution.
 
         Args:
@@ -473,6 +491,22 @@ class StepOrchestrator:
             if step["name"] == step_name:
                 return step
         return None
+
+    async def _check_cancellation(self) -> bool:
+        """Check if workflow should be cancelled.
+
+        Returns:
+            True if workflow is cancelled, False otherwise
+
+        Uses guard pattern to return early when cancellation is not configured.
+        """
+        # Guard: no cancellation flag configured
+        if not self.cancellation_flag:
+            return False
+
+        # Check cancellation status
+        is_cancelled = await self.cancellation_flag.is_cancelled(self.job_id)
+        return is_cancelled
 
     async def _cleanup(self) -> None:
         """Clean up executor resources."""

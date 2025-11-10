@@ -277,14 +277,9 @@ class DependencyValidator:
         Returns:
             List of step names that this step depends on (empty if none)
         """
-        dependencies = []
-        for step in self.steps:
-            if step["name"] == step_name:
-                input_from = step.get("input_from")
-                if input_from:
-                    dependencies.append(self._extract_dependency(input_from))
-                break
-        return dependencies
+        # Leverage the complete dependency graph built in _build_graph
+        # which includes input_from, skip_if, and run_only_if dependencies
+        return [dep for dep, dependents in self.dependency_graph.items() if step_name in dependents]
 
     def get_dependents(self, step_name: str) -> list[str]:
         """Get steps that depend on the given step.

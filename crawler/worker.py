@@ -243,6 +243,7 @@ class CrawlJobWorker:
                 base_url=base_url,
                 steps=steps,
                 global_config=global_config,
+                cancellation_flag=self.cancellation_flag,
             )
 
             # Execute workflow
@@ -255,6 +256,23 @@ class CrawlJobWorker:
                 failed_steps=len(context.get_failed_steps()),
                 total_steps=len(steps),
             )
+
+            # Check if workflow was cancelled mid-execution
+            if context.metadata.get("cancelled"):
+                await job_repo.update_status(
+                    job_id=job_id,
+                    status=StatusEnum.CANCELLED,
+                    started_at=None,
+                    completed_at=None,
+                    error_message=None,
+                )
+                logger.info(
+                    "job_cancelled_during_execution",
+                    job_id=job_id,
+                    completed_steps=len(context.step_results),
+                    total_steps=len(steps),
+                )
+                return True
 
             # Update job status based on workflow execution
             failed_steps = context.get_failed_steps()

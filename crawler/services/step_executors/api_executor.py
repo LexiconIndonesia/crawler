@@ -71,12 +71,29 @@ class APIExecutor(BaseStepExecutor):
                 timeout=timeout,
             )
 
+            # Extract additional request kwargs from step_config
+            # This enables POST/PUT bodies, query params, files, etc.
+            extra_kwargs = {
+                key: step_config[key]
+                for key in (
+                    "params",
+                    "data",
+                    "json",
+                    "content",
+                    "files",
+                    "cookies",
+                    "auth",
+                )
+                if key in step_config
+            }
+
             response = await client.request(
                 method=method,
                 url=url,
                 headers=headers,
                 timeout=timeout,
                 follow_redirects=True,
+                **extra_kwargs,
             )
 
             # Check status
@@ -152,4 +169,5 @@ class APIExecutor(BaseStepExecutor):
         """Clean up HTTP client resources."""
         if self._client is not None and self._owns_client:
             await self._client.aclose()
+            self._client = None  # Clear reference to allow new client creation
             logger.debug("api_client_closed")

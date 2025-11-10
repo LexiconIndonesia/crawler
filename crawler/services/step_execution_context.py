@@ -53,6 +53,7 @@ class StepExecutionContext:
         variables: Global variables available to all steps
         step_results: Results from executed steps (keyed by step name)
         execution_order: Order in which steps were executed
+        metadata: Additional workflow-level metadata (cancellation status, etc.)
     """
 
     job_id: str
@@ -60,6 +61,7 @@ class StepExecutionContext:
     variables: dict[str, Any] = field(default_factory=dict)
     step_results: dict[str, StepResult] = field(default_factory=dict)
     execution_order: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_result(self, result: StepResult) -> None:
         """Add a step result to the context.
@@ -174,4 +176,5 @@ class StepExecutionContext:
             "execution_order": self.execution_order,
             "failed_steps": self.get_failed_steps(),
             "successful_steps": self.get_successful_steps(),
+            "metadata": self.metadata,
         }

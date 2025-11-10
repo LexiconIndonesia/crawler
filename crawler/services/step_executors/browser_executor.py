@@ -34,8 +34,6 @@ class BrowserExecutor(BaseStepExecutor):
             selector_processor: Selector processor for data extraction
         """
         self.selector_processor = selector_processor or SelectorProcessor()
-        self._browser = None
-        self._context = None
 
     async def execute(
         self,
@@ -79,19 +77,24 @@ class BrowserExecutor(BaseStepExecutor):
 
             # Launch browser
             async with async_playwright() as p:
-                # Select browser type
-                if browser_type == "firefox":
-                    browser = await p.firefox.launch()
-                elif browser_type == "webkit":
-                    browser = await p.webkit.launch()
-                else:
-                    browser = await p.chromium.launch()
-
-                # Create context and page
-                context = await browser.new_context()
-                page = await context.new_page()
+                # Initialize resources to None to prevent UnboundLocalError in finally block
+                browser = None
+                context = None
+                page = None
 
                 try:
+                    # Select browser type
+                    if browser_type == "firefox":
+                        browser = await p.firefox.launch()
+                    elif browser_type == "webkit":
+                        browser = await p.webkit.launch()
+                    else:
+                        browser = await p.chromium.launch()
+
+                    # Create context and page
+                    context = await browser.new_context()
+                    page = await context.new_page()
+
                     # Navigate to URL
                     response = await page.goto(url, timeout=timeout, wait_until=wait_for)
 
@@ -146,9 +149,26 @@ class BrowserExecutor(BaseStepExecutor):
                     )
 
                 finally:
-                    await page.close()
-                    await context.close()
-                    await browser.close()
+                    # Guard cleanup: close each resource if it was created
+                    # Wrap each close in try/except to prevent secondary errors from masking
+                    # the original exception
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception as e:
+                            logger.debug("page_close_error", error=str(e))
+
+                    if context is not None:
+                        try:
+                            await context.close()
+                        except Exception as e:
+                            logger.debug("context_close_error", error=str(e))
+
+                    if browser is not None:
+                        try:
+                            await browser.close()
+                        except Exception as e:
+                            logger.debug("browser_close_error", error=str(e))
 
         except Exception as e:
             return self._create_error_result(
