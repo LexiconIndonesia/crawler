@@ -1,6 +1,6 @@
 """Integration tests for step validation in orchestrator."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -76,7 +76,6 @@ class TestStepValidationIntegration:
 
             # Verify step completed but output validation may have warnings
             assert "test_step" in context.step_results
-            step_result = context.step_results["test_step"]
             # Step should succeed even with invalid output (non-strict mode)
             # The crawl will return empty extracted_data which violates schema
             # but we use strict=False for output validation

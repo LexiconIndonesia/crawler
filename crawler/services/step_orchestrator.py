@@ -15,7 +15,6 @@ from crawler.services.condition_evaluator import ConditionEvaluator
 from crawler.services.dependency_validator import DependencyValidator
 from crawler.services.selector_processor import SelectorProcessor
 from crawler.services.step_execution_context import StepExecutionContext, StepResult
-from crawler.services.step_validator import StepValidationError, StepValidator
 from crawler.services.step_executors import (
     APIExecutor,
     BrowserExecutor,
@@ -24,6 +23,7 @@ from crawler.services.step_executors import (
     ScrapeExecutor,
 )
 from crawler.services.step_executors.base import ExecutionResult
+from crawler.services.step_validator import StepValidationError, StepValidator
 from crawler.services.variable_resolver import VariableResolver
 
 if TYPE_CHECKING:
