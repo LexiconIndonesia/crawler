@@ -405,7 +405,7 @@ class TestStepOrchestrator:
             {
                 "name": "fetch_pages",
                 "method": "http",
-                "type": "http",  # Force HTTPExecutor (not ScrapeExecutor which is the default)
+                # No type specified - should use HTTPExecutor (backward compatibility)
                 "input_from": "fetch_list.urls",
                 "selectors": {
                     "title": "h1",

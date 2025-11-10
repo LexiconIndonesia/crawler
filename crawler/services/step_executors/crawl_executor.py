@@ -100,9 +100,8 @@ class CrawlExecutor(BaseStepExecutor):
             # Guard: Handle list of URLs (use only first)
             if isinstance(url, list):
                 if not url:
-                    return ExecutionResult(
-                        success=False,
-                        error="Crawl execution error: received empty list of URLs",
+                    return self._create_error_result(
+                        "Crawl execution error: received empty list of URLs"
                     )
                 if len(url) > 1:
                     logger.warning(

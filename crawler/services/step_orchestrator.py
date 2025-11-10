@@ -430,8 +430,11 @@ class StepOrchestrator:
         For crawl steps, returns CrawlExecutor which handles pagination
         and URL aggregation. For scrape steps, returns ScrapeExecutor which
         handles batch processing and content extraction.
+
+        If no type is specified, falls back to method-specific executors
+        for backward compatibility.
         """
-        step_type = step_config.get("type", "scrape").lower()
+        step_type = step_config.get("type", "").lower()
 
         # Use CrawlExecutor for crawl-type steps
         if step_type == "crawl":
@@ -442,6 +445,7 @@ class StepOrchestrator:
             return self.scrape_executor
 
         # Fallback to method-specific executors for backward compatibility
+        # (when no type is specified)
         method = step_config.get("method", "http").lower()
         if method == "http":
             return self.http_executor
