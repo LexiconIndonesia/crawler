@@ -15,6 +15,7 @@ from crawler.services.condition_evaluator import ConditionEvaluator
 from crawler.services.dependency_validator import DependencyValidator
 from crawler.services.selector_processor import SelectorProcessor
 from crawler.services.step_execution_context import StepExecutionContext, StepResult
+from crawler.services.step_validator import StepValidationError, StepValidator
 from crawler.services.step_executors import (
     APIExecutor,
     BrowserExecutor,
@@ -81,6 +82,7 @@ class StepOrchestrator:
         self.selector_processor = SelectorProcessor()
         self.variable_resolver = VariableResolver(self.context)
         self.condition_evaluator = ConditionEvaluator(self.context)
+        self.step_validator = StepValidator()
 
         # Initialize executors (reuse clients for efficiency)
         self.http_executor = HTTPExecutor(selector_processor=self.selector_processor)
@@ -196,12 +198,36 @@ class StepOrchestrator:
                 )
                 return
 
-            # Step 3: Get executor and merged config
+            # Step 3: Validate input before execution
+            step_type = step_config.get("type", "").lower()
+            try:
+                self.step_validator.validate_input(
+                    step_name=step_name,
+                    step_type=step_type,
+                    input_data=urls,
+                    strict=True,  # Fail fast on invalid input
+                )
+            except StepValidationError as e:
+                logger.error(
+                    "step_input_validation_failed",
+                    step_name=step_name,
+                    errors=e.errors,
+                )
+                self.context.add_result(
+                    StepResult(
+                        step_name=step_name,
+                        error=f"Input validation failed: {e}",
+                        metadata={"validation_errors": e.errors},
+                    )
+                )
+                return
+
+            # Step 4: Get executor and merged config
             executor = self._get_executor(step_config)
             merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
-            # Step 4: Get timeout from config (default: 30 seconds)
+            # Step 5: Get timeout from config (default: 30 seconds)
             timeout_seconds = merged_config.get("timeout", 30)
 
             # Step 5: Execute step with timeout enforcement and timing
@@ -243,7 +269,28 @@ class StepOrchestrator:
                 )
                 return
 
-            # Step 6: Store result in context
+            # Step 6: Validate output after execution
+            try:
+                self.step_validator.validate_output(
+                    step_name=step_name,
+                    step_type=step_type,
+                    extracted_data=result.extracted_data,
+                    metadata=result.metadata,
+                    strict=False,  # Log warnings but don't fail on invalid output
+                )
+            except StepValidationError as e:
+                # This should not happen with strict=False, but handle just in case
+                logger.warning(
+                    "step_output_validation_failed",
+                    step_name=step_name,
+                    errors=e.errors,
+                )
+                # Add validation warnings to metadata
+                if result.metadata is None:
+                    result.metadata = {}
+                result.metadata["output_validation_warnings"] = e.errors
+
+            # Step 7: Store result in context
             step_result = StepResult(
                 step_name=step_name,
                 status_code=result.status_code,
