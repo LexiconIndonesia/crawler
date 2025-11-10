@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from crawler.services.step_orchestrator import StepOrchestrator
@@ -52,9 +53,9 @@ class TestStepOrchestrator:
         # Mock HTTP responses
         with patch("httpx.AsyncClient.request") as mock_request:
             # Step 1: List page with article links
-            list_response = AsyncMock()
-            list_response.status_code = 200
-            list_response.text = """
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
                 <html>
                     <body>
                         <a class="article-link" href="/article1">Article 1</a>
@@ -62,21 +63,23 @@ class TestStepOrchestrator:
                         <a class="article-link" href="/article3">Article 3</a>
                     </body>
                 </html>
-            """
-            list_response.headers = {"content-type": "text/html"}
+            """,
+                headers={"content-type": "text/html"},
+            )
 
             # Step 2: Article pages
-            article_response = AsyncMock()
-            article_response.status_code = 200
-            article_response.text = """
+            article_response = httpx.Response(
+                status_code=200,
+                content=b"""
                 <html>
                     <body>
                         <h1 class="title">Article Title</h1>
                         <div class="article-body">Article content here</div>
                     </body>
                 </html>
-            """
-            article_response.headers = {"content-type": "text/html"}
+            """,
+                headers={"content-type": "text/html"},
+            )
 
             # Return list response first, then article responses
             mock_request.side_effect = [
@@ -136,15 +139,16 @@ class TestStepOrchestrator:
         )
 
         with patch("httpx.AsyncClient.request") as mock_request:
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_response.text = """
+            mock_response = httpx.Response(
+                status_code=200,
+                content=b"""
                 <html>
                     <h1>Page Title</h1>
                     <div class="content">Page content</div>
                 </html>
-            """
-            mock_response.headers = {"content-type": "text/html"}
+            """,
+                headers={"content-type": "text/html"},
+            )
             mock_request.return_value = mock_response
 
             context = await orchestrator.execute_workflow()
@@ -194,10 +198,11 @@ class TestStepOrchestrator:
 
         with patch("httpx.AsyncClient.request") as mock_request:
             # First request returns 0 items
-            check_response = AsyncMock()
-            check_response.status_code = 200
-            check_response.text = '<html><div class="items-count">0</div></html>'
-            check_response.headers = {"content-type": "text/html"}
+            check_response = httpx.Response(
+                status_code=200,
+                content=b'<html><div class="items-count">0</div></html>',
+                headers={"content-type": "text/html"},
+            )
             mock_request.return_value = check_response
 
             context = await orchestrator.execute_workflow()
@@ -246,10 +251,11 @@ class TestStepOrchestrator:
 
         with patch("httpx.AsyncClient.request") as mock_request:
             # Status check returns unavailable
-            status_response = AsyncMock()
-            status_response.status_code = 200
-            status_response.text = '<html><div class="status">unavailable</div></html>'
-            status_response.headers = {"content-type": "text/html"}
+            status_response = httpx.Response(
+                status_code=200,
+                content=b'<html><div class="status">unavailable</div></html>',
+                headers={"content-type": "text/html"},
+            )
             mock_request.return_value = status_response
 
             context = await orchestrator.execute_workflow()
@@ -298,27 +304,30 @@ class TestStepOrchestrator:
 
         with patch("httpx.AsyncClient.request") as mock_request:
             # List page
-            list_response = AsyncMock()
-            list_response.status_code = 200
-            list_response.text = """
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
                 <html>
                     <a href="/page1">Page 1</a>
                     <a href="/page2">Page 2</a>
                 </html>
-            """
-            list_response.headers = {"content-type": "text/html"}
+            """,
+                headers={"content-type": "text/html"},
+            )
 
             # First page succeeds
-            success_response = AsyncMock()
-            success_response.status_code = 200
-            success_response.text = '<html><div class="content">Content 1</div></html>'
-            success_response.headers = {"content-type": "text/html"}
+            success_response = httpx.Response(
+                status_code=200,
+                content=b'<html><div class="content">Content 1</div></html>',
+                headers={"content-type": "text/html"},
+            )
 
             # Second page fails
-            fail_response = AsyncMock()
-            fail_response.status_code = 404
-            fail_response.text = "Not Found"
-            fail_response.headers = {"content-type": "text/html"}
+            fail_response = httpx.Response(
+                status_code=404,
+                content=b"Not Found",
+                headers={"content-type": "text/html"},
+            )
 
             mock_request.side_effect = [list_response, success_response, fail_response]
 
@@ -415,10 +424,11 @@ class TestStepOrchestrator:
         )
 
         with patch("httpx.AsyncClient.request") as mock_request:
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_response.text = '<html><div class="data">Test</div></html>'
-            mock_response.headers = {"content-type": "text/html"}
+            mock_response = httpx.Response(
+                status_code=200,
+                content=b'<html><div class="data">Test</div></html>',
+                headers={"content-type": "text/html"},
+            )
             mock_request.return_value = mock_response
 
             context = await orchestrator.execute_workflow()
