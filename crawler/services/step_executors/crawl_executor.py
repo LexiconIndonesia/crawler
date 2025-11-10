@@ -71,14 +71,14 @@ class CrawlExecutor(BaseStepExecutor):
 
     async def execute(
         self,
-        url: str,
+        url: str | list[str],
         step_config: dict[str, Any],
         selectors: dict[str, Any] | None = None,
     ) -> ExecutionResult:
         """Execute crawl step to retrieve URLs.
 
         Args:
-            url: Seed URL to start crawling from
+            url: Seed URL to start crawling from (if list, only first URL is used)
             step_config: Configuration (method, pagination, timeout, etc.)
             selectors: Selectors for URL extraction (typically targets anchor tags)
 
@@ -90,8 +90,32 @@ class CrawlExecutor(BaseStepExecutor):
         - total_urls: Total number of URLs found
         - pages_crawled: Number of pages successfully crawled
         - pages_failed: Number of pages that failed
+
+        Note:
+            CrawlExecutor is designed for single-seed crawling with pagination.
+            If a list of URLs is provided, only the first URL will be used as
+            the seed. For batch processing of multiple URLs, use ScrapeExecutor.
         """
         try:
+            # Guard: Handle list of URLs (use only first)
+            if isinstance(url, list):
+                if not url:
+                    return ExecutionResult(
+                        success=False,
+                        error="Crawl execution error: received empty list of URLs",
+                    )
+                if len(url) > 1:
+                    logger.warning(
+                        "crawl_multiple_seeds",
+                        seed_url=url[0],
+                        total_seeds=len(url),
+                        message=(
+                            "CrawlExecutor received multiple URLs but only uses first as seed. "
+                            "Use ScrapeExecutor for batch processing."
+                        ),
+                    )
+                url = url[0]
+
             # Step 1: Get method-specific executor
             method = step_config.get("method", "http").lower()
             executor = self._get_method_executor(method)

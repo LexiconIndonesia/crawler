@@ -20,6 +20,7 @@ from crawler.services.step_executors import (
     HTTPExecutor,
     ScrapeExecutor,
 )
+from crawler.services.step_executors.base import ExecutionResult
 from crawler.services.variable_resolver import VariableResolver
 
 if TYPE_CHECKING:
@@ -198,10 +199,23 @@ class StepOrchestrator:
             merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
-            # Step 4: Execute step with executor (handles batching internally)
-            # Pass URLs directly to executor (single URL or list)
-            # CrawlExecutor and ScrapeExecutor handle list[str], base executors only handle str
-            result = await executor.execute(urls, merged_config, selectors)  # type: ignore[arg-type]
+            # Step 4: Execute step with executor
+            # ScrapeExecutor and CrawlExecutor can handle str | list[str]
+            # Base executors (HTTP, API, Browser) require iteration
+            if isinstance(executor, (ScrapeExecutor, CrawlExecutor)):
+                # Executors that handle str | list[str]: pass URLs as-is
+                result = await executor.execute(urls, merged_config, selectors)
+            else:
+                # Base executors (HTTP, API, Browser): iterate over URLs
+                urls_list = [urls] if isinstance(urls, str) else urls
+                all_results: list[ExecutionResult] = []
+
+                for url in urls_list:
+                    single_result = await executor.execute(url, merged_config, selectors)
+                    all_results.append(single_result)
+
+                # Aggregate ExecutionResults into a single ExecutionResult
+                result = self._aggregate_execution_results(all_results)
 
             # Step 5: Store result in context
             step_result = StepResult(
@@ -474,6 +488,83 @@ class StepOrchestrator:
             if step["name"] == step_name:
                 return step
         return None
+
+    def _aggregate_execution_results(self, results: list[ExecutionResult]) -> ExecutionResult:
+        """Aggregate multiple ExecutionResults into a single result.
+
+        Args:
+            results: List of individual ExecutionResults to aggregate
+
+        Returns:
+            Aggregated ExecutionResult
+
+        Combines results from multiple URL executions into a single result
+        for non-batch-aware executors (HTTP, API, Browser, Crawl).
+        """
+        # Guard: no results
+        if not results:
+            return ExecutionResult(
+                success=False,
+                error="No results to aggregate",
+            )
+
+        # Guard: single result
+        if len(results) == 1:
+            return results[0]
+
+        # Aggregate multiple results
+        all_extracted_data: dict[str, Any] = {}
+        all_content_parts: list[str | dict[str, Any]] = []
+        errors: list[str] = []
+        successful_count = 0
+        failed_count = 0
+
+        for result in results:
+            if result.success:
+                successful_count += 1
+                if result.extracted_data:
+                    # Merge extracted data - accumulate values in lists
+                    for key, value in result.extracted_data.items():
+                        if key not in all_extracted_data:
+                            all_extracted_data[key] = []
+                        # Ensure value is in a list
+                        values = value if isinstance(value, list) else [value]
+                        all_extracted_data[key].extend(values)
+                if result.content:
+                    all_content_parts.append(result.content)
+            else:
+                failed_count += 1
+                if result.error:
+                    errors.append(result.error)
+
+        # Determine overall success (at least one success)
+        overall_success = successful_count > 0
+        overall_error = "; ".join(errors) if errors else None
+
+        # Combine content - if all are strings, join them; otherwise keep as list
+        combined_content: str | dict[str, Any] | None = None
+        if all_content_parts:
+            if all(isinstance(c, str) for c in all_content_parts):
+                combined_content = "\n\n".join(str(c) for c in all_content_parts)
+            elif len(all_content_parts) == 1:
+                combined_content = all_content_parts[0]
+            else:
+                # Mixed types - keep as dict with index
+                combined_content = {str(i): c for i, c in enumerate(all_content_parts)}
+
+        return ExecutionResult(
+            success=overall_success,
+            status_code=200 if overall_success else 500,
+            content=combined_content,
+            extracted_data=all_extracted_data if all_extracted_data else {},
+            metadata={
+                "total_urls": len(results),
+                "successful_urls": successful_count,
+                "failed_urls": failed_count,
+                "aggregated": True,
+            },
+            error=overall_error,
+        )
 
     async def _check_cancellation(self) -> bool:
         """Check if workflow should be cancelled.

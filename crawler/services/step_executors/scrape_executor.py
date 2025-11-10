@@ -184,11 +184,15 @@ class ScrapeExecutor(BaseStepExecutor):
                             error=result.error,
                         )
 
+                # Count successes directly from batch results
+                successful_in_batch = sum(
+                    1 for r in batch_results if isinstance(r, ExecutionResult) and r.success
+                )
                 logger.info(
                     "scrape_batch_completed",
                     batch_num=batch_num,
-                    successful_in_batch=len(batch_urls)
-                    - len([e for e in errors if f"URL {batch_start}" in e]),
+                    successful_in_batch=successful_in_batch,
+                    failed_in_batch=len(batch_urls) - successful_in_batch,
                 )
 
             # Step 4: Calculate results
