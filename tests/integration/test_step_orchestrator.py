@@ -224,7 +224,7 @@ class TestStepOrchestrator:
             {
                 "name": "check_status",
                 "method": "http",
-                "type": "crawl",
+                "type": "scrape",  # Use scrape for extracting data values
                 "config": {"url": "https://example.com/status"},
                 "selectors": {
                     "status": ".status",
@@ -340,6 +340,90 @@ class TestStepOrchestrator:
             assert step2.metadata["failed_urls"] == 1
             # Step is considered successful if at least one URL succeeded
             assert step2.success
+            # Partial failures should NOT set error field (only complete failures do)
+            assert step2.error is None
+            # Partial errors should be in metadata (ScrapeExecutor uses "errors" key)
+            assert "errors" in step2.metadata
+            assert len(step2.metadata["errors"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_complete_failure_in_multi_url_step(self):
+        """Test handling when all URLs fail (complete failure)."""
+        steps = [
+            {
+                "name": "fetch_list",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/list"},
+                "selectors": {
+                    "urls": {
+                        "selector": "a",
+                        "attribute": "href",
+                        "type": "array",
+                    }
+                },
+            },
+            {
+                "name": "fetch_pages",
+                "method": "http",
+                # No type - use base executor with iteration to test aggregation
+                "input_from": "fetch_list.urls",
+                "selectors": {
+                    "content": ".content",
+                },
+            },
+        ]
+
+        orchestrator = StepOrchestrator(
+            job_id="test-job-complete-failure",
+            website_id="test-site-complete-failure",
+            base_url="https://example.com",
+            steps=steps,
+        )
+
+        with patch("httpx.AsyncClient.request") as mock_request:
+            # List page
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
+                <html>
+                    <a href="/page1">Page 1</a>
+                    <a href="/page2">Page 2</a>
+                </html>
+            """,
+                headers={"content-type": "text/html"},
+            )
+
+            # All pages fail
+            fail_response_1 = httpx.Response(
+                status_code=404,
+                content=b"Not Found",
+                headers={"content-type": "text/html"},
+            )
+
+            fail_response_2 = httpx.Response(
+                status_code=500,
+                content=b"Server Error",
+                headers={"content-type": "text/html"},
+            )
+
+            mock_request.side_effect = [list_response, fail_response_1, fail_response_2]
+
+            context = await orchestrator.execute_workflow()
+
+            # Step 2 should show complete failure
+            step2 = context.step_results["fetch_pages"]
+            assert step2.metadata["total_urls"] == 2
+            assert step2.metadata["successful_urls"] == 0
+            assert step2.metadata["failed_urls"] == 2
+            # Step should be marked as failed when ALL URLs fail
+            assert not step2.success
+            # Complete failure SHOULD set error field
+            assert step2.error is not None
+            assert "HTTP" in step2.error or "404" in step2.error or "500" in step2.error
+            # Errors should also be in metadata (consistent "errors" key)
+            assert "errors" in step2.metadata
+            assert len(step2.metadata["errors"]) == 2
 
     @pytest.mark.asyncio
     async def test_dependency_cycle_detection(self):
@@ -382,6 +466,180 @@ class TestStepOrchestrator:
         # Should raise ValueError about missing dependency
         with pytest.raises(ValueError, match="depends on non-existent step"):
             await orchestrator.execute_workflow()
+
+    @pytest.mark.asyncio
+    async def test_base_executor_with_multiple_urls(self):
+        """Test that base executors (HTTP, API, Browser) properly iterate over URLs."""
+        # Use a base HTTP method step (HTTPExecutor) which requires iteration
+        # The orchestrator should iterate over URLs for base executors
+        steps = [
+            {
+                "name": "fetch_list",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/list"},
+                "selectors": {
+                    "urls": {
+                        "selector": "a",
+                        "attribute": "href",
+                        "type": "array",
+                    }
+                },
+            },
+            {
+                "name": "fetch_pages",
+                "method": "http",
+                # No type specified - should use HTTPExecutor (backward compatibility)
+                "input_from": "fetch_list.urls",
+                "selectors": {
+                    "title": "h1",
+                },
+            },
+        ]
+
+        orchestrator = StepOrchestrator(
+            job_id="test-job-base-executor",
+            website_id="test-site-base-executor",
+            base_url="https://example.com",
+            steps=steps,
+        )
+
+        with patch("httpx.AsyncClient.request") as mock_request:
+            # List page with 3 URLs
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
+                <html>
+                    <a href="/page1">Page 1</a>
+                    <a href="/page2">Page 2</a>
+                    <a href="/page3">Page 3</a>
+                </html>
+            """,
+                headers={"content-type": "text/html"},
+            )
+
+            # Individual page responses
+            page_response = httpx.Response(
+                status_code=200,
+                content=b"<html><h1>Page Title</h1></html>",
+                headers={"content-type": "text/html"},
+            )
+
+            # Return list response first, then 3 page responses
+            mock_request.side_effect = [
+                list_response,
+                page_response,
+                page_response,
+                page_response,
+            ]
+
+            context = await orchestrator.execute_workflow()
+
+            # Verify step 1 completed successfully
+            assert "fetch_list" in context.step_results
+            step1 = context.step_results["fetch_list"]
+            assert step1.success
+            assert len(step1.extracted_data["urls"]) == 3
+
+            # Verify step 2 (base executor with iteration) processed all URLs
+            assert "fetch_pages" in context.step_results
+            step2 = context.step_results["fetch_pages"]
+            assert step2.success
+            # Should show aggregated results
+            assert step2.metadata["total_urls"] == 3
+            assert step2.metadata["successful_urls"] == 3
+            assert step2.metadata["aggregated"] is True
+            # Each iteration should have extracted a title
+            assert "title" in step2.extracted_data
+            # All 3 titles should be accumulated in a list
+            assert len(step2.extracted_data["title"]) == 3
+            assert all(title == "Page Title" for title in step2.extracted_data["title"])
+
+    @pytest.mark.asyncio
+    async def test_crawl_executor_with_multiple_urls_uses_first(self):
+        """Test that CrawlExecutor uses only the first URL when given a list."""
+        steps = [
+            {
+                "name": "fetch_list",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/list"},
+                "selectors": {
+                    "urls": {
+                        "selector": "a",
+                        "attribute": "href",
+                        "type": "array",
+                    }
+                },
+            },
+            {
+                "name": "crawl_from_first",
+                "method": "http",
+                "type": "crawl",  # CrawlExecutor uses only first URL
+                "input_from": "fetch_list.urls",
+                "selectors": {
+                    "links": {
+                        "selector": "a",
+                        "attribute": "href",
+                        "type": "array",
+                    }
+                },
+            },
+        ]
+
+        orchestrator = StepOrchestrator(
+            job_id="test-job-crawl-first",
+            website_id="test-site-crawl-first",
+            base_url="https://example.com",
+            steps=steps,
+        )
+
+        with patch("httpx.AsyncClient.request") as mock_request:
+            # List page with 3 URLs
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
+                <html>
+                    <a href="/page1">Page 1</a>
+                    <a href="/page2">Page 2</a>
+                    <a href="/page3">Page 3</a>
+                </html>
+            """,
+                headers={"content-type": "text/html"},
+            )
+
+            # Only the first page should be crawled
+            first_page_response = httpx.Response(
+                status_code=200,
+                content=b"""
+                <html>
+                    <a href="/link1">Link 1</a>
+                    <a href="/link2">Link 2</a>
+                </html>
+            """,
+                headers={"content-type": "text/html"},
+            )
+
+            mock_request.side_effect = [list_response, first_page_response]
+
+            context = await orchestrator.execute_workflow()
+
+            # Verify step 1 completed successfully
+            assert "fetch_list" in context.step_results
+            step1 = context.step_results["fetch_list"]
+            assert step1.success
+            assert len(step1.extracted_data["urls"]) == 3
+
+            # Verify step 2 only crawled the first URL
+            assert "crawl_from_first" in context.step_results
+            step2 = context.step_results["crawl_from_first"]
+            assert step2.success
+            # Should have crawled only 1 page (the first URL)
+            assert "_crawl_metadata" in step2.extracted_data
+            assert step2.extracted_data["_crawl_metadata"]["pages_crawled"] == 1
+            # Should have extracted links from that one page
+            assert "links" in step2.extracted_data
+            assert len(step2.extracted_data["links"]) == 2
 
     @pytest.mark.asyncio
     async def test_workflow_cancellation_between_steps(self):
