@@ -500,10 +500,20 @@ class StepOrchestrator:
             results: List of individual ExecutionResults to aggregate
 
         Returns:
-            Aggregated ExecutionResult
+            Aggregated ExecutionResult with combined data and metadata
 
         Combines results from multiple URL executions into a single result
         for non-batch-aware executors (HTTP, API, Browser, Crawl).
+
+        Content handling:
+            - All strings: Joined with double newlines
+            - Single item: Returned as-is
+            - Mixed types: Returned as dict with numeric string keys (e.g., {"0": ..., "1": ...})
+
+        Error handling:
+            - Success: At least one URL succeeded
+            - error field: Set only if ALL URLs failed (complete failure)
+            - metadata["errors"]: Always present, contains all error messages (empty list if none)
         """
         # Guard: no results
         if not results:
@@ -572,7 +582,7 @@ class StepOrchestrator:
                 "successful_urls": successful_count,
                 "failed_urls": failed_count,
                 "aggregated": True,
-                "partial_errors": errors,  # Always include errors (empty list if none)
+                "errors": errors,  # Always include errors (empty list if none)
             },
             error=overall_error,
         )

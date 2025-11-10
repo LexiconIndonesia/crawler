@@ -421,9 +421,9 @@ class TestStepOrchestrator:
             # Complete failure SHOULD set error field
             assert step2.error is not None
             assert "HTTP" in step2.error or "404" in step2.error or "500" in step2.error
-            # Errors should also be in metadata
-            assert "partial_errors" in step2.metadata
-            assert len(step2.metadata["partial_errors"]) == 2
+            # Errors should also be in metadata (consistent "errors" key)
+            assert "errors" in step2.metadata
+            assert len(step2.metadata["errors"]) == 2
 
     @pytest.mark.asyncio
     async def test_dependency_cycle_detection(self):
