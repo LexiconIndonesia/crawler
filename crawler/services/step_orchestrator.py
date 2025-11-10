@@ -16,7 +16,9 @@ from crawler.services.step_execution_context import StepExecutionContext, StepRe
 from crawler.services.step_executors import (
     APIExecutor,
     BrowserExecutor,
+    CrawlExecutor,
     HTTPExecutor,
+    ScrapeExecutor,
 )
 from crawler.services.variable_resolver import VariableResolver
 
@@ -81,6 +83,18 @@ class StepOrchestrator:
         self.http_executor = HTTPExecutor(selector_processor=self.selector_processor)
         self.api_executor = APIExecutor(selector_processor=self.selector_processor)
         self.browser_executor = BrowserExecutor(selector_processor=self.selector_processor)
+        self.crawl_executor = CrawlExecutor(
+            http_executor=self.http_executor,
+            api_executor=self.api_executor,
+            browser_executor=self.browser_executor,
+            selector_processor=self.selector_processor,
+        )
+        self.scrape_executor = ScrapeExecutor(
+            http_executor=self.http_executor,
+            api_executor=self.api_executor,
+            browser_executor=self.browser_executor,
+            selector_processor=self.selector_processor,
+        )
 
         # Execution order (determined by dependency validation)
         self.execution_order: list[str] = []
@@ -179,69 +193,24 @@ class StepOrchestrator:
                 )
                 return
 
-            # Step 3: Execute step for each URL
-            # Convert single URL to list for uniform processing
-            url_list = urls if isinstance(urls, list) else [urls]
-
-            # Step 4: Get executor and execute for all URLs
+            # Step 3: Get executor and execute
             executor = self._get_executor(step_config)
             merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
-            # Execute for each URL and collect results
-            all_results = []
-            all_extracted_data = []
-            errors = []
-            last_status_code = None
-            last_content = None
+            # Step 4: Execute step with executor (handles batching internally)
+            # Pass URLs directly to executor (single URL or list)
+            # CrawlExecutor and ScrapeExecutor handle list[str], base executors only handle str
+            result = await executor.execute(urls, merged_config, selectors)  # type: ignore[arg-type]
 
-            for idx, url in enumerate(url_list):
-                logger.debug(
-                    "executing_url",
-                    step_name=step_name,
-                    url_index=idx,
-                    total_urls=len(url_list),
-                    url=url,
-                )
-
-                result = await executor.execute(url, merged_config, selectors)
-                all_results.append(result)
-
-                if result.success:
-                    # Collect extracted data
-                    all_extracted_data.append(result.extracted_data)
-                    last_status_code = result.status_code
-                    last_content = result.content
-                else:
-                    # Track errors
-                    errors.append(f"URL {idx} ({url}): {result.error}")
-
-            # Step 5: Aggregate results and store in context
-            if len(url_list) == 1:
-                # Single URL: store as-is
-                aggregated_data = all_extracted_data[0] if all_extracted_data else {}
-            else:
-                # Multiple URLs: store as array under 'items' key
-                aggregated_data = {"items": all_extracted_data}
-
-            # Determine overall success
-            success_count = sum(1 for r in all_results if r.success)
-            overall_error = (
-                None if success_count > 0 else ("; ".join(errors) if errors else "All URLs failed")
-            )
-
+            # Step 5: Store result in context
             step_result = StepResult(
                 step_name=step_name,
-                status_code=last_status_code,
-                content=last_content,
-                extracted_data=aggregated_data,
-                metadata={
-                    "total_urls": len(url_list),
-                    "successful_urls": success_count,
-                    "failed_urls": len(url_list) - success_count,
-                    "errors": errors if errors else None,
-                },
-                error=overall_error,
+                status_code=result.status_code,
+                content=result.content,
+                extracted_data=result.extracted_data,
+                metadata=result.metadata,
+                error=result.error,
             )
             self.context.add_result(step_result)
 
@@ -249,16 +218,16 @@ class StepOrchestrator:
                 logger.info(
                     "step_completed",
                     step_name=step_name,
-                    total_urls=len(url_list),
-                    successful_urls=success_count,
-                    extracted_fields=len(aggregated_data),
+                    total_urls=step_result.metadata.get("total_urls", 0),
+                    successful_urls=step_result.metadata.get("successful_urls", 0),
+                    extracted_fields=len(step_result.extracted_data),
                 )
             else:
                 logger.error(
                     "step_failed",
                     step_name=step_name,
                     error=step_result.error,
-                    failed_urls=len(url_list) - success_count,
+                    failed_urls=step_result.metadata.get("failed_urls", 0),
                 )
 
         except Exception as e:
@@ -432,20 +401,34 @@ class StepOrchestrator:
 
     def _get_executor(
         self, step_config: dict[str, Any]
-    ) -> HTTPExecutor | BrowserExecutor | APIExecutor:
-        """Get appropriate executor for step method.
+    ) -> HTTPExecutor | BrowserExecutor | APIExecutor | CrawlExecutor | ScrapeExecutor:
+        """Get appropriate executor for step type and method.
 
         Args:
             step_config: Step configuration
 
         Returns:
-            Executor instance based on step method
+            Executor instance based on step type and method
 
         Raises:
             ValueError: If method is not supported
-        """
-        method = step_config.get("method", "http").lower()
 
+        For crawl steps, returns CrawlExecutor which handles pagination
+        and URL aggregation. For scrape steps, returns ScrapeExecutor which
+        handles batch processing and content extraction.
+        """
+        step_type = step_config.get("type", "scrape").lower()
+
+        # Use CrawlExecutor for crawl-type steps
+        if step_type == "crawl":
+            return self.crawl_executor
+
+        # Use ScrapeExecutor for scrape-type steps
+        if step_type == "scrape":
+            return self.scrape_executor
+
+        # Fallback to method-specific executors for backward compatibility
+        method = step_config.get("method", "http").lower()
         if method == "http":
             return self.http_executor
         elif method == "browser":
@@ -514,6 +497,8 @@ class StepOrchestrator:
             await self.http_executor.cleanup()
             await self.api_executor.cleanup()
             await self.browser_executor.cleanup()
+            await self.crawl_executor.cleanup()
+            await self.scrape_executor.cleanup()
             logger.debug("orchestrator_cleanup_complete")
         except Exception as e:
             logger.error("orchestrator_cleanup_error", error=str(e))

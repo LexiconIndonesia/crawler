@@ -224,7 +224,7 @@ class TestStepOrchestrator:
             {
                 "name": "check_status",
                 "method": "http",
-                "type": "crawl",
+                "type": "scrape",  # Use scrape for extracting data values
                 "config": {"url": "https://example.com/status"},
                 "selectors": {
                     "status": ".status",
