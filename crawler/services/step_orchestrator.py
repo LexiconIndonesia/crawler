@@ -543,7 +543,13 @@ class StepOrchestrator:
 
         # Determine overall success (at least one success)
         overall_success = successful_count > 0
-        overall_error = "; ".join(errors) if errors else None
+
+        # Only set error if ALL URLs failed (complete failure)
+        # For partial failures, errors go in metadata only
+        overall_error: str | None = None
+        if errors and failed_count == len(results):
+            # Complete failure - set error
+            overall_error = "; ".join(errors)
 
         # Combine content - if all are strings, join them; otherwise keep as list
         combined_content: str | dict[str, Any] | None = None
@@ -566,6 +572,7 @@ class StepOrchestrator:
                 "successful_urls": successful_count,
                 "failed_urls": failed_count,
                 "aggregated": True,
+                "partial_errors": errors,  # Always include errors (empty list if none)
             },
             error=overall_error,
         )

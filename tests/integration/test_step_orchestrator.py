@@ -340,6 +340,90 @@ class TestStepOrchestrator:
             assert step2.metadata["failed_urls"] == 1
             # Step is considered successful if at least one URL succeeded
             assert step2.success
+            # Partial failures should NOT set error field (only complete failures do)
+            assert step2.error is None
+            # Partial errors should be in metadata (ScrapeExecutor uses "errors" key)
+            assert "errors" in step2.metadata
+            assert len(step2.metadata["errors"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_complete_failure_in_multi_url_step(self):
+        """Test handling when all URLs fail (complete failure)."""
+        steps = [
+            {
+                "name": "fetch_list",
+                "method": "http",
+                "type": "crawl",
+                "config": {"url": "https://example.com/list"},
+                "selectors": {
+                    "urls": {
+                        "selector": "a",
+                        "attribute": "href",
+                        "type": "array",
+                    }
+                },
+            },
+            {
+                "name": "fetch_pages",
+                "method": "http",
+                # No type - use base executor with iteration to test aggregation
+                "input_from": "fetch_list.urls",
+                "selectors": {
+                    "content": ".content",
+                },
+            },
+        ]
+
+        orchestrator = StepOrchestrator(
+            job_id="test-job-complete-failure",
+            website_id="test-site-complete-failure",
+            base_url="https://example.com",
+            steps=steps,
+        )
+
+        with patch("httpx.AsyncClient.request") as mock_request:
+            # List page
+            list_response = httpx.Response(
+                status_code=200,
+                content=b"""
+                <html>
+                    <a href="/page1">Page 1</a>
+                    <a href="/page2">Page 2</a>
+                </html>
+            """,
+                headers={"content-type": "text/html"},
+            )
+
+            # All pages fail
+            fail_response_1 = httpx.Response(
+                status_code=404,
+                content=b"Not Found",
+                headers={"content-type": "text/html"},
+            )
+
+            fail_response_2 = httpx.Response(
+                status_code=500,
+                content=b"Server Error",
+                headers={"content-type": "text/html"},
+            )
+
+            mock_request.side_effect = [list_response, fail_response_1, fail_response_2]
+
+            context = await orchestrator.execute_workflow()
+
+            # Step 2 should show complete failure
+            step2 = context.step_results["fetch_pages"]
+            assert step2.metadata["total_urls"] == 2
+            assert step2.metadata["successful_urls"] == 0
+            assert step2.metadata["failed_urls"] == 2
+            # Step should be marked as failed when ALL URLs fail
+            assert not step2.success
+            # Complete failure SHOULD set error field
+            assert step2.error is not None
+            assert "HTTP" in step2.error or "404" in step2.error or "500" in step2.error
+            # Errors should also be in metadata
+            assert "partial_errors" in step2.metadata
+            assert len(step2.metadata["partial_errors"]) == 2
 
     @pytest.mark.asyncio
     async def test_dependency_cycle_detection(self):
