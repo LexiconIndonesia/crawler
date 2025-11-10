@@ -14,19 +14,16 @@ import json
 import signal
 from typing import Any
 
-import httpx
 from nats.js.api import AckPolicy, ConsumerConfig
 
 from config import Settings, get_settings
-from crawler.api.generated import CrawlStep
 from crawler.core.logging import get_logger, setup_logging
 from crawler.db.generated.models import StatusEnum
-from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository, WebsiteRepository
+from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
 from crawler.db.session import get_db
-from crawler.services import CrawlOutcome, SeedURLCrawler, SeedURLCrawlerConfig
-from crawler.services.log_publisher import LogPublisher
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
+from crawler.services.step_orchestrator import StepOrchestrator
 
 logger = get_logger(__name__)
 
@@ -87,15 +84,17 @@ class CrawlJobWorker:
 
         logger.info("worker_teardown_complete")
 
-    async def _load_crawl_config(self, job: Any, conn: Any) -> CrawlStep | None:
-        """Load crawl configuration from job (inline or template-based).
+    async def _load_workflow_config(
+        self, job: Any, conn: Any
+    ) -> tuple[list[dict[str, Any]], str, dict[str, Any]] | None:
+        """Load workflow configuration from job (inline or template-based).
 
         Args:
             job: CrawlJob model instance
             conn: Database connection
 
         Returns:
-            CrawlStep if configuration is valid, None otherwise
+            Tuple of (steps list, base_url, global_config) or None if invalid
         """
         try:
             # Case 1: Inline configuration (no website template)
@@ -112,9 +111,15 @@ class CrawlJobWorker:
                     logger.error("missing_or_invalid_steps", job_id=str(job.id))
                     return None
 
-                # Use first step for seed URL crawling
-                step_data = steps[0]
-                return CrawlStep.model_validate(step_data)
+                # Convert Pydantic models to dicts for orchestrator
+                steps_dicts = [
+                    step.model_dump() if hasattr(step, "model_dump") else step for step in steps
+                ]
+
+                # Use seed_url as base_url for inline jobs
+                base_url = str(job.seed_url)
+                global_config = job.inline_config.get("config", {})
+                return (steps_dicts, base_url, global_config)
 
             # Case 2: Template-based configuration (website_id)
             elif job.website_id:
@@ -140,9 +145,15 @@ class CrawlJobWorker:
                     logger.error("missing_steps_in_website", website_id=str(job.website_id))
                     return None
 
-                # Use first step for seed URL crawling
-                step_data = steps[0]
-                return CrawlStep.model_validate(step_data)
+                # Convert Pydantic models to dicts for orchestrator
+                steps_dicts = [
+                    step.model_dump() if hasattr(step, "model_dump") else step for step in steps
+                ]
+
+                # Get base_url from website or use seed_url
+                base_url = website.base_url if hasattr(website, "base_url") else str(job.seed_url)
+                global_config = website.config.get("config", {})
+                return (steps_dicts, base_url, global_config)
 
             else:
                 logger.error("job_has_no_config", job_id=str(job.id))
@@ -197,11 +208,11 @@ class CrawlJobWorker:
 
         logger.info("job_status_updated_to_running", job_id=job_id)
 
-        # Load configuration (inline or from website template)
-        crawl_step = await self._load_crawl_config(job, conn)
+        # Load workflow configuration (inline or from website template)
+        workflow_config = await self._load_workflow_config(job, conn)
 
         # Guard: invalid configuration
-        if not crawl_step:
+        if not workflow_config:
             logger.error("invalid_job_configuration", job_id=job_id)
             await job_repo.update_status(
                 job_id=job_id,
@@ -212,48 +223,61 @@ class CrawlJobWorker:
             )
             return True
 
-        # Create log publisher for real-time log streaming
-        log_publisher = LogPublisher(
-            nats_client=self.nats_queue.client if self.nats_queue else None
-        )
-
-        # Create log repository for writing crawl logs
-        crawl_log_repo = CrawlLogRepository(conn, log_publisher=log_publisher)
+        steps, base_url, global_config = workflow_config
 
         # Get website_id from job (inline jobs may not have website_id)
         website_id = str(job.website_id) if job.website_id else None
 
-        # Create HTTP client for crawling
-        async with httpx.AsyncClient(timeout=30.0) as http_client:
-            # Build crawler configuration
-            crawler_config = SeedURLCrawlerConfig(
-                step=crawl_step,
+        try:
+            # Create step orchestrator for multi-step workflow execution
+            logger.info(
+                "starting_workflow",
                 job_id=job_id,
-                http_client=http_client,
-                dedup_cache=self.dedup_cache,
-                cancellation_flag=self.cancellation_flag,
-                job_repo=job_repo,
-                crawl_log_repo=crawl_log_repo,
-                website_id=website_id,
-                cancelled_by="worker",
+                total_steps=len(steps),
+                base_url=base_url,
             )
 
-            # Execute the crawl
-            logger.info("starting_crawl", job_id=job_id, seed_url=job.seed_url)
-            crawler = SeedURLCrawler()
-            result = await crawler.crawl(job.seed_url, crawler_config)
+            orchestrator = StepOrchestrator(
+                job_id=job_id,
+                website_id=website_id or job_id,  # Use job_id if no website_id
+                base_url=base_url,
+                steps=steps,
+                global_config=global_config,
+                cancellation_flag=self.cancellation_flag,
+            )
+
+            # Execute workflow
+            context = await orchestrator.execute_workflow()
 
             logger.info(
-                "crawl_completed",
+                "workflow_completed",
                 job_id=job_id,
-                outcome=result.outcome.value,
-                urls_extracted=result.total_urls_extracted,
-                pages_crawled=result.total_pages_crawled,
+                successful_steps=len(context.get_successful_steps()),
+                failed_steps=len(context.get_failed_steps()),
+                total_steps=len(steps),
             )
 
-            # Update job status based on crawl result
-            if result.outcome in (CrawlOutcome.SUCCESS, CrawlOutcome.SUCCESS_NO_URLS):
-                # Both SUCCESS and SUCCESS_NO_URLS are valid completion states
+            # Check if workflow was cancelled mid-execution
+            if context.metadata.get("cancelled"):
+                await job_repo.update_status(
+                    job_id=job_id,
+                    status=StatusEnum.CANCELLED,
+                    started_at=None,
+                    completed_at=None,
+                    error_message=None,
+                )
+                logger.info(
+                    "job_cancelled_during_execution",
+                    job_id=job_id,
+                    completed_steps=len(context.step_results),
+                    total_steps=len(steps),
+                )
+                return True
+
+            # Update job status based on workflow execution
+            failed_steps = context.get_failed_steps()
+            if not failed_steps:
+                # All steps succeeded
                 await job_repo.update_status(
                     job_id=job_id,
                     status=StatusEnum.COMPLETED,
@@ -261,17 +285,11 @@ class CrawlJobWorker:
                     completed_at=None,
                     error_message=None,
                 )
-                logger.info(
-                    "job_completed_successfully", job_id=job_id, outcome=result.outcome.value
-                )
-                return True
-            elif result.outcome == CrawlOutcome.CANCELLED:
-                # Job was already updated by SeedURLCrawler
-                logger.info("job_cancelled_during_crawl", job_id=job_id)
+                logger.info("job_completed_successfully", job_id=job_id)
                 return True
             else:
-                # Failed, partial, or error outcome
-                error_msg = result.error_message or f"Crawl failed: {result.outcome.value}"
+                # Some steps failed
+                error_msg = f"Workflow failed. Failed steps: {', '.join(failed_steps)}"
                 await job_repo.update_status(
                     job_id=job_id,
                     status=StatusEnum.FAILED,
@@ -282,10 +300,35 @@ class CrawlJobWorker:
                 logger.warning(
                     "job_failed",
                     job_id=job_id,
-                    outcome=result.outcome.value,
-                    error=error_msg,
+                    failed_steps=failed_steps,
                 )
                 return True
+
+        except ValueError as e:
+            # Dependency validation or configuration error
+            error_msg = f"Workflow configuration error: {e}"
+            await job_repo.update_status(
+                job_id=job_id,
+                status=StatusEnum.FAILED,
+                started_at=None,
+                completed_at=None,
+                error_message=error_msg[:1000],
+            )
+            logger.error("workflow_validation_error", job_id=job_id, error=str(e))
+            return True
+
+        except Exception as e:
+            # Unexpected error
+            error_msg = f"Workflow execution error: {e}"
+            await job_repo.update_status(
+                job_id=job_id,
+                status=StatusEnum.FAILED,
+                started_at=None,
+                completed_at=None,
+                error_message=error_msg[:1000],
+            )
+            logger.error("workflow_execution_error", job_id=job_id, error=str(e), exc_info=True)
+            return True
 
     async def process_job(self, job_id: str, job_data: dict[str, Any], conn: Any = None) -> bool:
         """Process a single crawl job.
