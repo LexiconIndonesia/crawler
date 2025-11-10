@@ -185,9 +185,7 @@ class StepOrchestrator:
 
             # Step 4: Get executor and execute for all URLs
             executor = self._get_executor(step_config)
-            merged_config = self.variable_resolver.resolve_dict(
-                self._merge_config(step_config)
-            )
+            merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
             # Execute for each URL and collect results

@@ -5,6 +5,7 @@ Evaluates conditions for determining whether steps should be skipped or executed
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from crawler.core.logging import get_logger
@@ -61,10 +62,11 @@ class ConditionEvaluator:
         try:
             condition = condition.strip()
 
-            # Check for special operators
-            if " exists" in condition:
+            # Check for special operators (anchored to end of condition)
+            # Use regex to ensure these keywords are trailing operators, not part of literals
+            if re.search(r"\s+exists\s*$", condition):
                 return self._evaluate_exists(condition)
-            if " empty" in condition or " !empty" in condition:
+            if re.search(r"\s+!?empty\s*$", condition):
                 return self._evaluate_empty(condition)
 
             # Parse comparison operators
@@ -172,8 +174,8 @@ class ConditionEvaluator:
         Returns:
             True if the field exists, False otherwise
         """
-        # Extract variable reference
-        var_part = condition.replace(" exists", "").strip()
+        # Extract variable reference by removing trailing 'exists' operator
+        var_part = re.sub(r"\s+exists\s*$", "", condition).strip()
 
         try:
             # Try to resolve the variable
@@ -192,8 +194,11 @@ class ConditionEvaluator:
         Returns:
             True if condition is met, False otherwise
         """
-        is_negated = "!empty" in condition
-        var_part = condition.replace(" !empty", "").replace(" empty", "").strip()
+        # Check if negated by looking for !empty suffix
+        is_negated = re.search(r"\s+!empty\s*$", condition) is not None
+
+        # Extract variable reference by removing trailing empty/!empty operator
+        var_part = re.sub(r"\s+!?empty\s*$", "", condition).strip()
 
         try:
             value = self._resolve_value(var_part)
