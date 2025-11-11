@@ -485,15 +485,25 @@ class BrowserPool:
                 context = await browser_instance.browser.new_context()
             except Exception as e:
                 # Check if this is a browser crash
-                error_msg = str(e).lower()
-                crash_keywords = [
-                    "connection",
-                    "closed",
-                    "disconnected",
-                    "target closed",
-                    "browser closed",
-                ]
-                is_crash = any(keyword in error_msg for keyword in crash_keywords)
+                # First check browser connection status (most reliable)
+                is_crash = False
+                try:
+                    if not browser_instance.browser.is_connected():
+                        is_crash = True
+                except Exception:
+                    pass  # If we can't check, fall back to keyword matching
+
+                # Fall back to keyword matching if connection check didn't detect crash
+                if not is_crash:
+                    error_msg = str(e).lower()
+                    crash_keywords = [
+                        "connection",
+                        "closed",
+                        "disconnected",
+                        "target closed",
+                        "browser closed",
+                    ]
+                    is_crash = any(keyword in error_msg for keyword in crash_keywords)
 
                 if is_crash:
                     browser_idx = (
@@ -812,16 +822,26 @@ class BrowserPool:
         except Exception as e:
             logger.warning("browser_health_check_failed", error=str(e))
             # Determine if this is a crash or transient error
-            # Connection errors typically indicate crashes
-            error_msg = str(e).lower()
-            crash_keywords = [
-                "connection",
-                "closed",
-                "disconnected",
-                "target closed",
-                "browser closed",
-            ]
-            is_crash = any(keyword in error_msg for keyword in crash_keywords)
+            # First check browser connection status (most reliable)
+            is_crash = False
+            try:
+                if not browser_instance.browser.is_connected():
+                    is_crash = True
+            except Exception:
+                pass  # If we can't check, fall back to keyword matching
+
+            # Fall back to keyword matching if connection check didn't detect crash
+            if not is_crash:
+                error_msg = str(e).lower()
+                crash_keywords = [
+                    "connection",
+                    "closed",
+                    "disconnected",
+                    "target closed",
+                    "browser closed",
+                ]
+                is_crash = any(keyword in error_msg for keyword in crash_keywords)
+
             return (False, is_crash)
 
     async def _health_check_loop(self) -> None:

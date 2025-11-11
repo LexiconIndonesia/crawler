@@ -137,6 +137,24 @@ class Settings(BaseSettings):
     log_format: str = "json"
     log_file: str = "logs/crawler.log"
 
+    @field_validator("browser_max_recovery_attempts")
+    @classmethod
+    def validate_max_recovery_attempts(cls, v: int) -> int:
+        """Validate max recovery attempts is positive."""
+        if v < 1:
+            raise ValueError("browser_max_recovery_attempts must be at least 1")
+        return v
+
+    @field_validator("browser_recovery_backoff_base")
+    @classmethod
+    def validate_recovery_backoff_base(cls, v: float) -> float:
+        """Validate backoff base is greater than 1."""
+        if v <= 1.0:
+            raise ValueError(
+                "browser_recovery_backoff_base must be greater than 1.0 for exponential backoff"
+            )
+        return v
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
