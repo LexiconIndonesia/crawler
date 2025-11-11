@@ -339,7 +339,8 @@ class TestContentNormalizationWithSimhash:
         # Verify dynamic elements were removed
         assert "2024" not in normalized1  # Dates removed
         assert "views" not in normalized1  # View counts removed
-        assert "shares" not in normalized1  # Share counts removed
+        # "shares" is now preserved to avoid removing business text like "sold 500 shares"
+        assert "120 shares" in normalized1  # Share counts now preserved
         assert "advertisement" not in normalized1  # Ads removed
         assert "cookie" not in normalized1  # Cookie banner removed
         assert "footer" not in normalized1  # Footer removed

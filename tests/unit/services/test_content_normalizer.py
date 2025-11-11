@@ -252,7 +252,7 @@ class TestContentNormalizer:
         assert "minutes ago" not in result
 
     def test_remove_view_counts_and_engagement(self, normalizer: ContentNormalizer) -> None:
-        """Test removal of view counts, likes, shares."""
+        """Test removal of view counts, likes, comments (preserves shares for business text)."""
         html = """
         <html>
             <body>
@@ -270,9 +270,33 @@ class TestContentNormalizer:
         assert "article title" in result
         assert "views" not in result
         assert "likes" not in result
-        assert "shares" not in result
+        # "shares" is now preserved to avoid removing business text like "sold 500 shares"
+        assert "75 shares" in result
         assert "comments" not in result
         assert "1.2k" not in result
+
+    def test_preserve_business_shares_text(self, normalizer: ContentNormalizer) -> None:
+        """Test that business text containing 'shares' is preserved."""
+        html = """
+        <html>
+            <body>
+                <article>
+                    <p>The company sold 500 shares at market price.</p>
+                    <p>Investors purchased 1000 shares in the IPO.</p>
+                    <p>The board approved issuing 250,000 shares.</p>
+                    <p>Market shares increased by 15%.</p>
+                </article>
+            </body>
+        </html>
+        """
+
+        result = normalizer.normalize(html)
+
+        # All business references to "shares" should be preserved
+        assert "sold 500 shares" in result
+        assert "purchased 1000 shares" in result
+        assert "issuing 250,000 shares" in result
+        assert "market shares increased" in result
 
     def test_extract_main_content_semantic_tags(self, normalizer: ContentNormalizer) -> None:
         """Test extraction using semantic HTML5 tags."""

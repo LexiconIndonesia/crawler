@@ -102,7 +102,7 @@ async def list_duplicate_groups(
     """,
     responses={
         200: {"description": "Group details retrieved successfully"},
-        400: {
+        404: {
             "description": "Group not found",
             "model": ErrorResponse,
         },
@@ -126,7 +126,7 @@ async def get_duplicate_group_details(
         Group details including canonical page and all duplicates
 
     Raises:
-        HTTPException 400: If group not found
+        HTTPException 404: If group not found
         HTTPException 500: If database operation fails
     """
     group, duplicates = await get_duplicate_group_details_handler(group_id, duplicate_service)
@@ -186,7 +186,7 @@ async def get_duplicate_group_details(
     """,
     responses={
         200: {"description": "Statistics retrieved successfully"},
-        400: {
+        404: {
             "description": "Group not found",
             "model": ErrorResponse,
         },
@@ -210,7 +210,7 @@ async def get_duplicate_group_stats(
         Group statistics including averages and timestamps
 
     Raises:
-        HTTPException 400: If group not found
+        HTTPException 404: If group not found
         HTTPException 500: If database operation fails
     """
     stats = await get_duplicate_group_stats_handler(group_id, duplicate_service)

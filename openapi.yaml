@@ -1627,7 +1627,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DuplicateGroupDetails'
-        '400':
+        '404':
           description: Group not found
           content:
             application/json:
@@ -1679,7 +1679,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DuplicateGroupStats'
-        '400':
+        '404':
           description: Group not found
           content:
             application/json:

@@ -87,8 +87,9 @@ class ContentNormalizer:
         # Relative times: 2 hours ago, 3 days ago, Updated yesterday
         r"\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago",
         r"(?:updated|posted|published)?\s*(?:yesterday|today|just now)",
-        # View counts, likes, shares: 1.2K views, 500 likes
-        r"\d+[\d,.]*[KMB]?\s+(?:views?|likes?|shares?|comments?|reads?)",
+        # View counts, likes, comments: 1.2K views, 500 likes
+        # (excludes "shares" to preserve business text like "sold 500 shares")
+        r"\d+[\d,.]*[KMB]?\s+(?:views?|likes?|comments?|reads?)",
         # Time ago with "Last updated": Last updated: 2 hours ago
         r"(?:last\s+)?(?:updated|modified|posted|published)[\s:]+.*?ago",
     ]
