@@ -922,3 +922,53 @@ class TestBrowserContextCleanup:
 
         # Clean up
         await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_initialization_failure_stops_playwright(self, settings):
+        """Test that Playwright is stopped if initialization fails."""
+        with patch("crawler.services.browser_pool.async_playwright") as mock_pw:
+            playwright_instance = AsyncMock()
+            mock_pw.return_value.start = AsyncMock(return_value=playwright_instance)
+
+            # Make browser launch fail
+            playwright_instance.chromium.launch = AsyncMock(side_effect=Exception("Launch failed"))
+            playwright_instance.stop = AsyncMock()
+
+            pool = BrowserPool(settings)
+
+            # Initialization should fail
+            with pytest.raises(RuntimeError, match="Failed to initialize browser pool"):
+                await pool.initialize()
+
+            # Verify playwright was stopped
+            playwright_instance.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_context_creation_failure_does_not_decrement_counter(
+        self, settings, mock_playwright
+    ):
+        """Test that active_contexts is not decremented if context creation fails."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Mock browser that fails to create context
+        pool._browsers[0].browser.new_context = AsyncMock(
+            side_effect=Exception("Context creation failed")
+        )
+
+        # Record initial active_contexts
+        initial_active_contexts = pool._browsers[0].active_contexts
+
+        # Try to acquire context - should fail
+        with pytest.raises(Exception, match="Context creation failed"):
+            async with pool.acquire_context():
+                pass
+
+        # Verify active_contexts was not decremented (should still be initial value)
+        assert pool._browsers[0].active_contexts == initial_active_contexts
+
+        # Verify it didn't go negative
+        assert pool._browsers[0].active_contexts >= 0
+
+        # Clean up
+        await pool.shutdown()

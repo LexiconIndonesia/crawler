@@ -150,6 +150,17 @@ class BrowserPool:
             logger.error("browser_pool_init_error", error=str(e))
             # Clean up any partially created resources
             await self._cleanup_all_browsers()
+
+            # Stop playwright if it was started
+            if self._playwright is not None:
+                try:
+                    await self._playwright.stop()
+                    logger.debug("playwright_stopped_after_init_error")
+                except Exception as cleanup_error:
+                    logger.debug("playwright_stop_error_during_cleanup", error=str(cleanup_error))
+                finally:
+                    self._playwright = None
+
             raise RuntimeError(f"Failed to initialize browser pool: {e}") from e
 
     async def _launch_browser(self, browser_type: BrowserType) -> Browser:
@@ -215,6 +226,7 @@ class BrowserPool:
         browser_instance: BrowserInstance | None = None
         context: BrowserContext | None = None
         semaphore_acquired = False
+        context_created = False  # Track if context was successfully created
         queue_start_time = datetime.now(UTC)
 
         try:
@@ -267,9 +279,11 @@ class BrowserPool:
             # Create context
             context = await browser_instance.browser.new_context()
 
-            # Update metrics
+            # Mark context as successfully created and update metrics
+            # IMPORTANT: Only update counters AFTER context creation succeeds
             async with self._lock:
                 browser_instance.active_contexts += 1
+                context_created = True  # Set flag only after increment succeeds
                 total_contexts = sum(b.active_contexts for b in self._browsers)
                 browser_sessions_active.set(total_contexts)
                 available_contexts = self.pool_size * self.max_contexts_per_browser - total_contexts
@@ -287,7 +301,7 @@ class BrowserPool:
             logger.error("context_acquire_error", error=str(e))
             raise
         finally:
-            # Clean and release context
+            # Clean and release context (only if it was created)
             if context is not None:
                 # Clean context state before closing
                 await self._cleanup_context(context)
@@ -298,8 +312,8 @@ class BrowserPool:
                 except Exception as e:
                     logger.debug("context_close_error", error=str(e))
 
-            # Update metrics
-            if browser_instance is not None:
+            # Update metrics - ONLY decrement if we successfully incremented
+            if context_created and browser_instance is not None:
                 async with self._lock:
                     browser_instance.active_contexts -= 1
                     total_contexts = sum(b.active_contexts for b in self._browsers)
@@ -427,14 +441,28 @@ class BrowserPool:
 
         logger.debug("browser_pool_health_check_starting")
 
+        # Step 1: Snapshot browser instances while holding lock
+        async with self._lock:
+            browser_snapshot = [
+                (i, browser_instance) for i, browser_instance in enumerate(self._browsers)
+            ]
+
+        # Step 2: Check health WITHOUT holding lock (parallel async operations)
+        health_results = []
+        for i, browser_instance in browser_snapshot:
+            is_healthy = await self._check_browser_health(browser_instance)
+            health_results.append((i, browser_instance, is_healthy))
+
+        # Step 3: Update shared state while holding lock
         healthy_count = 0
         browser_statuses = []
 
         async with self._lock:
-            for i, browser_instance in enumerate(self._browsers):
-                is_healthy = await self._check_browser_health(browser_instance)
+            now = datetime.now(UTC)
+            for i, browser_instance, is_healthy in health_results:
+                # Update health status
                 browser_instance.is_healthy = is_healthy
-                browser_instance.last_health_check = datetime.now(UTC)
+                browser_instance.last_health_check = now
 
                 if is_healthy:
                     healthy_count += 1
@@ -448,12 +476,14 @@ class BrowserPool:
                     }
                 )
 
+            # Recalculate aggregate metrics while holding lock
             total_contexts = sum(b.active_contexts for b in self._browsers)
+            total_browsers = len(self._browsers)
 
         result = {
-            "total_browsers": len(self._browsers),
+            "total_browsers": total_browsers,
             "healthy_browsers": healthy_count,
-            "unhealthy_browsers": len(self._browsers) - healthy_count,
+            "unhealthy_browsers": total_browsers - healthy_count,
             "total_contexts": total_contexts,
             "browsers": browser_statuses,
         }
