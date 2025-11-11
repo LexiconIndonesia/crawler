@@ -51,6 +51,14 @@ browser_pool_queue_wait_seconds = Histogram(
     "browser_pool_queue_wait_seconds", "Time spent waiting in queue for browser context"
 )
 
+browser_crashes_total = Counter(
+    "browser_crashes_total", "Total number of browser crashes detected", ["browser_type"]
+)
+
+browser_crash_recoveries_total = Counter(
+    "browser_crash_recoveries_total", "Total number of successful browser crash recoveries"
+)
+
 # Queue Metrics
 queue_messages_pending = Gauge(
     "queue_messages_pending", "Number of pending messages in queue", ["queue_name"]
