@@ -288,7 +288,14 @@ class BrowserPool:
                 browser_type=browser_type,
                 error=str(e),
             )
-            # Update metrics even on failure
+            # Restore crashed instance so pool size & semaphore stay consistent
+            if crashed_instance not in self._browsers:
+                crashed_instance.is_healthy = False
+                if 0 <= browser_index <= len(self._browsers):
+                    self._browsers.insert(browser_index, crashed_instance)
+                else:
+                    self._browsers.append(crashed_instance)
+
             browser_pool_size.set(len(self._browsers))
             healthy_count = sum(1 for b in self._browsers if b.is_healthy)
             browser_pool_healthy.set(healthy_count)
