@@ -8,11 +8,12 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from crawler.api.v1.services import JobService, LogService, WebsiteService
+from crawler.api.v1.services import DuplicateService, JobService, LogService, WebsiteService
 from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep, NATSQueueDep
 from crawler.db.repositories import (
     CrawlJobRepository,
     CrawlLogRepository,
+    DuplicateGroupRepository,
     ScheduledJobRepository,
     WebsiteConfigHistoryRepository,
     WebsiteRepository,
@@ -134,7 +135,39 @@ async def get_log_service(
     )
 
 
+async def get_duplicate_service(
+    db: DBSessionDep,
+) -> DuplicateService:
+    """Get duplicate service with injected dependencies.
+
+    Args:
+        db: Database session from centralized dependency injection
+
+    Returns:
+        DuplicateService instance with injected repositories
+
+    Usage:
+        async def my_route(duplicate_service: DuplicateServiceDep):
+            canonical = await duplicate_service.get_canonical_for_duplicate(page_id)
+
+    Note:
+        This function properly manages database connections from the session's
+        connection pool to avoid concurrent operation errors with asyncpg.
+    """
+    # Get connection from session - this uses the connection pool
+    # The connection is managed by the session's transaction context
+    conn = await db.connection()
+
+    # Create repositories with the connection
+    # Each repository will execute queries sequentially within the transaction
+    duplicate_repo = DuplicateGroupRepository(conn)
+
+    # Return service with injected repositories
+    return DuplicateService(duplicate_repo=duplicate_repo)
+
+
 # Type aliases for dependency injection
 WebsiteServiceDep = Annotated[WebsiteService, Depends(get_website_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 LogServiceDep = Annotated[LogService, Depends(get_log_service)]
+DuplicateServiceDep = Annotated[DuplicateService, Depends(get_duplicate_service)]
