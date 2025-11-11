@@ -6,6 +6,8 @@ of multi-step workflows, handling dependencies, data flow, and error recovery.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 from crawler.core.logging import get_logger
@@ -21,6 +23,7 @@ from crawler.services.step_executors import (
     ScrapeExecutor,
 )
 from crawler.services.step_executors.base import ExecutionResult
+from crawler.services.step_validator import StepValidationError, StepValidator
 from crawler.services.variable_resolver import VariableResolver
 
 if TYPE_CHECKING:
@@ -79,6 +82,7 @@ class StepOrchestrator:
         self.selector_processor = SelectorProcessor()
         self.variable_resolver = VariableResolver(self.context)
         self.condition_evaluator = ConditionEvaluator(self.context)
+        self.step_validator = StepValidator()
 
         # Initialize executors (reuse clients for efficiency)
         self.http_executor = HTTPExecutor(selector_processor=self.selector_processor)
@@ -161,7 +165,7 @@ class StepOrchestrator:
             await self._cleanup()
 
     async def _execute_step(self, step_config: dict[str, Any]) -> None:
-        """Execute a single step.
+        """Execute a single step with timeout enforcement.
 
         Args:
             step_config: Step configuration
@@ -194,30 +198,99 @@ class StepOrchestrator:
                 )
                 return
 
-            # Step 3: Get executor and execute
+            # Step 3: Validate input before execution
+            step_type = step_config.get("type", "").lower()
+            try:
+                self.step_validator.validate_input(
+                    step_name=step_name,
+                    step_type=step_type,
+                    input_data=urls,
+                    strict=True,  # Fail fast on invalid input
+                )
+            except StepValidationError as e:
+                logger.error(
+                    "step_input_validation_failed",
+                    step_name=step_name,
+                    errors=e.errors,
+                )
+                self.context.add_result(
+                    StepResult(
+                        step_name=step_name,
+                        error=f"Input validation failed: {e}",
+                        metadata={"validation_errors": e.errors},
+                    )
+                )
+                return
+
+            # Step 4: Get executor and merged config
             executor = self._get_executor(step_config)
             merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
-            # Step 4: Execute step with executor
-            # ScrapeExecutor and CrawlExecutor can handle str | list[str]
-            # Base executors (HTTP, API, Browser) require iteration
-            if isinstance(executor, (ScrapeExecutor, CrawlExecutor)):
-                # Executors that handle str | list[str]: pass URLs as-is
-                result = await executor.execute(urls, merged_config, selectors)
-            else:
-                # Base executors (HTTP, API, Browser): iterate over URLs
-                urls_list = [urls] if isinstance(urls, str) else urls
-                all_results: list[ExecutionResult] = []
+            # Step 5: Get timeout from config (default: 30 seconds)
+            timeout_seconds = merged_config.get("timeout", 30)
 
-                for url in urls_list:
-                    single_result = await executor.execute(url, merged_config, selectors)
-                    all_results.append(single_result)
+            # Step 5: Execute step with timeout enforcement and timing
+            start_time = time.time()
+            try:
+                # Wrap execution with asyncio.wait_for for timeout enforcement
+                result = await asyncio.wait_for(
+                    self._execute_with_executor(executor, urls, merged_config, selectors),
+                    timeout=timeout_seconds,
+                )
+                execution_time = time.time() - start_time
 
-                # Aggregate ExecutionResults into a single ExecutionResult
-                result = self._aggregate_execution_results(all_results)
+                # Add execution time to result metadata
+                if result.metadata is None:
+                    result.metadata = {}
+                result.metadata["execution_time_seconds"] = round(execution_time, 3)
+                result.metadata["timeout_configured"] = timeout_seconds
 
-            # Step 5: Store result in context
+            except TimeoutError:
+                # Step timeout exceeded
+                execution_time = time.time() - start_time
+                logger.error(
+                    "step_timeout",
+                    step_name=step_name,
+                    timeout_seconds=timeout_seconds,
+                    execution_time_seconds=round(execution_time, 3),
+                    job_id=self.job_id,
+                )
+                self.context.add_result(
+                    StepResult(
+                        step_name=step_name,
+                        error=f"Step execution timeout after {timeout_seconds}s",
+                        metadata={
+                            "timeout": True,
+                            "timeout_seconds": timeout_seconds,
+                            "execution_time_seconds": round(execution_time, 3),
+                        },
+                    )
+                )
+                return
+
+            # Step 6: Validate output after execution
+            try:
+                self.step_validator.validate_output(
+                    step_name=step_name,
+                    step_type=step_type,
+                    extracted_data=result.extracted_data,
+                    metadata=result.metadata,
+                    strict=False,  # Log warnings but don't fail on invalid output
+                )
+            except StepValidationError as e:
+                # This should not happen with strict=False, but handle just in case
+                logger.warning(
+                    "step_output_validation_failed",
+                    step_name=step_name,
+                    errors=e.errors,
+                )
+                # Add validation warnings to metadata
+                if result.metadata is None:
+                    result.metadata = {}
+                result.metadata["output_validation_warnings"] = e.errors
+
+            # Step 7: Store result in context
             step_result = StepResult(
                 step_name=step_name,
                 status_code=result.status_code,
@@ -235,6 +308,8 @@ class StepOrchestrator:
                     total_urls=step_result.metadata.get("total_urls", 0),
                     successful_urls=step_result.metadata.get("successful_urls", 0),
                     extracted_fields=len(step_result.extracted_data),
+                    execution_time_seconds=step_result.metadata.get("execution_time_seconds"),
+                    timeout_configured=step_result.metadata.get("timeout_configured"),
                 )
             else:
                 logger.error(
@@ -242,6 +317,7 @@ class StepOrchestrator:
                     step_name=step_name,
                     error=step_result.error,
                     failed_urls=step_result.metadata.get("failed_urls", 0),
+                    execution_time_seconds=step_result.metadata.get("execution_time_seconds"),
                 )
 
         except Exception as e:
@@ -257,6 +333,41 @@ class StepOrchestrator:
                     error=f"Execution error: {e}",
                 )
             )
+
+    async def _execute_with_executor(
+        self,
+        executor: HTTPExecutor | BrowserExecutor | APIExecutor | CrawlExecutor | ScrapeExecutor,
+        urls: str | list[str],
+        merged_config: dict[str, Any],
+        selectors: dict[str, Any],
+    ) -> ExecutionResult:
+        """Execute step with the appropriate executor.
+
+        Args:
+            executor: Executor instance
+            urls: URL(s) to process
+            merged_config: Merged configuration
+            selectors: Selectors for data extraction
+
+        Returns:
+            ExecutionResult from executor
+        """
+        # ScrapeExecutor and CrawlExecutor can handle str | list[str]
+        # Base executors (HTTP, API, Browser) require iteration
+        if isinstance(executor, (ScrapeExecutor, CrawlExecutor)):
+            # Executors that handle str | list[str]: pass URLs as-is
+            return await executor.execute(urls, merged_config, selectors)
+        else:
+            # Base executors (HTTP, API, Browser): iterate over URLs
+            urls_list = [urls] if isinstance(urls, str) else urls
+            all_results: list[ExecutionResult] = []
+
+            for url in urls_list:
+                single_result = await executor.execute(url, merged_config, selectors)
+                all_results.append(single_result)
+
+            # Aggregate ExecutionResults into a single ExecutionResult
+            return self._aggregate_execution_results(all_results)
 
     def _should_skip_step(self, step_config: dict[str, Any]) -> bool:
         """Check if step should be skipped based on conditions.
