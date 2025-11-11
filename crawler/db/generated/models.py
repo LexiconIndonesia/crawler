@@ -43,6 +43,8 @@ class ContentHash(pydantic.BaseModel):
     occurrence_count: int
     last_seen_at: datetime.datetime
     created_at: datetime.datetime
+    # 64-bit Simhash fingerprint for fuzzy duplicate detection
+    simhash_fingerprint: Optional[int]
 
 
 class CrawlJob(pydantic.BaseModel):

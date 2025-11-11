@@ -66,6 +66,81 @@ class TestURLDeduplicationCache:
         assert result is True
         assert await cache.exists(url_hash) is False
 
+    async def test_url_deduplication_workflow(
+        self, redis_client: redis.Redis, settings: Settings
+    ) -> None:
+        """Test complete URL deduplication workflow with real URLs."""
+        cache = URLDeduplicationCache(redis_client, settings)
+
+        # Scenario: Crawler encounters same page with different tracking params
+        original_url = "https://example.com/article/123?page=1"
+        url_from_facebook = "https://example.com/article/123?page=1&utm_source=facebook&fbclid=xyz"
+        url_from_google = "https://example.com/article/123?page=1&utm_source=google&gclid=abc"
+
+        # First crawl - store original URL
+        first_crawl_data = {
+            "job_id": "job_1",
+            "crawled_at": datetime.now(UTC).isoformat(),
+            "status_code": 200,
+        }
+        await cache.set_url(original_url, first_crawl_data)
+
+        # Second encounter - check if URL from Facebook was already crawled
+        exists = await cache.exists_url(url_from_facebook)
+        assert exists is True, "URL with Facebook tracking should be recognized as duplicate"
+
+        # Retrieve metadata
+        metadata = await cache.get_url(url_from_facebook)
+        assert metadata is not None
+        assert metadata["job_id"] == "job_1"
+        assert metadata["status_code"] == 200
+
+        # Third encounter - check if URL from Google was already crawled
+        exists = await cache.exists_url(url_from_google)
+        assert exists is True, "URL with Google tracking should be recognized as duplicate"
+
+    async def test_batch_deduplication_check(
+        self, redis_client: redis.Redis, settings: Settings
+    ) -> None:
+        """Test batch checking for deduplication across multiple URLs."""
+        cache = URLDeduplicationCache(redis_client, settings)
+        from crawler.utils import hash_url
+
+        # Crawled URLs (stored in cache)
+        crawled_urls = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/page3",
+        ]
+
+        # New URLs to check (mix of duplicates and new)
+        urls_to_check = [
+            "https://example.com/page1?utm_source=fb",  # Duplicate
+            "https://example.com/page2",  # Duplicate
+            "https://example.com/page4",  # New
+            "https://example.com/page5",  # New
+        ]
+
+        # Store crawled URLs
+        for url in crawled_urls:
+            await cache.set_url(url, {"job_id": "initial_crawl"})
+
+        # Generate hashes for URLs to check
+        hashes_to_check = [hash_url(url, normalize=True) for url in urls_to_check]
+
+        # Batch check
+        existing_hashes = await cache.exists_batch(hashes_to_check)
+
+        # Should find 2 duplicates (page1 and page2)
+        assert len(existing_hashes) == 2
+
+        # Verify which ones are duplicates
+        expected_duplicates = {
+            hash_url("https://example.com/page1", normalize=True),
+            hash_url("https://example.com/page2", normalize=True),
+        }
+        assert existing_hashes == expected_duplicates
+
 
 @pytest.mark.asyncio
 class TestJobCancellationFlag:

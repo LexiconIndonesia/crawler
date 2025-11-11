@@ -34,6 +34,7 @@ class TestContentHashRepository:
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
+            simhash_fingerprint=None,
         )
         repo._querier.upsert_content_hash = AsyncMock(return_value=mock_content_hash)
 
@@ -58,6 +59,7 @@ class TestContentHashRepository:
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
+            simhash_fingerprint=None,
         )
         repo._querier.upsert_content_hash = AsyncMock(return_value=mock_content_hash)
 
@@ -80,6 +82,7 @@ class TestContentHashRepository:
             occurrence_count=2,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
+            simhash_fingerprint=None,
         )
         repo._querier.upsert_content_hash = AsyncMock(return_value=mock_content_hash)
 
@@ -102,6 +105,7 @@ class TestContentHashRepository:
             occurrence_count=5,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
+            simhash_fingerprint=None,
         )
         repo._querier.get_content_hash = AsyncMock(return_value=mock_content_hash)
 
@@ -135,6 +139,7 @@ class TestContentHashRepository:
             occurrence_count=1,
             last_seen_at=datetime.now(UTC),
             created_at=datetime.now(UTC),
+            simhash_fingerprint=None,
         )
 
         # Second call returns count=2 (simulating increment)
@@ -144,6 +149,7 @@ class TestContentHashRepository:
             occurrence_count=2,
             last_seen_at=datetime.now(UTC),
             created_at=first_result.created_at,
+            simhash_fingerprint=None,
         )
 
         repo._querier.upsert_content_hash = AsyncMock(side_effect=[first_result, second_result])

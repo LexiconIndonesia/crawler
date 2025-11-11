@@ -58,14 +58,14 @@ class URLDeduplicationCache:
         Args:
             url_hash: SHA256 hash of URL.
             data: Associated metadata (job_id, crawled_at, etc.).
-            ttl: Time to live in seconds. Defaults to settings.redis_ttl.
+            ttl: Time to live in seconds. Defaults to settings.url_dedup_ttl (24 hours).
 
         Returns:
             True if successful, False otherwise.
         """
         try:
             key = self._make_key(url_hash)
-            ttl = ttl or self.settings.redis_ttl
+            ttl = ttl or self.settings.url_dedup_ttl
             value = json.dumps(data)
             await self.redis.setex(key, ttl, value)
             logger.debug("url_dedup_set", url_hash=url_hash, ttl=ttl)
@@ -136,7 +136,7 @@ class URLDeduplicationCache:
         Args:
             url: The URL to mark as seen (will be normalized).
             data: Associated metadata (job_id, crawled_at, etc.).
-            ttl: Time to live in seconds. Defaults to settings.redis_ttl.
+            ttl: Time to live in seconds. Defaults to settings.url_dedup_ttl (24 hours).
 
         Returns:
             True if successful, False otherwise.

@@ -84,6 +84,7 @@ CREATE TABLE content_hash (
     occurrence_count integer DEFAULT 1 NOT NULL,
     last_seen_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    simhash_fingerprint bigint,
     CONSTRAINT ck_content_hash_valid_occurrence_count CHECK ((occurrence_count >= 1))
 );
 
@@ -93,6 +94,13 @@ CREATE TABLE content_hash (
 --
 
 COMMENT ON TABLE content_hash IS 'Tracks content hash occurrences for duplicate detection';
+
+
+--
+-- Name: COLUMN content_hash.simhash_fingerprint; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN content_hash.simhash_fingerprint IS '64-bit Simhash fingerprint for fuzzy duplicate detection';
 
 
 --
@@ -928,6 +936,13 @@ CREATE INDEX crawl_log_2026_02_trace_id_idx ON crawl_log_2026_02 USING btree (tr
 --
 
 CREATE INDEX crawl_log_2026_02_website_id_idx ON crawl_log_2026_02 USING btree (website_id);
+
+
+--
+-- Name: idx_content_hash_simhash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_content_hash_simhash ON content_hash USING btree (simhash_fingerprint) WHERE (simhash_fingerprint IS NOT NULL);
 
 
 --

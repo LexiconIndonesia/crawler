@@ -2,6 +2,7 @@
 # versions:
 #   sqlc v1.30.0
 # source: content_hash.sql
+import datetime
 import pydantic
 from typing import Any, AsyncIterator, Optional
 import uuid
@@ -18,9 +19,37 @@ WHERE last_seen_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
 """
 
 
+FIND_SIMILAR_CONTENT = """-- name: find_similar_content \\:many
+SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint,
+    length(replace((simhash_fingerprint # :p1\\:\\:BIGINT)\\:\\:bit(64)\\:\\:text, '0', '')) as hamming_distance
+FROM content_hash
+WHERE simhash_fingerprint IS NOT NULL
+    AND length(replace((simhash_fingerprint # :p1\\:\\:BIGINT)\\:\\:bit(64)\\:\\:text, '0', '')) <= :p2
+    AND content_hash != :p3
+ORDER BY hamming_distance ASC
+LIMIT :p4
+"""
+
+
+class FindSimilarContentRow(pydantic.BaseModel):
+    content_hash: str
+    first_seen_page_id: Optional[uuid.UUID]
+    occurrence_count: int
+    last_seen_at: datetime.datetime
+    created_at: datetime.datetime
+    simhash_fingerprint: Optional[int]
+    hamming_distance: float
+
+
 GET_CONTENT_HASH = """-- name: get_content_hash \\:one
-SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at FROM content_hash
+SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint FROM content_hash
 WHERE content_hash = :p1
+"""
+
+
+GET_CONTENT_HASH_BY_FINGERPRINT = """-- name: get_content_hash_by_fingerprint \\:one
+SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint FROM content_hash
+WHERE simhash_fingerprint = :p1
 """
 
 
@@ -42,7 +71,7 @@ class GetContentHashStatsRow(pydantic.BaseModel):
 
 
 GET_MOST_COMMON_HASHES = """-- name: get_most_common_hashes \\:many
-SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at FROM content_hash
+SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint FROM content_hash
 WHERE occurrence_count > :p1
 ORDER BY occurrence_count DESC
 LIMIT :p2
@@ -50,7 +79,7 @@ LIMIT :p2
 
 
 LIST_CONTENT_HASHES = """-- name: list_content_hashes \\:many
-SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at FROM content_hash
+SELECT content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint FROM content_hash
 ORDER BY occurrence_count DESC
 OFFSET :p1 LIMIT :p2
 """
@@ -72,7 +101,30 @@ ON CONFLICT (content_hash)
 DO UPDATE SET
     occurrence_count = content_hash.occurrence_count + 1,
     last_seen_at = CURRENT_TIMESTAMP
-RETURNING content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at
+RETURNING content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint
+"""
+
+
+UPSERT_CONTENT_HASH_WITH_SIMHASH = """-- name: upsert_content_hash_with_simhash \\:one
+INSERT INTO content_hash (
+    content_hash,
+    first_seen_page_id,
+    occurrence_count,
+    simhash_fingerprint,
+    last_seen_at
+) VALUES (
+    :p1,
+    :p2,
+    1,
+    :p3,
+    CURRENT_TIMESTAMP
+)
+ON CONFLICT (content_hash)
+DO UPDATE SET
+    occurrence_count = content_hash.occurrence_count + 1,
+    simhash_fingerprint = COALESCE(EXCLUDED.simhash_fingerprint, content_hash.simhash_fingerprint),
+    last_seen_at = CURRENT_TIMESTAMP
+RETURNING content_hash, first_seen_page_id, occurrence_count, last_seen_at, created_at, simhash_fingerprint
 """
 
 
@@ -82,6 +134,24 @@ class AsyncQuerier:
 
     async def delete_old_content_hashes(self) -> None:
         await self._conn.execute(sqlalchemy.text(DELETE_OLD_CONTENT_HASHES))
+
+    async def find_similar_content(self, *, target_fingerprint: int, max_distance: Optional[int], exclude_hash: str, limit_count: int) -> AsyncIterator[FindSimilarContentRow]:
+        result = await self._conn.stream(sqlalchemy.text(FIND_SIMILAR_CONTENT), {
+            "p1": target_fingerprint,
+            "p2": max_distance,
+            "p3": exclude_hash,
+            "p4": limit_count,
+        })
+        async for row in result:
+            yield FindSimilarContentRow(
+                content_hash=row[0],
+                first_seen_page_id=row[1],
+                occurrence_count=row[2],
+                last_seen_at=row[3],
+                created_at=row[4],
+                simhash_fingerprint=row[5],
+                hamming_distance=row[6],
+            )
 
     async def get_content_hash(self, *, content_hash: str) -> Optional[models.ContentHash]:
         row = (await self._conn.execute(sqlalchemy.text(GET_CONTENT_HASH), {"p1": content_hash})).first()
@@ -93,6 +163,20 @@ class AsyncQuerier:
             occurrence_count=row[2],
             last_seen_at=row[3],
             created_at=row[4],
+            simhash_fingerprint=row[5],
+        )
+
+    async def get_content_hash_by_fingerprint(self, *, simhash_fingerprint: Optional[int]) -> Optional[models.ContentHash]:
+        row = (await self._conn.execute(sqlalchemy.text(GET_CONTENT_HASH_BY_FINGERPRINT), {"p1": simhash_fingerprint})).first()
+        if row is None:
+            return None
+        return models.ContentHash(
+            content_hash=row[0],
+            first_seen_page_id=row[1],
+            occurrence_count=row[2],
+            last_seen_at=row[3],
+            created_at=row[4],
+            simhash_fingerprint=row[5],
         )
 
     async def get_content_hash_stats(self) -> Optional[GetContentHashStatsRow]:
@@ -115,6 +199,7 @@ class AsyncQuerier:
                 occurrence_count=row[2],
                 last_seen_at=row[3],
                 created_at=row[4],
+                simhash_fingerprint=row[5],
             )
 
     async def list_content_hashes(self, *, offset_count: int, limit_count: int) -> AsyncIterator[models.ContentHash]:
@@ -126,6 +211,7 @@ class AsyncQuerier:
                 occurrence_count=row[2],
                 last_seen_at=row[3],
                 created_at=row[4],
+                simhash_fingerprint=row[5],
             )
 
     async def upsert_content_hash(self, *, content_hash: str, first_seen_page_id: Optional[uuid.UUID]) -> Optional[models.ContentHash]:
@@ -138,4 +224,18 @@ class AsyncQuerier:
             occurrence_count=row[2],
             last_seen_at=row[3],
             created_at=row[4],
+            simhash_fingerprint=row[5],
+        )
+
+    async def upsert_content_hash_with_simhash(self, *, content_hash: str, first_seen_page_id: Optional[uuid.UUID], simhash_fingerprint: Optional[int]) -> Optional[models.ContentHash]:
+        row = (await self._conn.execute(sqlalchemy.text(UPSERT_CONTENT_HASH_WITH_SIMHASH), {"p1": content_hash, "p2": first_seen_page_id, "p3": simhash_fingerprint})).first()
+        if row is None:
+            return None
+        return models.ContentHash(
+            content_hash=row[0],
+            first_seen_page_id=row[1],
+            occurrence_count=row[2],
+            last_seen_at=row[3],
+            created_at=row[4],
+            simhash_fingerprint=row[5],
         )

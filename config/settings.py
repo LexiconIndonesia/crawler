@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     redis_max_connections: int = 10
     redis_ttl: int = 3600  # 1 hour default TTL
+    url_dedup_ttl: int = Field(
+        default=86400,
+        description="URL deduplication cache TTL in seconds (default: 24 hours)",
+    )
     ws_token_ttl: int = Field(
         default=600,
         description="WebSocket token TTL in seconds (default: 10 minutes)",
