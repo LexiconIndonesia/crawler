@@ -1,5 +1,10 @@
 """API v1 handlers."""
 
+from .duplicates import (
+    get_duplicate_group_details_handler,
+    get_duplicate_group_stats_handler,
+    list_duplicate_groups_handler,
+)
 from .jobs import (
     cancel_job_handler,
     create_seed_job_handler,
@@ -32,4 +37,7 @@ __all__ = [
     "cancel_job_handler",
     "generate_ws_token_handler",
     "get_job_logs_handler",
+    "list_duplicate_groups_handler",
+    "get_duplicate_group_details_handler",
+    "get_duplicate_group_stats_handler",
 ]

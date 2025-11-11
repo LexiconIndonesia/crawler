@@ -34,6 +34,8 @@ tags:
     description: Website configuration and management
   - name: Jobs
     description: Crawl job creation and management
+  - name: Duplicates
+    description: Duplicate content detection and management
   - name: Monitoring
     description: Monitoring and observability endpoints
 
@@ -1521,6 +1523,175 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/duplicates/groups:
+    get:
+      tags:
+        - Duplicates
+      summary: List all duplicate groups
+      description: |
+        List all duplicate content groups with pagination.
+
+        This endpoint:
+        1. Returns all groups where content duplicates have been detected
+        2. Supports pagination via limit/offset parameters
+        3. Each group represents a cluster of duplicate pages
+
+        **Use cases:**
+        - Content audit dashboards showing duplicate statistics
+        - Batch processing of duplicate groups
+        - Monitoring content quality across crawled websites
+
+        **Pagination:**
+        - Default limit: 50 groups
+        - Maximum limit: 100 groups
+        - Use offset for page navigation
+      operationId: listDuplicateGroups
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Number of groups to return (1-100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of groups to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of duplicate groups retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DuplicateGroup'
+        '400':
+          description: Validation error (e.g., limit exceeds maximum)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/duplicates/groups/{group_id}:
+    get:
+      tags:
+        - Duplicates
+      summary: Get detailed information about a duplicate group
+      description: |
+        Retrieve complete details about a specific duplicate group.
+
+        This endpoint:
+        1. Returns the canonical (original) page information
+        2. Lists all duplicate pages in the group with detection metadata
+        3. Includes similarity scores and detection methods
+
+        **Response includes:**
+        - Canonical page URL, content hash, and crawl timestamp
+        - Complete list of duplicate pages with:
+          - Detection method (exact_hash, fuzzy_match, url_match, manual)
+          - Similarity percentage (0-100)
+          - Detection timestamp and source
+          - Original crawl timestamp
+
+        **Use cases:**
+        - Investigating specific duplicate clusters
+        - Manual review of automatic duplicate detection
+        - Content deduplication workflows
+      operationId: getDuplicateGroupDetails
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          description: UUID of the duplicate group
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Group details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateGroupDetails'
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/duplicates/groups/{group_id}/stats:
+    get:
+      tags:
+        - Duplicates
+      summary: Get statistics for a duplicate group
+      description: |
+        Retrieve aggregated statistics for a duplicate group.
+
+        This endpoint:
+        1. Returns group size and relationship counts
+        2. Calculates average similarity across all duplicates
+        3. Provides detection timestamps (first/last)
+
+        **Statistics included:**
+        - Group size (total pages including canonical)
+        - Relationship count (number of duplicate links)
+        - Average similarity score
+        - First/last detection timestamps
+
+        **Use cases:**
+        - Duplicate detection quality analysis
+        - Performance monitoring dashboards
+        - Duplicate trend analysis over time
+      operationId: getDuplicateGroupStats
+      parameters:
+        - name: group_id
+          in: path
+          required: true
+          description: UUID of the duplicate group
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateGroupStats'
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   schemas:
     # ============================================================================
@@ -2824,6 +2995,208 @@ components:
           type: string
           description: Success message
           example: "Website 'Example Website' deleted successfully"
+
+    DuplicateGroup:
+      type: object
+      required:
+        - id
+        - canonical_page_id
+        - group_size
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique group identifier
+          example: "990e8400-e29b-41d4-a716-446655440000"
+        canonical_page_id:
+          type: string
+          format: uuid
+          description: UUID of the canonical (original) page
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        group_size:
+          type: integer
+          minimum: 1
+          description: Total number of pages in group (including canonical)
+          example: 5
+        created_at:
+          type: string
+          format: date-time
+          description: When the group was created
+          example: "2025-10-29T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: When the group was last updated
+          example: "2025-10-29T10:05:00Z"
+
+    DuplicatePageInfo:
+      type: object
+      required:
+        - id
+        - duplicate_page_id
+        - url
+        - content_hash
+        - detection_method
+        - detected_at
+        - crawled_at
+      properties:
+        id:
+          type: integer
+          description: Relationship ID
+          example: 123
+        duplicate_page_id:
+          type: string
+          format: uuid
+          description: UUID of the duplicate page
+          example: "880e8400-e29b-41d4-a716-446655440000"
+        url:
+          type: string
+          format: uri
+          description: Page URL
+          example: "https://example.com/article-copy"
+        content_hash:
+          type: string
+          description: Content hash of the page
+          example: "content_hash_abc"
+        detection_method:
+          type: string
+          enum: [exact_hash, fuzzy_match, url_match, manual]
+          description: How the duplicate was detected
+          example: "fuzzy_match"
+        similarity_score:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: Similarity percentage (0-100)
+          example: 95
+        confidence_threshold:
+          type: integer
+          nullable: true
+          description: Detection confidence threshold
+          example: 3
+        detected_at:
+          type: string
+          format: date-time
+          description: When the duplicate was detected
+          example: "2025-10-29T10:02:00Z"
+        detected_by:
+          type: string
+          nullable: true
+          description: System/user that detected the duplicate
+          example: "simhash_detector"
+        crawled_at:
+          type: string
+          format: date-time
+          description: When the page was originally crawled
+          example: "2025-10-29T09:50:00Z"
+
+    DuplicateGroupDetails:
+      type: object
+      required:
+        - id
+        - canonical_page_id
+        - canonical_url
+        - canonical_content_hash
+        - canonical_crawled_at
+        - group_size
+        - created_at
+        - updated_at
+        - duplicates
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Group ID
+          example: "990e8400-e29b-41d4-a716-446655440000"
+        canonical_page_id:
+          type: string
+          format: uuid
+          description: UUID of the canonical page
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        canonical_url:
+          type: string
+          format: uri
+          description: URL of the canonical page
+          example: "https://example.com/original-article"
+        canonical_content_hash:
+          type: string
+          description: Content hash of the canonical page
+          example: "content_hash_original"
+        canonical_crawled_at:
+          type: string
+          format: date-time
+          description: When canonical page was crawled
+          example: "2025-10-29T09:45:00Z"
+        group_size:
+          type: integer
+          minimum: 1
+          description: Total number of pages in group
+          example: 5
+        created_at:
+          type: string
+          format: date-time
+          description: When the group was created
+          example: "2025-10-29T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: When the group was last updated
+          example: "2025-10-29T10:05:00Z"
+        duplicates:
+          type: array
+          description: List of duplicate pages in this group
+          items:
+            $ref: '#/components/schemas/DuplicatePageInfo'
+
+    DuplicateGroupStats:
+      type: object
+      required:
+        - id
+        - canonical_page_id
+        - group_size
+        - relationship_count
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Group ID
+          example: "990e8400-e29b-41d4-a716-446655440000"
+        canonical_page_id:
+          type: string
+          format: uuid
+          description: UUID of the canonical page
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        group_size:
+          type: integer
+          minimum: 1
+          description: Total number of pages in group
+          example: 5
+        relationship_count:
+          type: integer
+          minimum: 0
+          description: Number of duplicate relationships
+          example: 4
+        avg_similarity:
+          type: number
+          format: float
+          nullable: true
+          description: Average similarity score across all duplicates
+          example: 92.5
+        first_detected:
+          type: string
+          format: date-time
+          nullable: true
+          description: When first duplicate was detected
+          example: "2025-10-29T10:00:00Z"
+        last_detected:
+          type: string
+          format: date-time
+          nullable: true
+          description: When last duplicate was detected
+          example: "2025-10-29T10:05:00Z"
 
   securitySchemes:
     BearerAuth:

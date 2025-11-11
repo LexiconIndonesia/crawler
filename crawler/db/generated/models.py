@@ -191,6 +191,25 @@ class CrawledPage(pydantic.BaseModel):
     created_at: datetime.datetime
 
 
+class DuplicateGroup(pydantic.BaseModel):
+    id: uuid.UUID
+    canonical_page_id: uuid.UUID
+    group_size: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class DuplicateRelationship(pydantic.BaseModel):
+    id: int
+    group_id: uuid.UUID
+    duplicate_page_id: uuid.UUID
+    detection_method: str
+    similarity_score: Optional[int]
+    confidence_threshold: Optional[int]
+    detected_at: datetime.datetime
+    detected_by: Optional[str]
+
+
 class ScheduledJob(pydantic.BaseModel):
     """Stores scheduled crawl job configurations with cron schedules"""
     id: uuid.UUID

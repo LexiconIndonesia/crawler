@@ -66,6 +66,32 @@ CREATE TYPE status_enum AS ENUM (
 
 
 --
+-- Name: update_duplicate_group_size(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION update_duplicate_group_size() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            UPDATE duplicate_group
+            SET group_size = group_size + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = NEW.group_id;
+        ELSIF TG_OP = 'DELETE' THEN
+            UPDATE duplicate_group
+            SET group_size = group_size - 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = OLD.group_id;
+        END IF;
+        RETURN NULL;
+    END;
+    $$;
+
+
+SET default_table_access_method = heap;
+
+--
 -- Name: alembic_version; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -360,6 +386,58 @@ COMMENT ON TABLE crawled_page IS 'Stores crawled page data and content';
 
 
 --
+-- Name: duplicate_group; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE duplicate_group (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    canonical_page_id uuid NOT NULL,
+    group_size integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT duplicate_group_group_size_check CHECK ((group_size >= 1))
+);
+
+
+--
+-- Name: duplicate_relationship; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE duplicate_relationship (
+    id bigint NOT NULL,
+    group_id uuid NOT NULL,
+    duplicate_page_id uuid NOT NULL,
+    detection_method character varying(20) NOT NULL,
+    similarity_score integer,
+    confidence_threshold integer,
+    detected_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    detected_by character varying(255),
+    CONSTRAINT duplicate_relationship_confidence_threshold_check CHECK (((confidence_threshold IS NULL) OR (confidence_threshold >= 0))),
+    CONSTRAINT duplicate_relationship_detection_method_check CHECK (((detection_method)::text = ANY ((ARRAY['exact_hash'::character varying, 'fuzzy_match'::character varying, 'url_match'::character varying, 'manual'::character varying])::text[]))),
+    CONSTRAINT duplicate_relationship_similarity_score_check CHECK (((similarity_score IS NULL) OR ((similarity_score >= 0) AND (similarity_score <= 100))))
+);
+
+
+--
+-- Name: duplicate_relationship_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE duplicate_relationship_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: duplicate_relationship_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE duplicate_relationship_id_seq OWNED BY duplicate_relationship.id;
+
+
+--
 -- Name: scheduled_job; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -566,6 +644,13 @@ ALTER TABLE ONLY crawl_log ALTER COLUMN id SET DEFAULT nextval('crawl_log_id_seq
 
 
 --
+-- Name: duplicate_relationship id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_relationship ALTER COLUMN id SET DEFAULT nextval('duplicate_relationship_id_seq'::regclass);
+
+
+--
 -- Name: alembic_version alembic_version_pkc; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -662,11 +747,35 @@ ALTER TABLE ONLY crawled_page
 
 
 --
+-- Name: duplicate_group duplicate_group_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_group
+    ADD CONSTRAINT duplicate_group_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: duplicate_relationship duplicate_relationship_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_relationship
+    ADD CONSTRAINT duplicate_relationship_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: scheduled_job scheduled_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY scheduled_job
     ADD CONSTRAINT scheduled_job_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: duplicate_relationship unique_duplicate_per_group; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_relationship
+    ADD CONSTRAINT unique_duplicate_per_group UNIQUE (group_id, duplicate_page_id);
 
 
 --
@@ -1079,6 +1188,34 @@ CREATE UNIQUE INDEX ix_crawled_page_website_url_hash ON crawled_page USING btree
 
 
 --
+-- Name: ix_duplicate_group_canonical_page_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_duplicate_group_canonical_page_id ON duplicate_group USING btree (canonical_page_id);
+
+
+--
+-- Name: ix_duplicate_relationship_detection_method; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_duplicate_relationship_detection_method ON duplicate_relationship USING btree (detection_method);
+
+
+--
+-- Name: ix_duplicate_relationship_duplicate_page_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_duplicate_relationship_duplicate_page_id ON duplicate_relationship USING btree (duplicate_page_id);
+
+
+--
+-- Name: ix_duplicate_relationship_group_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_duplicate_relationship_group_id ON duplicate_relationship USING btree (group_id);
+
+
+--
 -- Name: ix_scheduled_job_active_next_run; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1212,6 +1349,13 @@ ALTER INDEX crawl_log_pkey1 ATTACH PARTITION crawl_log_2026_02_pkey;
 
 
 --
+-- Name: duplicate_relationship trigger_update_duplicate_group_size; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_update_duplicate_group_size AFTER INSERT OR DELETE ON duplicate_relationship FOR EACH ROW EXECUTE FUNCTION update_duplicate_group_size();
+
+
+--
 -- Name: content_hash content_hash_first_seen_page_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1249,6 +1393,30 @@ ALTER TABLE ONLY crawled_page
 
 ALTER TABLE ONLY crawled_page
     ADD CONSTRAINT crawled_page_website_id_fkey FOREIGN KEY (website_id) REFERENCES website(id) ON DELETE CASCADE;
+
+
+--
+-- Name: duplicate_group duplicate_group_canonical_page_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_group
+    ADD CONSTRAINT duplicate_group_canonical_page_id_fkey FOREIGN KEY (canonical_page_id) REFERENCES crawled_page(id) ON DELETE CASCADE;
+
+
+--
+-- Name: duplicate_relationship duplicate_relationship_duplicate_page_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_relationship
+    ADD CONSTRAINT duplicate_relationship_duplicate_page_id_fkey FOREIGN KEY (duplicate_page_id) REFERENCES crawled_page(id) ON DELETE CASCADE;
+
+
+--
+-- Name: duplicate_relationship duplicate_relationship_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY duplicate_relationship
+    ADD CONSTRAINT duplicate_relationship_group_id_fkey FOREIGN KEY (group_id) REFERENCES duplicate_group(id) ON DELETE CASCADE;
 
 
 --
