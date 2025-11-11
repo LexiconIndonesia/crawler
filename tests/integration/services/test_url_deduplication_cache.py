@@ -1,6 +1,7 @@
-"""Unit tests for URL deduplication cache service.
+"""Integration tests for URL deduplication cache service.
 
-These tests verify URL normalization, caching, TTL, and performance requirements.
+These tests verify URL normalization, caching, TTL, and performance requirements
+using a real Redis connection.
 """
 
 import time
@@ -15,7 +16,7 @@ from crawler.services.redis_cache import URLDeduplicationCache
 
 @pytest.mark.asyncio
 class TestURLDeduplicationCache:
-    """Unit tests for URLDeduplicationCache service."""
+    """Integration tests for URLDeduplicationCache service."""
 
     async def test_set_and_get_with_default_ttl(
         self, redis_client: redis.Redis, settings: Settings
