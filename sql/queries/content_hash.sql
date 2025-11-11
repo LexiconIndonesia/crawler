@@ -42,3 +42,41 @@ FROM content_hash;
 -- name: DeleteOldContentHashes :exec
 DELETE FROM content_hash
 WHERE last_seen_at < CURRENT_TIMESTAMP - INTERVAL '90 days';
+
+-- name: UpsertContentHashWithSimhash :one
+INSERT INTO content_hash (
+    content_hash,
+    first_seen_page_id,
+    occurrence_count,
+    simhash_fingerprint,
+    last_seen_at
+) VALUES (
+    sqlc.arg(content_hash),
+    sqlc.arg(first_seen_page_id),
+    1,
+    sqlc.arg(simhash_fingerprint),
+    CURRENT_TIMESTAMP
+)
+ON CONFLICT (content_hash)
+DO UPDATE SET
+    occurrence_count = content_hash.occurrence_count + 1,
+    simhash_fingerprint = COALESCE(EXCLUDED.simhash_fingerprint, content_hash.simhash_fingerprint),
+    last_seen_at = CURRENT_TIMESTAMP
+RETURNING *;
+
+-- name: FindSimilarContent :many
+-- Find content with similar Simhash fingerprints (within Hamming distance threshold)
+-- Uses XOR (#) to find differing bits, converts to bit(64), and counts '1' bits
+-- Compatible with PostgreSQL 12+
+SELECT *,
+    length(replace((simhash_fingerprint # sqlc.arg(target_fingerprint)::BIGINT)::bit(64)::text, '0', '')) as hamming_distance
+FROM content_hash
+WHERE simhash_fingerprint IS NOT NULL
+    AND length(replace((simhash_fingerprint # sqlc.arg(target_fingerprint)::BIGINT)::bit(64)::text, '0', '')) <= sqlc.arg(max_distance)
+    AND content_hash != sqlc.arg(exclude_hash)
+ORDER BY hamming_distance ASC
+LIMIT sqlc.arg(limit_count);
+
+-- name: GetContentHashByFingerprint :one
+SELECT * FROM content_hash
+WHERE simhash_fingerprint = sqlc.arg(simhash_fingerprint);
