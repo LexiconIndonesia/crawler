@@ -55,16 +55,22 @@ class TestContentHashSimhash:
     async def test_find_similar_content_95_percent_threshold(
         self, content_hash_repo: ContentHashRepository
     ) -> None:
-        """Test finding similar content with 95% similarity threshold."""
+        """Test finding similar content with 95% similarity threshold (max_distance=3)."""
         # Original content
         original_content = "The quick brown fox jumps over the lazy dog"
         original_hash = hashlib.sha256(original_content.encode()).hexdigest()
         original_simhash = Simhash(original_content)
 
-        # Very similar content (changed one word: "the" -> "a")
-        similar_content = "The quick brown fox jumps over a lazy dog"
-        similar_hash = hashlib.sha256(similar_content.encode()).hexdigest()
-        similar_simhash = Simhash(similar_content)
+        # Nearly identical content (only punctuation added - distance=0)
+        nearly_identical = "The quick brown fox jumps over the lazy dog."
+        nearly_identical_hash = hashlib.sha256(nearly_identical.encode()).hexdigest()
+        nearly_identical_simhash = Simhash(nearly_identical)
+
+        # Somewhat similar content (changed one word: "the" -> "a" - distance=7, 89% similar)
+        # This exceeds the 95% threshold
+        somewhat_similar = "The quick brown fox jumps over a lazy dog"
+        somewhat_similar_hash = hashlib.sha256(somewhat_similar.encode()).hexdigest()
+        somewhat_similar_simhash = Simhash(somewhat_similar)
 
         # Different content
         different_content = "Python programming language is awesome"
@@ -75,28 +81,36 @@ class TestContentHashSimhash:
         await content_hash_repo.upsert_with_simhash(
             original_hash, None, original_simhash.fingerprint
         )
-        await content_hash_repo.upsert_with_simhash(similar_hash, None, similar_simhash.fingerprint)
+        await content_hash_repo.upsert_with_simhash(
+            nearly_identical_hash, None, nearly_identical_simhash.fingerprint
+        )
+        await content_hash_repo.upsert_with_simhash(
+            somewhat_similar_hash, None, somewhat_similar_simhash.fingerprint
+        )
         await content_hash_repo.upsert_with_simhash(
             different_hash, None, different_simhash.fingerprint
         )
 
-        # Find similar to original (max_distance=10 allows for minor changes)
-        # Note: Changing 1 word out of 9 results in distance ~7
+        # Find similar to original with ~95% similarity threshold (max_distance=3)
         results = await content_hash_repo.find_similar(
             target_fingerprint=original_simhash.fingerprint,
-            max_distance=10,
+            max_distance=3,
             exclude_hash=original_hash,
             limit=10,
         )
 
-        # Should find the similar content but not the different one
+        # Should find nearly identical content (distance=0)
         assert len(results) >= 1
+        nearly_identical_found = any(r.content_hash == nearly_identical_hash for r in results)
+        assert nearly_identical_found, (
+            "Nearly identical content should be found within 95% threshold"
+        )
 
-        # Verify the similar content is found
-        similar_found = any(r.content_hash == similar_hash for r in results)
-        assert similar_found, "Similar content should be found within 95% threshold"
+        # Should NOT find content that exceeds 95% threshold (distance=7)
+        somewhat_similar_found = any(r.content_hash == somewhat_similar_hash for r in results)
+        assert not somewhat_similar_found, "Content with 89% similarity should not be found"
 
-        # Verify the different content is NOT found
+        # Should NOT find completely different content
         different_found = any(r.content_hash == different_hash for r in results)
         assert not different_found, "Different content should not be found"
 
