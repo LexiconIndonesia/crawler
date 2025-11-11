@@ -86,7 +86,8 @@ class ContentNormalizer:
         r"Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}",
         # Relative times: 2 hours ago, 3 days ago, Updated yesterday
         r"\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago",
-        r"(?:updated|posted|published)?\s*(?:yesterday|today|just now)",
+        # Require verb context to avoid removing bare "today"/"yesterday" in content
+        r"(?:updated|posted|published)\s+(?:yesterday|today|just now)",
         # View counts, likes, comments: 1.2K views, 500 likes
         # (excludes "shares" to preserve business text like "sold 500 shares")
         r"\d+[\d,.]*[KMB]?\s+(?:views?|likes?|comments?|reads?)",

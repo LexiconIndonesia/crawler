@@ -298,6 +298,53 @@ class TestContentNormalizer:
         assert "issuing 250,000 shares" in result
         assert "market shares increased" in result
 
+    def test_preserve_bare_today_yesterday_in_content(self, normalizer: ContentNormalizer) -> None:
+        """Test that bare 'today'/'yesterday' without timestamp verbs are preserved."""
+        html = """
+        <html>
+            <body>
+                <article>
+                    <p>Today is a great day for business.</p>
+                    <p>Yesterday the market was closed.</p>
+                    <p>We launched the product today with success.</p>
+                    <p>The article mentions events from yesterday.</p>
+                </article>
+            </body>
+        </html>
+        """
+
+        result = normalizer.normalize(html)
+
+        # Bare "today" and "yesterday" in content should be preserved
+        assert "today is a great day" in result
+        assert "yesterday the market" in result
+        assert "product today with" in result
+        assert "events from yesterday" in result
+
+    def test_remove_timestamp_with_today_yesterday(self, normalizer: ContentNormalizer) -> None:
+        """Test that 'today'/'yesterday' with timestamp verbs are still removed."""
+        html = """
+        <html>
+            <body>
+                <article>
+                    <p>Main content here.</p>
+                    <p>Posted today</p>
+                    <p>Updated yesterday</p>
+                    <p>Published just now</p>
+                </article>
+            </body>
+        </html>
+        """
+
+        result = normalizer.normalize(html)
+
+        # Content should be preserved
+        assert "main content here" in result
+        # Timestamp phrases with verbs should be removed
+        assert "posted today" not in result
+        assert "updated yesterday" not in result
+        assert "published just now" not in result
+
     def test_extract_main_content_semantic_tags(self, normalizer: ContentNormalizer) -> None:
         """Test extraction using semantic HTML5 tags."""
         html = """
