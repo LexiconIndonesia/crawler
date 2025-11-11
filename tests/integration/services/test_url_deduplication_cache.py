@@ -39,10 +39,11 @@ class TestURLDeduplicationCache:
         assert retrieved["job_id"] == data["job_id"]
         assert retrieved["crawled_at"] == data["crawled_at"]
 
-        # Verify TTL is set (should be ~86400 seconds, allow some variance)
+        # Verify TTL is set correctly (allow grace window for test execution time)
         ttl = await redis_client.ttl(f"url:dedup:{url_hash}")
-        assert ttl > 86300  # At least 86300 seconds (account for test execution time)
-        assert ttl <= 86400
+        expected_ttl = settings.url_dedup_ttl
+        assert ttl >= expected_ttl - 100  # Allow up to 100 seconds for test execution
+        assert ttl <= expected_ttl
 
     async def test_set_with_custom_ttl(self, redis_client: redis.Redis, settings: Settings) -> None:
         """Test setting URL with custom TTL."""
