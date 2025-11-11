@@ -35,6 +35,22 @@ browser_page_load_seconds = Histogram(
     "browser_page_load_seconds", "Browser page load time in seconds"
 )
 
+browser_pool_size = Gauge("browser_pool_size", "Total number of browser instances in pool")
+
+browser_pool_healthy = Gauge("browser_pool_healthy", "Number of healthy browser instances")
+
+browser_pool_contexts_available = Gauge(
+    "browser_pool_contexts_available", "Number of available browser contexts in pool"
+)
+
+browser_pool_queue_size = Gauge(
+    "browser_pool_queue_size", "Number of requests waiting for browser contexts"
+)
+
+browser_pool_queue_wait_seconds = Histogram(
+    "browser_pool_queue_wait_seconds", "Time spent waiting in queue for browser context"
+)
+
 # Queue Metrics
 queue_messages_pending = Gauge(
     "queue_messages_pending", "Number of pending messages in queue", ["queue_name"]

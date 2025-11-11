@@ -9,7 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from crawler.api import router, router_v1
 from crawler.api.websocket import router as websocket_router
 from crawler.core import setup_logging
-from crawler.core.dependencies import connect_nats_queue, disconnect_nats_queue, get_app_settings
+from crawler.core.dependencies import (
+    connect_nats_queue,
+    disconnect_nats_queue,
+    get_app_settings,
+    initialize_browser_pool,
+    shutdown_browser_pool,
+)
 from crawler.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +31,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
     logger.info("application_startup", app_name=app.title, version=app.version)
 
+    # Initialize browser pool
+    try:
+        await initialize_browser_pool()
+        logger.info("browser_pool_initialized")
+    except Exception as e:
+        logger.error("browser_pool_initialization_failed_on_startup", error=str(e))
+        # Continue without browser pool - browser executor will fall back to per-request browsers
+
     # Connect to NATS queue
     try:
         await connect_nats_queue()
@@ -37,6 +51,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("application_shutdown")
+    try:
+        await shutdown_browser_pool()
+        logger.info("browser_pool_shutdown")
+    except Exception as e:
+        logger.error("browser_pool_shutdown_failed", error=str(e))
+
     try:
         await disconnect_nats_queue()
         logger.info("nats_queue_disconnected")

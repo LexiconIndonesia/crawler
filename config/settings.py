@@ -94,6 +94,28 @@ class Settings(BaseSettings):
     retry_delay: int = 5
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
+    # Browser Pool Settings
+    browser_pool_size: int = Field(
+        default=3,
+        description="Number of browser instances to maintain in the pool",
+    )
+    browser_max_contexts_per_browser: int = Field(
+        default=5,
+        description="Maximum number of contexts per browser instance",
+    )
+    browser_context_timeout: int = Field(
+        default=300,
+        description="Timeout in seconds for acquiring a browser context",
+    )
+    browser_health_check_interval: int = Field(
+        default=60,
+        description="Interval in seconds for browser health checks",
+    )
+    browser_default_type: Literal["chromium", "firefox", "webkit"] = Field(
+        default="chromium",
+        description="Default browser type for the pool",
+    )
+
     # Rate Limiting
     rate_limit_requests: int = 1000
     rate_limit_period: int = 60  # seconds

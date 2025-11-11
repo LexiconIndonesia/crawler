@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Settings, get_settings
 from crawler.cache.session import get_redis as _get_redis
 from crawler.db.session import get_db as _get_db
+from crawler.services.browser_pool import BrowserPool
 from crawler.services.cache import CacheService
 from crawler.services.log_publisher import LogPublisher
 from crawler.services.nats_queue import NATSQueueService
@@ -264,8 +265,43 @@ async def get_log_buffer(
     return LogBuffer(redis_client=redis_client, settings=settings)
 
 
+# Global browser pool instance (singleton pattern)
+_browser_pool: BrowserPool | None = None
+
 # Global NATS queue service instance (singleton pattern)
 _nats_queue_service: NATSQueueService | None = None
+
+
+async def get_browser_pool(
+    settings: SettingsDep,
+) -> BrowserPool:
+    """Get browser pool with singleton pattern.
+
+    The pool is created once and reused across requests.
+    Pool is initialized at app startup and closed at shutdown.
+
+    Args:
+        settings: Application settings from dependency
+
+    Returns:
+        BrowserPool instance
+
+    Usage:
+        async def my_route(browser_pool: BrowserPoolDep):
+            async with browser_pool.acquire_context() as context:
+                page = await context.new_page()
+    """
+    global _browser_pool
+
+    # Guard: return existing instance if available
+    if _browser_pool is not None:
+        return _browser_pool
+
+    # Create new instance
+    from crawler.services.browser_pool import BrowserPool
+
+    _browser_pool = BrowserPool(settings=settings)
+    return _browser_pool
 
 
 async def get_nats_queue_service(
@@ -327,6 +363,27 @@ async def get_log_publisher(
     return LogPublisher(nats_client=nats_client, log_buffer=log_buffer)
 
 
+async def initialize_browser_pool() -> None:
+    """Initialize browser pool at application startup.
+
+    Should be called in FastAPI lifespan startup.
+    """
+    settings = get_settings()
+    pool = await get_browser_pool(settings)
+    await pool.initialize()
+
+
+async def shutdown_browser_pool() -> None:
+    """Shutdown browser pool at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    global _browser_pool
+    if _browser_pool is not None:
+        await _browser_pool.shutdown()
+        _browser_pool = None
+
+
 async def connect_nats_queue() -> None:
     """Connect NATS queue service at application startup.
 
@@ -355,6 +412,7 @@ async def disconnect_nats_queue() -> None:
 # Service dependencies
 CacheServiceDep = Annotated[CacheService, Depends(get_cache_service)]
 StorageServiceDep = Annotated[StorageService, Depends(get_storage_service)]
+BrowserPoolDep = Annotated[BrowserPool, Depends(get_browser_pool)]
 NATSQueueDep = Annotated[NATSQueueService, Depends(get_nats_queue_service)]
 LogPublisherDep = Annotated[LogPublisher, Depends(get_log_publisher)]
 URLDedupCacheDep = Annotated[URLDeduplicationCache, Depends(get_url_dedup_cache)]
