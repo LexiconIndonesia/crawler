@@ -115,6 +115,14 @@ class Settings(BaseSettings):
         default="chromium",
         description="Default browser type for the pool",
     )
+    browser_max_recovery_attempts: int = Field(
+        default=3,
+        description="Maximum number of recovery attempts for a crashed browser",
+    )
+    browser_recovery_backoff_base: float = Field(
+        default=2.0,
+        description="Base multiplier for exponential backoff (seconds = base^attempt)",
+    )
 
     # Rate Limiting
     rate_limit_requests: int = 1000
