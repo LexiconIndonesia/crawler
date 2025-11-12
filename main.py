@@ -15,6 +15,8 @@ from crawler.core.dependencies import (
     get_app_settings,
     initialize_browser_pool,
     shutdown_browser_pool,
+    start_memory_monitor,
+    stop_memory_monitor,
 )
 from crawler.core.logging import get_logger
 
@@ -47,10 +49,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("nats_connection_failed_on_startup", error=str(e))
         # Continue without NATS - database polling can still work as fallback
 
+    # Start memory monitoring
+    try:
+        await start_memory_monitor()
+        logger.info("memory_monitor_started")
+    except Exception as e:
+        logger.error("memory_monitor_start_failed_on_startup", error=str(e))
+        # Continue without memory monitoring - app can still function
+
     yield
 
     # Shutdown
     logger.info("application_shutdown")
+
+    # Stop memory monitor first
+    try:
+        await stop_memory_monitor()
+        logger.info("memory_monitor_stopped")
+    except Exception as e:
+        logger.error("memory_monitor_stop_failed_on_shutdown", error=str(e))
+
     try:
         await shutdown_browser_pool()
         logger.info("browser_pool_shutdown")

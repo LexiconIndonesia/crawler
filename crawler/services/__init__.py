@@ -3,6 +3,8 @@
 from .cache import CacheService
 from .html_parser import HTMLParserService
 from .log_publisher import LogPublisher
+from .memory_monitor import MemoryLevel, MemoryMonitor, MemoryStatus
+from .memory_pressure_handler import MemoryPressureHandler, PressureAction, PressureState
 from .nats_queue import NATSQueueService
 from .pagination import PaginationService
 from .redis_cache import (
@@ -25,6 +27,12 @@ __all__ = [
     "CacheService",
     "HTMLParserService",
     "LogPublisher",
+    "MemoryMonitor",
+    "MemoryLevel",
+    "MemoryStatus",
+    "MemoryPressureHandler",
+    "PressureAction",
+    "PressureState",
     "NATSQueueService",
     "PaginationService",
     "URLDeduplicationCache",

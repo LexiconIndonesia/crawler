@@ -79,3 +79,20 @@ db_query_duration_seconds = Histogram(
 cache_hits_total = Counter("cache_hits_total", "Total cache hits", ["cache_type"])
 
 cache_misses_total = Counter("cache_misses_total", "Total cache misses", ["cache_type"])
+
+# Memory Metrics
+system_memory_usage_percent = Gauge("system_memory_usage_percent", "System memory usage percentage")
+
+system_memory_used_bytes = Gauge("system_memory_used_bytes", "System memory used in bytes")
+
+system_memory_available_bytes = Gauge(
+    "system_memory_available_bytes", "System memory available in bytes"
+)
+
+browser_memory_usage_bytes = Gauge(
+    "browser_memory_usage_bytes", "Browser process memory usage in bytes", ["browser_index"]
+)
+
+memory_alerts_total = Counter(
+    "memory_alerts_total", "Total memory alerts triggered", ["level", "type"]
+)
