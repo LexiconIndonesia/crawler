@@ -5,8 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from crawler.api.generated import SelectorConfig
-from crawler.api.generated.models import Type2
+from crawler.api.generated import SelectorConfig, SelectorTypeEnum
 from crawler.core.logging import get_logger
 from crawler.services.html_parser import HTMLParserService
 from crawler.services.redis_cache import URLDeduplicationCache
@@ -375,7 +374,7 @@ class URLExtractorService:
 
         # Create selector config with the data attribute
         config = SelectorConfig(
-            selector=element_selector, attribute=data_attribute, type=Type2.array
+            selector=element_selector, attribute=data_attribute, type=SelectorTypeEnum.array
         )
 
         # Use the main extract_urls method

@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from crawler.api.generated import CrawlStep, PaginationConfig
+from crawler.api.generated import CrawlStep, PaginationConfig, SelectorConfig
+from crawler.api.generated.models import SelectorValue
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import LogLevelEnum
 from crawler.services.html_parser import HTMLParserService
@@ -956,11 +957,17 @@ class SeedURLCrawler:
 
         selector = selectors_dict["detail_urls"]
 
+        # Handle SelectorValue (RootModel wrapping Union[str, SelectorConfig])
+        if isinstance(selector, SelectorValue):
+            unwrapped = selector.root
+        else:
+            unwrapped = selector
+
         # Return string selector or extract from selector config
-        if isinstance(selector, str):
-            return selector
-        elif hasattr(selector, "selector"):
-            return selector.selector
+        if isinstance(unwrapped, str):
+            return unwrapped
+        elif isinstance(unwrapped, SelectorConfig):
+            return unwrapped.selector
 
         # Invalid selector type - return None to trigger validation error
         # This prevents unsafe str() conversion that could produce meaningless
@@ -995,11 +1002,17 @@ class SeedURLCrawler:
 
         selector = selectors_dict["container"]
 
+        # Handle SelectorValue (RootModel wrapping Union[str, SelectorConfig])
+        if isinstance(selector, SelectorValue):
+            unwrapped = selector.root
+        else:
+            unwrapped = selector
+
         # Return string selector or extract from selector config
-        if isinstance(selector, str):
-            return selector
-        elif hasattr(selector, "selector"):
-            return selector.selector
+        if isinstance(unwrapped, str):
+            return unwrapped
+        elif isinstance(unwrapped, SelectorConfig):
+            return unwrapped.selector
 
         # Invalid selector type - return None
         # Container selector is optional, so returning None is acceptable

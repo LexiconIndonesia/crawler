@@ -298,29 +298,35 @@ class BrowserPool:
                 capacity_delta = previous_capacity - new_capacity
 
                 # Adjust semaphore to reflect reduced capacity
-                # We "consume" the delta permits by acquiring them without releasing
-                # Ensures semaphore never hands out more permits than browsers can serve
-                permits_consumed = 0
+                # Account for permits held by crashed browser's active contexts (orphaned permits)
+                # These permits were acquired but never released due to crash
+                orphan_permits = crashed_instance.active_contexts
+                permits_acquired = 0  # Permits we successfully acquire from unused capacity
+
                 if capacity_delta > 0:
-                    for _ in range(capacity_delta):
-                        # Try non-blocking acquire
-                        if self._context_semaphore.locked():
-                            # All permits already consumed
-                            break
+                    # Only try to acquire permits from unused slots (not held by orphaned contexts)
+                    permits_to_acquire = capacity_delta - orphan_permits
+
+                    for _ in range(permits_to_acquire):
                         try:
                             # Use asyncio.wait_for with 0 timeout for non-blocking behavior
                             await asyncio.wait_for(self._context_semaphore.acquire(), timeout=0.0)
-                            permits_consumed += 1
+                            permits_acquired += 1
                         except TimeoutError:
                             # No permits available, stop trying
                             break
+
+                    # Total permits removed = acquired permits + orphaned permits
+                    total_permits_removed = permits_acquired + orphan_permits
 
                     logger.info(
                         "browser_pool_capacity_reduced",
                         previous_capacity=previous_capacity,
                         new_capacity=new_capacity,
                         capacity_delta=capacity_delta,
-                        permits_consumed=permits_consumed,
+                        orphan_permits=orphan_permits,
+                        permits_acquired=permits_acquired,
+                        total_permits_removed=total_permits_removed,
                     )
 
                 # Update metrics

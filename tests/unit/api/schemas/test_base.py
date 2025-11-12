@@ -134,9 +134,10 @@ class TestCrawlStep:
             selectors=selectors,
         )
 
-        assert step.selectors["title"] == "h1.title"
-        # Generated model converts dict to SelectorConfig object
-        assert step.selectors["author"].selector == "span.author"
+        # SelectorValue wraps Union[str, SelectorConfig] - need to access .root
+        assert step.selectors["title"].root == "h1.title"
+        # Generated model converts dict to SelectorConfig object wrapped in SelectorValue
+        assert step.selectors["author"].root.selector == "span.author"
 
 
 class TestGlobalConfig:
