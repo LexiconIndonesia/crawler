@@ -479,7 +479,6 @@ class MemoryPressureHandler:
             for action in recent_actions
         ]
 
-    @property
     def is_jobs_paused(self) -> bool:
         """Check if job acceptance is currently paused.
 

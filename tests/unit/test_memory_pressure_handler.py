@@ -28,6 +28,7 @@ def mock_browser_pool() -> MagicMock:
     """Create a mock browser pool."""
     pool = MagicMock()
     pool._initialized = True
+    pool.is_initialized = MagicMock(return_value=True)
     pool._lock = AsyncMock()
     pool._lock.__aenter__ = AsyncMock()
     pool._lock.__aexit__ = AsyncMock()
@@ -506,10 +507,10 @@ class TestMemoryPressureHandler:
 
     def test_is_jobs_paused(self, pressure_handler: MemoryPressureHandler) -> None:
         """Test checking if jobs are paused."""
-        assert pressure_handler.is_jobs_paused is False
+        assert pressure_handler.is_jobs_paused() is False
 
         pressure_handler._jobs_paused = True
-        assert pressure_handler.is_jobs_paused is True
+        assert pressure_handler.is_jobs_paused() is True
 
     async def test_action_history_limit(
         self,
