@@ -233,6 +233,26 @@ class TestMemoryPressureHandler:
         assert pressure_handler._current_state == PressureState.NORMAL
         assert pressure_handler._jobs_paused is False
 
+    async def test_handle_memory_status_recovery_to_warning(
+        self,
+        pressure_handler: MemoryPressureHandler,
+        memory_status_danger: MemoryStatus,
+        memory_status_warning: MemoryStatus,
+    ) -> None:
+        """Test recovery from danger to warning state resumes jobs."""
+        # First transition to danger
+        await pressure_handler.handle_memory_status(memory_status_danger)
+        assert pressure_handler._jobs_paused is True
+
+        # Then recover to warning (not all the way to normal)
+        actions = await pressure_handler.handle_memory_status(memory_status_warning)
+
+        # Should resume jobs even though we're only at WARNING, not NORMAL
+        assert len(actions) == 1
+        assert actions[0].action == PressureAction.RESUME_JOBS
+        assert pressure_handler._current_state == PressureState.WARNING
+        assert pressure_handler._jobs_paused is False
+
     async def test_pause_jobs_success(self, pressure_handler: MemoryPressureHandler) -> None:
         """Test successfully pausing jobs."""
         response = await pressure_handler._pause_jobs()

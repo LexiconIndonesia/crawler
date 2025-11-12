@@ -200,8 +200,11 @@ class MemoryPressureHandler:
                 actions.append(await self._pause_jobs())
             actions.append(await self._close_idle_contexts())
 
-        elif new_state == PressureState.NORMAL and old_state != PressureState.WARNING:
-            # Below 70% - resume normal operations
+        elif new_state in (PressureState.WARNING, PressureState.NORMAL) and old_state in (
+            PressureState.CRITICAL,
+            PressureState.DANGER,
+        ):
+            # Recovering from critical/danger - resume operations
             if self._jobs_paused:
                 actions.append(await self._resume_jobs())
 
