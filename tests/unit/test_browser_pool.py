@@ -396,10 +396,11 @@ class TestBrowserPool:
 
         stats = pool.get_pool_stats()
 
-        assert stats["pool_size"] == 2
-        assert stats["total_browsers"] == 0
+        assert stats["pool_size"] == 2  # Configured pool size
+        assert stats["total_browsers"] == 0  # No browsers initialized yet
         assert stats["total_contexts"] == 0
-        assert stats["max_contexts"] == 6  # 2 browsers * 3 contexts
+        # max_contexts is based on actual browser count (0), not configured pool_size
+        assert stats["max_contexts"] == 0  # 0 browsers * 3 contexts
         assert stats["initialized"] is False
         assert stats["shutting_down"] is False
 

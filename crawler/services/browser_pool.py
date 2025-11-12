@@ -185,7 +185,8 @@ class BrowserPool:
             # Update metrics
             browser_pool_size.set(len(self._browsers))
             browser_pool_healthy.set(len(self._browsers))
-            browser_pool_contexts_available.set(self.pool_size * self.max_contexts_per_browser)
+            # Use actual browser count for consistency
+            browser_pool_contexts_available.set(len(self._browsers) * self.max_contexts_per_browser)
 
             logger.info("browser_pool_initialized", total_browsers=len(self._browsers))
 
@@ -274,6 +275,9 @@ class BrowserPool:
         # Guard: max recovery attempts exceeded - permanently remove
         if crashed_instance.recovery_attempts >= self.max_recovery_attempts:
             if crashed_instance in self._browsers:
+                # Calculate capacity before removal
+                previous_capacity = len(self._browsers) * self.max_contexts_per_browser
+
                 self._browsers.remove(crashed_instance)
                 logger.warning(
                     "browser_permanently_removed_max_attempts",
@@ -289,10 +293,45 @@ class BrowserPool:
                 except Exception as e:
                     logger.debug("crashed_browser_close_error", error=str(e))
 
+                # Recompute capacity after removal
+                new_capacity = len(self._browsers) * self.max_contexts_per_browser
+                capacity_delta = previous_capacity - new_capacity
+
+                # Adjust semaphore to reflect reduced capacity
+                # We "consume" the delta permits by acquiring them without releasing
+                # Ensures semaphore never hands out more permits than browsers can serve
+                permits_consumed = 0
+                if capacity_delta > 0:
+                    for _ in range(capacity_delta):
+                        # Try non-blocking acquire
+                        if self._context_semaphore.locked():
+                            # All permits already consumed
+                            break
+                        try:
+                            # Use asyncio.wait_for with 0 timeout for non-blocking behavior
+                            await asyncio.wait_for(self._context_semaphore.acquire(), timeout=0.0)
+                            permits_consumed += 1
+                        except TimeoutError:
+                            # No permits available, stop trying
+                            break
+
+                    logger.info(
+                        "browser_pool_capacity_reduced",
+                        previous_capacity=previous_capacity,
+                        new_capacity=new_capacity,
+                        capacity_delta=capacity_delta,
+                        permits_consumed=permits_consumed,
+                    )
+
                 # Update metrics
                 browser_pool_size.set(len(self._browsers))
                 healthy_count = sum(1 for b in self._browsers if b.is_healthy)
                 browser_pool_healthy.set(healthy_count)
+
+                # Update available contexts metric with new capacity
+                total_contexts = sum(b.active_contexts for b in self._browsers)
+                available_contexts = max(0, new_capacity - total_contexts)
+                browser_pool_contexts_available.set(available_contexts)
 
             msg = (
                 f"Browser permanently removed after {self.max_recovery_attempts} "
@@ -435,7 +474,8 @@ class BrowserPool:
 
         try:
             # Check if we need to queue (all contexts in use)
-            currently_available = self.pool_size * self.max_contexts_per_browser
+            # Use actual browser count, not initial pool_size (may have removed crashed browsers)
+            currently_available = len(self._browsers) * self.max_contexts_per_browser
             currently_in_use = sum(b.active_contexts for b in self._browsers)
             will_queue = currently_in_use >= currently_available
 
@@ -542,7 +582,9 @@ class BrowserPool:
                 context_created = True  # Set flag only after increment succeeds
                 total_contexts = sum(b.active_contexts for b in self._browsers)
                 browser_sessions_active.set(total_contexts)
-                available_contexts = self.pool_size * self.max_contexts_per_browser - total_contexts
+                # Use actual browser count, not initial pool_size
+                current_capacity = len(self._browsers) * self.max_contexts_per_browser
+                available_contexts = current_capacity - total_contexts
                 browser_pool_contexts_available.set(available_contexts)
 
             logger.debug(
@@ -574,8 +616,9 @@ class BrowserPool:
                     browser_instance.active_contexts -= 1
                     total_contexts = sum(b.active_contexts for b in self._browsers)
                     browser_sessions_active.set(total_contexts)
+                    # Use actual browser count, not initial pool_size
                     available_contexts = (
-                        self.pool_size * self.max_contexts_per_browser - total_contexts
+                        len(self._browsers) * self.max_contexts_per_browser - total_contexts
                     )
                     browser_pool_contexts_available.set(available_contexts)
 
@@ -935,11 +978,12 @@ class BrowserPool:
             }
         """
         total_contexts = sum(b.active_contexts for b in self._browsers)
-        max_contexts = self.pool_size * self.max_contexts_per_browser
+        # Use actual browser count for max_contexts (may differ from pool_size if browsers removed)
+        max_contexts = len(self._browsers) * self.max_contexts_per_browser
 
         return {
-            "pool_size": self.pool_size,
-            "total_browsers": len(self._browsers),
+            "pool_size": self.pool_size,  # Original configured size
+            "total_browsers": len(self._browsers),  # Actual current browser count
             "total_contexts": total_contexts,
             "max_contexts": max_contexts,
             "initialized": self._initialized,
