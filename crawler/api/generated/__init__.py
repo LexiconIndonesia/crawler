@@ -17,6 +17,7 @@ from .extended import (
 )
 from .models import (
     ActionConfig,
+    ActionTypeEnum,
     BackoffStrategy,
     BrowserTypeEnum,
     CancelJobRequest,
@@ -37,6 +38,7 @@ from .models import (
     MethodEnum,
     OutputConfig,
     PaginationConfig,
+    PaginationTypeEnum,
     RateLimitConfig,
     RollbackConfigRequest,
     RollbackConfigResponse,
@@ -44,13 +46,11 @@ from .models import (
     ScheduleTypeEnum,
     SeedJobResponse,
     SelectorConfig,
+    SelectorTypeEnum,
     Status,
     StatusEnum,
     StepTypeEnum,
     TimeoutConfig,
-    Type,
-    Type1,
-    Type2,
     UpdateWebsiteResponse,
     ValidationError,
     WaitUntil,
@@ -61,10 +61,10 @@ from .models import (
     WSTokenResponse,
 )
 
-# Re-export with better names for generic Type enums
-PaginationType = Type  # page_based, offset_based, cursor_based, next_button, url_pattern
-ActionType = Type1  # wait, click, fill, scroll, execute_script, hover
-SelectorType = Type2  # single, array
+# Aliases for convenience (shorter names)
+PaginationType = PaginationTypeEnum
+ActionType = ActionTypeEnum
+SelectorType = SelectorTypeEnum
 
 __all__ = [
     # Request/Response Models
@@ -113,18 +113,17 @@ __all__ = [
     "MethodEnum",
     "BrowserTypeEnum",
     "LogLevelEnum",
+    "PaginationTypeEnum",
+    "ActionTypeEnum",
+    "SelectorTypeEnum",
     "JobType",
     "BackoffStrategy",
     "HttpMethod",
     "WaitUntil",
     "Status",
     "Environment",
-    # Type aliases (better names for generic enums)
+    # Convenience aliases (shorter names)
     "PaginationType",
     "ActionType",
     "SelectorType",
-    # Original generic type names
-    "Type",
-    "Type1",
-    "Type2",
 ]

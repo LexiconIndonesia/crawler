@@ -1840,6 +1840,34 @@ components:
         - CRITICAL
       description: Log level for crawl logs
 
+    PaginationTypeEnum:
+      type: string
+      enum:
+        - page_based
+        - offset_based
+        - cursor_based
+        - next_button
+        - url_pattern
+      description: Pagination type
+
+    ActionTypeEnum:
+      type: string
+      enum:
+        - wait
+        - click
+        - fill
+        - scroll
+        - execute_script
+        - hover
+      description: Action type for browser automation
+
+    SelectorTypeEnum:
+      type: string
+      enum:
+        - single
+        - array
+      description: Type of selector result
+
     # ============================================================================
     # Configuration Schemas
     # ============================================================================
@@ -1981,9 +2009,7 @@ components:
           description: Enable pagination
           default: false
         type:
-          type: string
-          description: Pagination type
-          enum: [page_based, offset_based, cursor_based, next_button, url_pattern]
+          $ref: '#/components/schemas/PaginationTypeEnum'
           default: "page_based"
         page_param:
           type: string
@@ -2041,9 +2067,7 @@ components:
         - type
       properties:
         type:
-          type: string
-          description: Action type
-          enum: [wait, click, fill, scroll, execute_script, hover]
+          $ref: '#/components/schemas/ActionTypeEnum'
         selector:
           type: string
           description: Element selector
@@ -2143,10 +2167,15 @@ components:
           example: "text"
           nullable: true
         type:
-          type: string
-          description: Type of selector result
-          enum: [single, array]
+          $ref: '#/components/schemas/SelectorTypeEnum'
           default: "single"
+
+    SelectorValue:
+      oneOf:
+        - type: string
+          description: Simple CSS selector string
+        - $ref: '#/components/schemas/SelectorConfig'
+      description: Selector value can be either a simple string or a detailed selector configuration
 
     CrawlStep:
       type: object
@@ -2184,9 +2213,7 @@ components:
           type: object
           description: CSS/XPath selectors for data extraction
           additionalProperties:
-            oneOf:
-              - type: string
-              - $ref: '#/components/schemas/SelectorConfig'
+            $ref: '#/components/schemas/SelectorValue'
           example:
             title: "h1.title"
             content: ".article-body"
@@ -2323,7 +2350,7 @@ components:
           description: Updated list of crawl/scrape steps
           items:
             $ref: '#/components/schemas/CrawlStep'
-          minLength: 1
+          minItems: 1
           nullable: true
         variables:
           type: object
@@ -2354,21 +2381,24 @@ components:
     UpdateWebsiteResponse:
       allOf:
         - $ref: '#/components/schemas/WebsiteResponse'
-        - type: object
-          required:
-            - config_version
-          properties:
-            config_version:
-              type: integer
-              description: Current configuration version number after update
-              minimum: 1
-              example: 3
-            recrawl_job_id:
-              type: string
-              format: uuid
-              description: ID of the triggered crawl job (if trigger_recrawl was true)
-              nullable: true
-              example: "770e8400-e29b-41d4-a716-446655440000"
+        - $ref: '#/components/schemas/UpdateWebsiteResponseExtension'
+
+    UpdateWebsiteResponseExtension:
+      type: object
+      required:
+        - config_version
+      properties:
+        config_version:
+          type: integer
+          description: Current configuration version number after update
+          minimum: 1
+          example: 3
+        recrawl_job_id:
+          type: string
+          format: uuid
+          description: ID of the triggered crawl job (if trigger_recrawl was true)
+          nullable: true
+          example: "770e8400-e29b-41d4-a716-446655440000"
 
     WebsiteStatistics:
       type: object
@@ -2422,12 +2452,15 @@ components:
     WebsiteWithStatsResponse:
       allOf:
         - $ref: '#/components/schemas/WebsiteResponse'
-        - type: object
-          required:
-            - statistics
-          properties:
-            statistics:
-              $ref: '#/components/schemas/WebsiteStatistics'
+        - $ref: '#/components/schemas/WebsiteWithStatsResponseExtension'
+
+    WebsiteWithStatsResponseExtension:
+      type: object
+      required:
+        - statistics
+      properties:
+        statistics:
+          $ref: '#/components/schemas/WebsiteStatistics'
 
     WebsiteSummary:
       type: object

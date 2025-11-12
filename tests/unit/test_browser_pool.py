@@ -1,12 +1,13 @@
 """Unit tests for BrowserPool."""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from config import Settings
-from crawler.services.browser_pool import BrowserInstance, BrowserPool
+from crawler.services.browser_pool import BrowserCrashError, BrowserInstance, BrowserPool
 
 
 @pytest.fixture
@@ -308,9 +309,10 @@ class TestBrowserPool:
         mock_context = AsyncMock()
         browser_instance.browser.new_context = AsyncMock(return_value=mock_context)
 
-        is_healthy = await pool._check_browser_health(browser_instance)
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
 
         assert is_healthy is True
+        assert is_crashed is False
         mock_context.close.assert_called_once()
 
         # Clean up
@@ -325,9 +327,10 @@ class TestBrowserPool:
         browser_instance = pool._browsers[0]
         browser_instance.browser.is_connected = MagicMock(return_value=False)
 
-        is_healthy = await pool._check_browser_health(browser_instance)
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
 
         assert is_healthy is False
+        assert is_crashed is True
 
         # Clean up
         await pool.shutdown()
@@ -341,9 +344,10 @@ class TestBrowserPool:
         browser_instance = pool._browsers[0]
         browser_instance.browser.is_connected = MagicMock(side_effect=Exception("Connection error"))
 
-        is_healthy = await pool._check_browser_health(browser_instance)
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
 
         assert is_healthy is False
+        assert is_crashed is True
 
         # Clean up
         await pool.shutdown()
@@ -392,10 +396,11 @@ class TestBrowserPool:
 
         stats = pool.get_pool_stats()
 
-        assert stats["pool_size"] == 2
-        assert stats["total_browsers"] == 0
+        assert stats["pool_size"] == 2  # Configured pool size
+        assert stats["total_browsers"] == 0  # No browsers initialized yet
         assert stats["total_contexts"] == 0
-        assert stats["max_contexts"] == 6  # 2 browsers * 3 contexts
+        # max_contexts is based on actual browser count (0), not configured pool_size
+        assert stats["max_contexts"] == 0  # 0 browsers * 3 contexts
         assert stats["initialized"] is False
         assert stats["shutting_down"] is False
 
@@ -969,6 +974,462 @@ class TestBrowserContextCleanup:
 
         # Verify it didn't go negative
         assert pool._browsers[0].active_contexts >= 0
+
+        # Clean up
+        await pool.shutdown()
+
+
+class TestBrowserCrashDetection:
+    """Tests for browser crash detection and recovery."""
+
+    @pytest.mark.asyncio
+    async def test_check_browser_health_returns_crash_status_when_not_connected(
+        self, settings, mock_playwright
+    ):
+        """Test that health check returns crash status when browser is not connected."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        browser_instance = pool._browsers[0]
+        browser_instance.browser.is_connected = MagicMock(return_value=False)
+
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
+
+        assert is_healthy is False
+        assert is_crashed is True
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_browser_health_returns_crash_status_on_connection_error(
+        self, settings, mock_playwright
+    ):
+        """Test that health check detects crashes from connection errors."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        browser_instance = pool._browsers[0]
+        browser_instance.browser.is_connected = MagicMock(
+            side_effect=Exception("Connection closed unexpectedly")
+        )
+
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
+
+        assert is_healthy is False
+        assert is_crashed is True
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_browser_health_returns_no_crash_on_transient_error(
+        self, settings, mock_playwright
+    ):
+        """Test that health check doesn't flag transient errors as crashes."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        browser_instance = pool._browsers[0]
+        browser_instance.browser.is_connected = MagicMock(
+            side_effect=Exception("Timeout waiting for response")
+        )
+
+        is_healthy, is_crashed = await pool._check_browser_health(browser_instance)
+
+        assert is_healthy is False
+        assert is_crashed is False  # Not a crash, just a transient error
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_remove_and_replace_browser_success(self, settings, mock_playwright):
+        """Test successful browser crash recovery."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Get initial browser count
+        initial_count = len(pool._browsers)
+        crashed_instance = pool._browsers[0]
+
+        # Mock new browser for replacement
+        new_browser = AsyncMock()
+        new_browser.is_connected = MagicMock(return_value=True)
+        mock_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+
+        # Remove and replace crashed browser
+        async with pool._lock:
+            await pool._remove_and_replace_browser(crashed_instance)
+
+        # Verify browser was replaced
+        assert len(pool._browsers) == initial_count
+        assert crashed_instance not in pool._browsers
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_remove_and_replace_browser_failure(self, settings, mock_playwright):
+        """Test browser crash recovery failure."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Record initial state
+        initial_pool_size = len(pool._browsers)
+        crashed_instance = pool._browsers[0]
+        browser_index = 0
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # Attempt to replace crashed browser should raise BrowserCrashError
+        async with pool._lock:
+            with pytest.raises(BrowserCrashError, match="Failed to recover from browser crash"):
+                await pool._remove_and_replace_browser(crashed_instance)
+
+        # Verify pool size remains consistent (crashed instance restored)
+        assert len(pool._browsers) == initial_pool_size
+        # Verify crashed instance is marked unhealthy but still in pool
+        assert crashed_instance in pool._browsers
+        assert crashed_instance.is_healthy is False
+        # Verify it's at the original index
+        assert pool._browsers[browser_index] == crashed_instance
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_health_check_detects_and_recovers_from_crash(self, settings):
+        """Test that health check automatically recovers from browser crashes."""
+        with patch("crawler.services.browser_pool.async_playwright") as mock_pw:
+            playwright_instance = AsyncMock()
+            mock_pw.return_value.start = AsyncMock(return_value=playwright_instance)
+
+            # Create two distinct browser mocks
+            browser1 = AsyncMock()
+            browser2 = AsyncMock()
+
+            # Browser 1 will be healthy initially, then crash
+            browser1.is_connected = MagicMock(return_value=True)
+            browser1.new_context = AsyncMock()
+            browser1.close = AsyncMock()
+
+            # Browser 2 stays healthy
+            browser2.is_connected = MagicMock(return_value=True)
+            browser2.new_context = AsyncMock()
+            browser2.close = AsyncMock()
+
+            # Setup playwright to return different browsers
+            playwright_instance.chromium.launch = AsyncMock(side_effect=[browser1, browser2])
+            playwright_instance.stop = AsyncMock()
+
+            pool = BrowserPool(settings)
+            await pool.initialize()
+
+            # Now simulate browser1 crash - override its is_connected to return False
+            browser1.is_connected = MagicMock(return_value=False)
+
+            # Store reference to crashed browser
+            crashed_browser = pool._browsers[0]
+
+            # Mock replacement browser
+            replacement_browser = AsyncMock()
+            replacement_browser.is_connected = MagicMock(return_value=True)
+            replacement_browser.new_context = AsyncMock()
+            playwright_instance.chromium.launch = AsyncMock(return_value=replacement_browser)
+
+            # Run health check
+            result = await pool.health_check()
+
+            # Verify crashed browser was replaced
+            assert crashed_browser not in pool._browsers
+            assert len(pool._browsers) == 2
+            # One healthy browser (browser2) plus potentially the replacement
+            # (replacement health will be checked in next cycle)
+            assert result["healthy_browsers"] >= 1
+
+            # Clean up
+            await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_acquire_context_detects_crash_during_creation(self, settings, mock_playwright):
+        """Test that context acquisition detects browser crashes."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        crashed_browser = pool._browsers[0]
+
+        # Mock browser crash during context creation
+        crashed_browser.browser.new_context = AsyncMock(
+            side_effect=Exception("Browser connection closed")
+        )
+
+        # Mock successful browser launch for replacement
+        new_browser = AsyncMock()
+        new_browser.is_connected = MagicMock(return_value=True)
+        mock_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+
+        # Try to acquire context - should detect crash and attempt recovery
+        with pytest.raises(BrowserCrashError, match="Browser crashed during context creation"):
+            async with pool.acquire_context():
+                pass
+
+        # Verify crashed browser was replaced
+        assert crashed_browser not in pool._browsers
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_crash_metrics_incremented(self, settings, mock_playwright):
+        """Test that crash metrics are properly incremented."""
+        from crawler.core.metrics import browser_crash_recoveries_total, browser_crashes_total
+
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Record initial metric values
+        initial_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
+        initial_recoveries = browser_crash_recoveries_total._value._value
+
+        crashed_browser = pool._browsers[0]
+
+        # Mock successful browser launch for replacement
+        new_browser = AsyncMock()
+        new_browser.is_connected = MagicMock(return_value=True)
+        mock_playwright.chromium.launch = AsyncMock(return_value=new_browser)
+
+        # Trigger crash recovery
+        async with pool._lock:
+            await pool._remove_and_replace_browser(crashed_browser)
+
+        # Verify metrics were incremented
+        current_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
+        current_recoveries = browser_crash_recoveries_total._value._value
+
+        assert current_crashes == initial_crashes + 1
+        assert current_recoveries == initial_recoveries + 1
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_exponential_backoff_on_recovery_failure(self, settings, mock_playwright):
+        """Test that recovery uses exponential backoff after failures."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        crashed_instance = pool._browsers[0]
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # First attempt should succeed (no backoff yet)
+        async with pool._lock:
+            try:
+                await pool._remove_and_replace_browser(crashed_instance)
+            except BrowserCrashError:
+                pass
+
+        # Verify recovery attempt was recorded
+        assert crashed_instance.recovery_attempts == 1
+        assert crashed_instance.last_recovery_attempt is not None
+        assert crashed_instance.crash_timestamp is not None
+
+        # Second attempt should be blocked by backoff (2^1 = 2 seconds)
+        async with pool._lock:
+            with pytest.raises(BrowserCrashError, match="still in backoff period"):
+                await pool._remove_and_replace_browser(crashed_instance)
+
+        # Recovery attempts should not increment when blocked by backoff
+        assert crashed_instance.recovery_attempts == 1
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_max_recovery_attempts_permanently_removes_browser(
+        self, settings, mock_playwright
+    ):
+        """Test that browser is permanently removed after max recovery attempts."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        initial_pool_size = len(pool._browsers)
+        crashed_instance = pool._browsers[0]
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # Exhaust all recovery attempts (settings default is 3)
+        for i in range(settings.browser_max_recovery_attempts):
+            async with pool._lock:
+                try:
+                    await pool._remove_and_replace_browser(crashed_instance)
+                except BrowserCrashError:
+                    pass
+
+            # Manually advance time to bypass backoff for testing
+            if crashed_instance.last_recovery_attempt:
+                backoff = settings.browser_recovery_backoff_base ** (i + 1)
+                crashed_instance.last_recovery_attempt = datetime.now(UTC) - timedelta(
+                    seconds=backoff + 1
+                )
+
+        # Verify attempts were recorded
+        assert crashed_instance.recovery_attempts == settings.browser_max_recovery_attempts
+
+        # Next attempt should permanently remove the browser
+        async with pool._lock:
+            with pytest.raises(
+                BrowserCrashError, match="permanently removed after .* failed recovery attempts"
+            ):
+                await pool._remove_and_replace_browser(crashed_instance)
+
+        # Verify browser was removed from pool
+        assert len(pool._browsers) == initial_pool_size - 1
+        assert crashed_instance not in pool._browsers
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_crash_metric_incremented_only_once_per_instance(self, settings, mock_playwright):
+        """Test that crash metric is incremented only once per browser instance."""
+        from crawler.core.metrics import browser_crashes_total
+
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        crashed_instance = pool._browsers[0]
+
+        # Record initial metric value
+        initial_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # First recovery attempt - should increment crash metric
+        async with pool._lock:
+            try:
+                await pool._remove_and_replace_browser(crashed_instance)
+            except BrowserCrashError:
+                pass
+
+        current_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
+        assert current_crashes == initial_crashes + 1
+
+        # Bypass backoff for testing
+        if crashed_instance.last_recovery_attempt:
+            crashed_instance.last_recovery_attempt = datetime.now(UTC) - timedelta(seconds=100)
+
+        # Second recovery attempt - should NOT increment crash metric again
+        async with pool._lock:
+            try:
+                await pool._remove_and_replace_browser(crashed_instance)
+            except BrowserCrashError:
+                pass
+
+        final_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
+        assert final_crashes == current_crashes  # No increment on second attempt
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_health_check_respects_backoff_period(self, settings, mock_playwright):
+        """Test that health check skips browsers in backoff period."""
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Simulate browser crash
+        crashed_browser = pool._browsers[0]
+        crashed_browser.browser.is_connected = MagicMock(return_value=False)
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # Run health check - should attempt recovery
+        await pool.health_check()
+
+        # Verify recovery was attempted
+        assert crashed_browser.recovery_attempts == 1
+        assert crashed_browser.last_recovery_attempt is not None
+
+        # Run health check again immediately - should skip due to backoff
+        await pool.health_check()
+
+        # Verify recovery attempts did not increment (skipped due to backoff)
+        assert crashed_browser.recovery_attempts == 1
+
+        # Clean up
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_pool_remains_functional_after_failed_recovery(self, settings, mock_playwright):
+        """Test that pool remains functional after browser recovery fails.
+
+        This test verifies that when browser recovery fails, the crashed instance
+        is restored (marked unhealthy) to maintain pool size consistency with the
+        semaphore capacity. This prevents RuntimeError from subsequent acquisitions.
+        """
+        pool = BrowserPool(settings)
+        await pool.initialize()
+
+        # Verify initial state: 2 browsers, semaphore capacity = 6 (2 * 3)
+        assert len(pool._browsers) == 2
+        initial_semaphore_capacity = pool.pool_size * pool.max_contexts_per_browser
+        assert initial_semaphore_capacity == 6
+
+        # Simulate browser crash and failed recovery for browser[0]
+        crashed_instance = pool._browsers[0]
+        healthy_instance = pool._browsers[1]
+
+        # Mock launch failure
+        mock_playwright.chromium.launch = AsyncMock(
+            side_effect=Exception("Failed to launch browser")
+        )
+
+        # Trigger failed recovery
+        async with pool._lock:
+            try:
+                await pool._remove_and_replace_browser(crashed_instance)
+            except BrowserCrashError:
+                pass  # Expected
+
+        # Verify pool size is still 2 (crashed instance restored)
+        assert len(pool._browsers) == 2
+        assert crashed_instance in pool._browsers
+        assert crashed_instance.is_healthy is False
+
+        # Mock healthy browser to allow context creation
+        mock_context = AsyncMock()
+        mock_context.clear_cookies = AsyncMock()
+        mock_context.pages = []
+        mock_context.new_page = AsyncMock()
+        mock_context.close = AsyncMock()
+        healthy_instance.browser.new_context = AsyncMock(return_value=mock_context)
+
+        # Verify pool still works - can acquire contexts from healthy browser
+        # This would fail with RuntimeError if pool size was inconsistent
+        async with pool.acquire_context() as context:
+            assert context == mock_context
+            # Context is from healthy browser
+            assert healthy_instance.active_contexts == 1
+
+        # Verify active_contexts was properly decremented
+        assert healthy_instance.active_contexts == 0
 
         # Clean up
         await pool.shutdown()

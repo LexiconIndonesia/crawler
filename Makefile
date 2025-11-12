@@ -39,7 +39,7 @@ install-dev: ## Install development dependencies
 
 playwright: ## Install Playwright browsers
 	@echo "$(BLUE)🎭 Installing Playwright browsers...$(NC)"
-	$(PYTHON) -m playwright install chrome
+	$(PYTHON) -m playwright install chromium
 	@echo "$(GREEN)✅ Playwright browsers installed$(NC)"
 
 setup: ## Complete project setup (install deps + playwright + create .env)

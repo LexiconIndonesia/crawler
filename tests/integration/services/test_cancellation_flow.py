@@ -9,8 +9,14 @@ import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from config import get_settings
-from crawler.api.generated import CrawlStep, MethodEnum, PaginationConfig, StepConfig, StepTypeEnum
-from crawler.api.generated.models import Type as PaginationType
+from crawler.api.generated import (
+    CrawlStep,
+    MethodEnum,
+    PaginationConfig,
+    PaginationType,
+    StepConfig,
+    StepTypeEnum,
+)
 from crawler.db.repositories import CrawlJobRepository
 from crawler.services import (
     CleanupCoordinator,

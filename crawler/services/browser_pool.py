@@ -18,6 +18,8 @@ from playwright.async_api import Browser, BrowserContext, Playwright, async_play
 from config import Settings
 from crawler.core.logging import get_logger
 from crawler.core.metrics import (
+    browser_crash_recoveries_total,
+    browser_crashes_total,
     browser_pool_contexts_available,
     browser_pool_healthy,
     browser_pool_queue_size,
@@ -29,6 +31,22 @@ from crawler.core.metrics import (
 logger = get_logger(__name__)
 
 BrowserType = Literal["chromium", "firefox", "webkit"]
+
+__all__ = ["BrowserPool", "BrowserInstance", "BrowserCrashError", "BrowserType"]
+
+
+class BrowserCrashError(Exception):
+    """Raised when a browser crashes during operation."""
+
+    def __init__(self, message: str, browser_type: BrowserType):
+        """Initialize browser crash error.
+
+        Args:
+            message: Error message describing the crash
+            browser_type: Type of browser that crashed
+        """
+        super().__init__(message)
+        self.browser_type = browser_type
 
 
 @dataclass
@@ -42,6 +60,9 @@ class BrowserInstance:
     max_contexts: int = 5
     is_healthy: bool = True
     last_health_check: datetime | None = None
+    recovery_attempts: int = 0
+    last_recovery_attempt: datetime | None = None
+    crash_timestamp: datetime | None = None  # Track when browser first crashed
 
     def can_create_context(self) -> bool:
         """Check if browser can create a new context.
@@ -50,6 +71,26 @@ class BrowserInstance:
             True if browser has capacity for more contexts, False otherwise.
         """
         return self.is_healthy and self.active_contexts < self.max_contexts
+
+    def is_in_recovery_backoff(self, backoff_base: float, now: datetime) -> bool:
+        """Check if browser is in recovery backoff period.
+
+        Args:
+            backoff_base: Base multiplier for exponential backoff
+            now: Current timestamp
+
+        Returns:
+            True if still in backoff period, False if ready for retry
+        """
+        # Guard: never attempted recovery
+        if self.last_recovery_attempt is None:
+            return False
+
+        # Calculate backoff duration: base^attempt seconds
+        backoff_seconds = backoff_base**self.recovery_attempts
+        next_attempt_time = self.last_recovery_attempt.timestamp() + backoff_seconds
+
+        return now.timestamp() < next_attempt_time
 
 
 class BrowserPool:
@@ -83,6 +124,8 @@ class BrowserPool:
         self.context_timeout = settings.browser_context_timeout
         self.health_check_interval = settings.browser_health_check_interval
         self.default_browser_type = settings.browser_default_type
+        self.max_recovery_attempts = settings.browser_max_recovery_attempts
+        self.recovery_backoff_base = settings.browser_recovery_backoff_base
 
         # Pool state
         self._playwright: Playwright | None = None
@@ -142,7 +185,8 @@ class BrowserPool:
             # Update metrics
             browser_pool_size.set(len(self._browsers))
             browser_pool_healthy.set(len(self._browsers))
-            browser_pool_contexts_available.set(self.pool_size * self.max_contexts_per_browser)
+            # Use actual browser count for consistency
+            browser_pool_contexts_available.set(len(self._browsers) * self.max_contexts_per_browser)
 
             logger.info("browser_pool_initialized", total_browsers=len(self._browsers))
 
@@ -192,6 +236,211 @@ class BrowserPool:
             logger.error("browser_launch_error", browser_type=browser_type, error=str(e))
             raise RuntimeError(f"Failed to launch {browser_type} browser: {e}") from e
 
+    async def _remove_and_replace_browser(self, crashed_instance: BrowserInstance) -> None:
+        """Remove a crashed browser and replace it with a new one.
+
+        This method implements exponential backoff and max retry limits:
+        1. Logs the crash event (increments crash metric only on first crash)
+        2. Checks if max recovery attempts exceeded
+        3. Checks if still in backoff period
+        4. Removes the crashed browser from the pool
+        5. Attempts to close the crashed browser (best effort)
+        6. Launches a new browser to replace it
+        7. On success: resets recovery tracking
+        8. On failure: increments attempts, updates backoff, restores instance
+
+        Args:
+            crashed_instance: The browser instance that crashed
+
+        Note:
+            This method should be called while holding the _lock to ensure thread safety.
+        """
+        browser_index = (
+            self._browsers.index(crashed_instance) if crashed_instance in self._browsers else -1
+        )
+        browser_type = crashed_instance.browser_type
+        now = datetime.now(UTC)
+
+        # Track first crash for this instance (increment metric only once per crash)
+        if crashed_instance.crash_timestamp is None:
+            crashed_instance.crash_timestamp = now
+            browser_crashes_total.labels(browser_type=browser_type).inc()
+            logger.error(
+                "browser_crashed_detected",
+                browser_index=browser_index,
+                browser_type=browser_type,
+                active_contexts=crashed_instance.active_contexts,
+            )
+
+        # Guard: max recovery attempts exceeded - permanently remove
+        if crashed_instance.recovery_attempts >= self.max_recovery_attempts:
+            if crashed_instance in self._browsers:
+                # Calculate capacity before removal
+                previous_capacity = len(self._browsers) * self.max_contexts_per_browser
+
+                self._browsers.remove(crashed_instance)
+                logger.warning(
+                    "browser_permanently_removed_max_attempts",
+                    browser_index=browser_index,
+                    browser_type=browser_type,
+                    recovery_attempts=crashed_instance.recovery_attempts,
+                    max_attempts=self.max_recovery_attempts,
+                )
+
+                # Try to close the crashed browser (best effort)
+                try:
+                    await crashed_instance.browser.close()
+                except Exception as e:
+                    logger.debug("crashed_browser_close_error", error=str(e))
+
+                # Recompute capacity after removal
+                new_capacity = len(self._browsers) * self.max_contexts_per_browser
+                capacity_delta = previous_capacity - new_capacity
+
+                # Adjust semaphore to reflect reduced capacity
+                # Account for permits held by crashed browser's active contexts (orphaned permits)
+                # These permits were acquired but never released due to crash
+                orphan_permits = crashed_instance.active_contexts
+                permits_acquired = 0  # Permits we successfully acquire from unused capacity
+
+                if capacity_delta > 0:
+                    # Only try to acquire permits from unused slots (not held by orphaned contexts)
+                    permits_to_acquire = capacity_delta - orphan_permits
+
+                    for _ in range(permits_to_acquire):
+                        try:
+                            # Use asyncio.wait_for with 0 timeout for non-blocking behavior
+                            await asyncio.wait_for(self._context_semaphore.acquire(), timeout=0.0)
+                            permits_acquired += 1
+                        except TimeoutError:
+                            # No permits available, stop trying
+                            break
+
+                    # Total permits removed = acquired permits + orphaned permits
+                    total_permits_removed = permits_acquired + orphan_permits
+
+                    logger.info(
+                        "browser_pool_capacity_reduced",
+                        previous_capacity=previous_capacity,
+                        new_capacity=new_capacity,
+                        capacity_delta=capacity_delta,
+                        orphan_permits=orphan_permits,
+                        permits_acquired=permits_acquired,
+                        total_permits_removed=total_permits_removed,
+                    )
+
+                # Update metrics
+                browser_pool_size.set(len(self._browsers))
+                healthy_count = sum(1 for b in self._browsers if b.is_healthy)
+                browser_pool_healthy.set(healthy_count)
+
+                # Update available contexts metric with new capacity
+                total_contexts = sum(b.active_contexts for b in self._browsers)
+                available_contexts = max(0, new_capacity - total_contexts)
+                browser_pool_contexts_available.set(available_contexts)
+
+            msg = (
+                f"Browser permanently removed after {self.max_recovery_attempts} "
+                "failed recovery attempts"
+            )
+            raise BrowserCrashError(msg, browser_type=browser_type)
+
+        # Guard: still in backoff period - skip recovery
+        if crashed_instance.is_in_recovery_backoff(self.recovery_backoff_base, now):
+            backoff_seconds = self.recovery_backoff_base**crashed_instance.recovery_attempts
+            next_attempt = (
+                crashed_instance.last_recovery_attempt.timestamp() + backoff_seconds
+                if crashed_instance.last_recovery_attempt
+                else now.timestamp()
+            )
+            logger.debug(
+                "browser_recovery_skipped_backoff",
+                browser_index=browser_index,
+                browser_type=browser_type,
+                recovery_attempts=crashed_instance.recovery_attempts,
+                next_attempt_in_seconds=next_attempt - now.timestamp(),
+            )
+            raise BrowserCrashError(
+                "Browser recovery skipped - still in backoff period",
+                browser_type=browser_type,
+            )
+
+        # Remove crashed browser from pool for replacement attempt
+        if crashed_instance in self._browsers:
+            self._browsers.remove(crashed_instance)
+            logger.info(
+                "crashed_browser_removed_for_recovery",
+                browser_index=browser_index,
+                remaining_browsers=len(self._browsers),
+                recovery_attempt=crashed_instance.recovery_attempts + 1,
+            )
+
+        # Try to close the crashed browser (best effort)
+        try:
+            await crashed_instance.browser.close()
+        except Exception as e:
+            logger.debug("crashed_browser_close_error", error=str(e))
+
+        # Increment recovery attempts and update timestamp
+        crashed_instance.recovery_attempts += 1
+        crashed_instance.last_recovery_attempt = now
+
+        # Launch replacement browser
+        try:
+            new_browser = await self._launch_browser(browser_type)
+            new_instance = BrowserInstance(
+                browser=new_browser,
+                browser_type=browser_type,
+                created_at=now,
+                max_contexts=self.max_contexts_per_browser,
+            )
+            self._browsers.append(new_instance)
+
+            # Increment recovery metric
+            browser_crash_recoveries_total.inc()
+
+            logger.info(
+                "browser_crash_recovery_successful",
+                browser_type=browser_type,
+                new_browser_index=len(self._browsers) - 1,
+                recovery_attempt=crashed_instance.recovery_attempts,
+            )
+
+            # Update metrics
+            browser_pool_size.set(len(self._browsers))
+            healthy_count = sum(1 for b in self._browsers if b.is_healthy)
+            browser_pool_healthy.set(healthy_count)
+
+        except Exception as e:
+            backoff_seconds = self.recovery_backoff_base**crashed_instance.recovery_attempts
+            logger.error(
+                "browser_crash_recovery_failed",
+                browser_type=browser_type,
+                error=str(e),
+                recovery_attempt=crashed_instance.recovery_attempts,
+                next_retry_in_seconds=backoff_seconds,
+            )
+
+            # Restore crashed instance so pool size & semaphore stay consistent
+            if crashed_instance not in self._browsers:
+                crashed_instance.is_healthy = False
+                if 0 <= browser_index <= len(self._browsers):
+                    self._browsers.insert(browser_index, crashed_instance)
+                else:
+                    self._browsers.append(crashed_instance)
+
+            browser_pool_size.set(len(self._browsers))
+            healthy_count = sum(1 for b in self._browsers if b.is_healthy)
+            browser_pool_healthy.set(healthy_count)
+
+            # Re-raise as BrowserCrashError to signal pool degradation
+            msg = (
+                f"Failed to recover from browser crash "
+                f"(attempt {crashed_instance.recovery_attempts}/"
+                f"{self.max_recovery_attempts}): {e}"
+            )
+            raise BrowserCrashError(msg, browser_type=browser_type) from e
+
     @asynccontextmanager
     async def acquire_context(self, timeout: float | None = None) -> AsyncIterator[BrowserContext]:
         """Acquire a browser context from the pool.
@@ -231,7 +480,8 @@ class BrowserPool:
 
         try:
             # Check if we need to queue (all contexts in use)
-            currently_available = self.pool_size * self.max_contexts_per_browser
+            # Use actual browser count, not initial pool_size (may have removed crashed browsers)
+            currently_available = len(self._browsers) * self.max_contexts_per_browser
             currently_in_use = sum(b.active_contexts for b in self._browsers)
             will_queue = currently_in_use >= currently_available
 
@@ -240,7 +490,6 @@ class BrowserPool:
                 browser_pool_queue_size.inc()
                 logger.info(
                     "context_request_queued",
-                    queue_position=self._context_semaphore._value,
                     timeout=timeout,
                 )
 
@@ -276,8 +525,60 @@ class BrowserPool:
             if browser_instance is None:
                 raise RuntimeError("No healthy browser instances available")
 
-            # Create context
-            context = await browser_instance.browser.new_context()
+            # Create context - handle potential browser crash during creation
+            try:
+                context = await browser_instance.browser.new_context()
+            except Exception as e:
+                # Check if this is a browser crash
+                # First check browser connection status (most reliable)
+                is_crash = False
+                try:
+                    if not browser_instance.browser.is_connected():
+                        is_crash = True
+                except Exception:
+                    pass  # If we can't check, fall back to keyword matching
+
+                # Fall back to keyword matching if connection check didn't detect crash
+                if not is_crash:
+                    error_msg = str(e).lower()
+                    crash_keywords = [
+                        "connection",
+                        "closed",
+                        "disconnected",
+                        "target closed",
+                        "browser closed",
+                    ]
+                    is_crash = any(keyword in error_msg for keyword in crash_keywords)
+
+                if is_crash:
+                    browser_idx = (
+                        self._browsers.index(browser_instance)
+                        if browser_instance in self._browsers
+                        else None
+                    )
+                    logger.error(
+                        "browser_crash_during_context_creation",
+                        browser_index=browser_idx,
+                        error=str(e),
+                    )
+
+                    # Mark browser as unhealthy and attempt recovery
+                    async with self._lock:
+                        browser_instance.is_healthy = False
+                        try:
+                            await self._remove_and_replace_browser(browser_instance)
+                        except BrowserCrashError:
+                            # Recovery failed - semaphore will be released in finally block
+                            pass
+
+                    # Re-raise as BrowserCrashError
+                    raise BrowserCrashError(
+                        "Browser crashed during context creation",
+                        browser_type=browser_instance.browser_type,
+                    ) from e
+                else:
+                    # Not a crash, just a transient error
+                    raise
 
             # Mark context as successfully created and update metrics
             # IMPORTANT: Only update counters AFTER context creation succeeds
@@ -286,7 +587,10 @@ class BrowserPool:
                 context_created = True  # Set flag only after increment succeeds
                 total_contexts = sum(b.active_contexts for b in self._browsers)
                 browser_sessions_active.set(total_contexts)
-                available_contexts = self.pool_size * self.max_contexts_per_browser - total_contexts
+                # Use actual browser count, not initial pool_size
+                current_capacity = len(self._browsers) * self.max_contexts_per_browser
+                # Clamp to non-negative (can temporarily go negative under degradation)
+                available_contexts = max(0, current_capacity - total_contexts)
                 browser_pool_contexts_available.set(available_contexts)
 
             logger.debug(
@@ -318,18 +622,27 @@ class BrowserPool:
                     browser_instance.active_contexts -= 1
                     total_contexts = sum(b.active_contexts for b in self._browsers)
                     browser_sessions_active.set(total_contexts)
-                    available_contexts = (
-                        self.pool_size * self.max_contexts_per_browser - total_contexts
-                    )
+                    # Use actual browser count, not initial pool_size
+                    # Clamp to non-negative (can temporarily go negative under degradation)
+                    current_capacity = len(self._browsers) * self.max_contexts_per_browser
+                    available_contexts = max(0, current_capacity - total_contexts)
                     browser_pool_contexts_available.set(available_contexts)
 
             # Release semaphore only if it was acquired
             if semaphore_acquired:
                 self._context_semaphore.release()
 
+            # Calculate browser_index safely (instance may have been removed due to crash)
+            browser_index: int | None = None
+            if browser_instance:
+                try:
+                    browser_index = self._browsers.index(browser_instance)
+                except ValueError:
+                    browser_index = None  # Browser was removed (e.g., crash recovery)
+
             logger.debug(
                 "context_released",
-                browser_index=self._browsers.index(browser_instance) if browser_instance else None,
+                browser_index=browser_index,
             )
 
     async def _cleanup_context(self, context: BrowserContext) -> None:
@@ -450,31 +763,64 @@ class BrowserPool:
         # Step 2: Check health WITHOUT holding lock (parallel async operations)
         health_results = []
         for i, browser_instance in browser_snapshot:
-            is_healthy = await self._check_browser_health(browser_instance)
-            health_results.append((i, browser_instance, is_healthy))
+            is_healthy, is_crashed = await self._check_browser_health(browser_instance)
+            health_results.append((i, browser_instance, is_healthy, is_crashed))
 
-        # Step 3: Update shared state while holding lock
+        # Step 3: Update shared state and handle crashes while holding lock
         healthy_count = 0
         browser_statuses = []
+        crashed_browsers = []
 
         async with self._lock:
             now = datetime.now(UTC)
-            for i, browser_instance, is_healthy in health_results:
+            for i, browser_instance, is_healthy, is_crashed in health_results:
                 # Update health status
                 browser_instance.is_healthy = is_healthy
                 browser_instance.last_health_check = now
 
                 if is_healthy:
                     healthy_count += 1
+                elif is_crashed:
+                    # Mark for crash recovery
+                    crashed_browsers.append(browser_instance)
 
                 browser_statuses.append(
                     {
                         "index": i,
                         "healthy": is_healthy,
+                        "crashed": is_crashed,
                         "contexts": browser_instance.active_contexts,
                         "browser_type": browser_instance.browser_type,
                     }
                 )
+
+            # Handle crashed browsers - remove and replace (respecting backoff)
+            for crashed_instance in crashed_browsers:
+                # Skip if in backoff period
+                if crashed_instance.is_in_recovery_backoff(self.recovery_backoff_base, now):
+                    backoff_seconds = self.recovery_backoff_base**crashed_instance.recovery_attempts
+                    next_attempt = (
+                        crashed_instance.last_recovery_attempt.timestamp() + backoff_seconds
+                        if crashed_instance.last_recovery_attempt
+                        else now.timestamp()
+                    )
+                    logger.debug(
+                        "crash_recovery_skipped_in_backoff",
+                        browser_type=crashed_instance.browser_type,
+                        recovery_attempts=crashed_instance.recovery_attempts,
+                        next_attempt_in_seconds=next_attempt - now.timestamp(),
+                    )
+                    continue
+
+                try:
+                    await self._remove_and_replace_browser(crashed_instance)
+                except BrowserCrashError as e:
+                    logger.debug(
+                        "crash_recovery_failed_during_health_check",
+                        error=str(e),
+                        browser_type=e.browser_type,
+                    )
+                    # Continue with other browsers even if one recovery fails
 
             # Recalculate aggregate metrics while holding lock
             total_contexts = sum(b.active_contexts for b in self._browsers)
@@ -499,29 +845,53 @@ class BrowserPool:
 
         return result
 
-    async def _check_browser_health(self, browser_instance: BrowserInstance) -> bool:
+    async def _check_browser_health(self, browser_instance: BrowserInstance) -> tuple[bool, bool]:
         """Check if a browser instance is healthy.
 
         Args:
             browser_instance: Browser instance to check.
 
         Returns:
-            True if browser is healthy, False otherwise.
+            Tuple of (is_healthy, is_crashed):
+            - is_healthy: True if browser is healthy, False otherwise
+            - is_crashed: True if browser has crashed and needs replacement, False otherwise
         """
         try:
             # Try to check if browser is connected
             if not browser_instance.browser.is_connected():
                 logger.warning("browser_not_connected")
-                return False
+                # Browser disconnection is a sign of crash
+                return (False, True)
 
             # Try to create and close a test context
             test_context = await browser_instance.browser.new_context()
             await test_context.close()
-            return True
+            return (True, False)
 
         except Exception as e:
             logger.warning("browser_health_check_failed", error=str(e))
-            return False
+            # Determine if this is a crash or transient error
+            # First check browser connection status (most reliable)
+            is_crash = False
+            try:
+                if not browser_instance.browser.is_connected():
+                    is_crash = True
+            except Exception:
+                pass  # If we can't check, fall back to keyword matching
+
+            # Fall back to keyword matching if connection check didn't detect crash
+            if not is_crash:
+                error_msg = str(e).lower()
+                crash_keywords = [
+                    "connection",
+                    "closed",
+                    "disconnected",
+                    "target closed",
+                    "browser closed",
+                ]
+                is_crash = any(keyword in error_msg for keyword in crash_keywords)
+
+            return (False, is_crash)
 
     async def _health_check_loop(self) -> None:
         """Background task that runs periodic health checks."""
@@ -614,11 +984,12 @@ class BrowserPool:
             }
         """
         total_contexts = sum(b.active_contexts for b in self._browsers)
-        max_contexts = self.pool_size * self.max_contexts_per_browser
+        # Use actual browser count for max_contexts (may differ from pool_size if browsers removed)
+        max_contexts = len(self._browsers) * self.max_contexts_per_browser
 
         return {
-            "pool_size": self.pool_size,
-            "total_browsers": len(self._browsers),
+            "pool_size": self.pool_size,  # Original configured size
+            "total_browsers": len(self._browsers),  # Actual current browser count
             "total_contexts": total_contexts,
             "max_contexts": max_contexts,
             "initialized": self._initialized,

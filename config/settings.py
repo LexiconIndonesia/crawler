@@ -115,6 +115,14 @@ class Settings(BaseSettings):
         default="chromium",
         description="Default browser type for the pool",
     )
+    browser_max_recovery_attempts: int = Field(
+        default=3,
+        description="Maximum number of recovery attempts for a crashed browser",
+    )
+    browser_recovery_backoff_base: float = Field(
+        default=2.0,
+        description="Base multiplier for exponential backoff (seconds = base^attempt)",
+    )
 
     # Rate Limiting
     rate_limit_requests: int = 1000
@@ -128,6 +136,24 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "json"
     log_file: str = "logs/crawler.log"
+
+    @field_validator("browser_max_recovery_attempts")
+    @classmethod
+    def validate_max_recovery_attempts(cls, v: int) -> int:
+        """Validate max recovery attempts is positive."""
+        if v < 1:
+            raise ValueError("browser_max_recovery_attempts must be at least 1")
+        return v
+
+    @field_validator("browser_recovery_backoff_base")
+    @classmethod
+    def validate_recovery_backoff_base(cls, v: float) -> float:
+        """Validate backoff base is greater than 1."""
+        if v <= 1.0:
+            raise ValueError(
+                "browser_recovery_backoff_base must be greater than 1.0 for exponential backoff"
+            )
+        return v
 
     @field_validator("log_level")
     @classmethod

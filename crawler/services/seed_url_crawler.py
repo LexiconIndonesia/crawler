@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from crawler.api.generated import CrawlStep, PaginationConfig
+from crawler.api.generated import CrawlStep, PaginationConfig, SelectorConfig
+from crawler.api.generated.models import SelectorValue
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import LogLevelEnum
 from crawler.services.html_parser import HTMLParserService
@@ -930,6 +931,21 @@ class SeedURLCrawler:
 
         return None
 
+    def _unwrap_selector_value(
+        self, selector: SelectorValue | str | SelectorConfig
+    ) -> str | SelectorConfig:
+        """Unwrap SelectorValue to its underlying type.
+
+        Args:
+            selector: Raw selector value (SelectorValue, str, or SelectorConfig)
+
+        Returns:
+            Unwrapped value (str or SelectorConfig)
+        """
+        if isinstance(selector, SelectorValue):
+            return selector.root
+        return selector
+
     def _get_detail_url_selector(self, step: CrawlStep) -> str | None:
         """Extract detail URL selector from step configuration.
 
@@ -956,11 +972,14 @@ class SeedURLCrawler:
 
         selector = selectors_dict["detail_urls"]
 
+        # Unwrap SelectorValue if needed
+        unwrapped = self._unwrap_selector_value(selector)
+
         # Return string selector or extract from selector config
-        if isinstance(selector, str):
-            return selector
-        elif hasattr(selector, "selector"):
-            return selector.selector
+        if isinstance(unwrapped, str):
+            return unwrapped
+        elif isinstance(unwrapped, SelectorConfig):
+            return unwrapped.selector
 
         # Invalid selector type - return None to trigger validation error
         # This prevents unsafe str() conversion that could produce meaningless
@@ -995,11 +1014,14 @@ class SeedURLCrawler:
 
         selector = selectors_dict["container"]
 
+        # Unwrap SelectorValue if needed
+        unwrapped = self._unwrap_selector_value(selector)
+
         # Return string selector or extract from selector config
-        if isinstance(selector, str):
-            return selector
-        elif hasattr(selector, "selector"):
-            return selector.selector
+        if isinstance(unwrapped, str):
+            return unwrapped
+        elif isinstance(unwrapped, SelectorConfig):
+            return unwrapped.selector
 
         # Invalid selector type - return None
         # Container selector is optional, so returning None is acceptable
