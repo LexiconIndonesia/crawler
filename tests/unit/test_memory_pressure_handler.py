@@ -19,6 +19,7 @@ def mock_memory_monitor() -> MagicMock:
     """Create a mock memory monitor."""
     monitor = MagicMock()
     monitor._last_level = MemoryLevel.HEALTHY
+    monitor.get_current_level.return_value = MemoryLevel.HEALTHY
     return monitor
 
 
