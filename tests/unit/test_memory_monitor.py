@@ -293,8 +293,10 @@ class TestMemoryMonitor:
         mock_browser_instance = MagicMock()
         mock_browser_instance.browser = mock_browser
 
-        # Setup browser pool with one browser
-        memory_monitor.browser_pool._browsers = [mock_browser_instance]
+        # Mock browser pool public API
+        memory_monitor.browser_pool.get_browser_snapshot = AsyncMock(
+            return_value=[(0, mock_browser_instance)]
+        )
 
         # Mock PID extraction
         with patch.object(memory_monitor, "_get_browser_pid", return_value=12345):
@@ -325,7 +327,11 @@ class TestMemoryMonitor:
 
         # Mock browser instance
         mock_browser_instance = MagicMock()
-        memory_monitor.browser_pool._browsers = [mock_browser_instance]
+
+        # Mock browser pool public API
+        memory_monitor.browser_pool.get_browser_snapshot = AsyncMock(
+            return_value=[(0, mock_browser_instance)]
+        )
 
         # Mock PID extraction to return None
         with patch.object(memory_monitor, "_get_browser_pid", return_value=None):
@@ -349,7 +355,11 @@ class TestMemoryMonitor:
 
         # Mock browser instance
         mock_browser_instance = MagicMock()
-        memory_monitor.browser_pool._browsers = [mock_browser_instance]
+
+        # Mock browser pool public API
+        memory_monitor.browser_pool.get_browser_snapshot = AsyncMock(
+            return_value=[(0, mock_browser_instance)]
+        )
 
         # Mock PID extraction
         with patch.object(memory_monitor, "_get_browser_pid", return_value=12345):
@@ -365,7 +375,7 @@ class TestMemoryMonitor:
         self, memory_monitor: MemoryMonitor
     ) -> None:
         """Test checking browser memory when pool not initialized."""
-        memory_monitor.browser_pool._initialized = False
+        memory_monitor.browser_pool.is_initialized = Mock(return_value=False)
 
         browser_memory = await memory_monitor._check_browser_memory()
 

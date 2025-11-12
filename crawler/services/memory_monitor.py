@@ -226,14 +226,13 @@ class MemoryMonitor:
             Dict mapping browser index to memory usage in bytes
         """
         # Guard: browser pool not initialized
-        if self.browser_pool is None or not self.browser_pool._initialized:
+        if self.browser_pool is None or not self.browser_pool.is_initialized():
             return {}
 
         browser_memory: dict[int, int] = {}
 
         # Get browser instances (snapshot to avoid holding lock during psutil calls)
-        async with self.browser_pool._lock:
-            browser_snapshot = [(i, b) for i, b in enumerate(self.browser_pool._browsers)]
+        browser_snapshot = await self.browser_pool.get_browser_snapshot()
 
         # Check memory for each browser
         for browser_index, browser_instance in browser_snapshot:
@@ -338,6 +337,14 @@ class MemoryMonitor:
             type=alert_type,
             previous_level=self._last_level.value,
         )
+
+    def get_current_level(self) -> MemoryLevel:
+        """Get current memory level.
+
+        Returns:
+            Current memory level (HEALTHY, WARNING, CRITICAL, or DANGER)
+        """
+        return self._last_level
 
     def get_status(self) -> dict[str, Any]:
         """Get current monitor status.

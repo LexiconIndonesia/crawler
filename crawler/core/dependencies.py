@@ -21,6 +21,7 @@ from crawler.services.browser_pool import BrowserPool
 from crawler.services.cache import CacheService
 from crawler.services.log_publisher import LogPublisher
 from crawler.services.memory_monitor import MemoryMonitor
+from crawler.services.memory_pressure_handler import MemoryPressureHandler
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import (
     BrowserPoolStatus,
@@ -275,6 +276,9 @@ _nats_queue_service: NATSQueueService | None = None
 # Global memory monitor instance (singleton pattern)
 _memory_monitor: MemoryMonitor | None = None
 
+# Global memory pressure handler instance (singleton pattern)
+_memory_pressure_handler: MemoryPressureHandler | None = None
+
 
 async def get_browser_pool(
     settings: SettingsDep,
@@ -427,7 +431,7 @@ async def get_memory_monitor(
         async def my_route(memory_monitor: MemoryMonitorDep):
             status = await memory_monitor.check_memory()
     """
-    global _memory_monitor
+    global _memory_monitor, _memory_pressure_handler
 
     # Guard: return existing instance if available
     if _memory_monitor is not None:
@@ -439,11 +443,83 @@ async def get_memory_monitor(
     # Get browser pool if available
     browser_pool = await get_browser_pool(settings) if _browser_pool is not None else None
 
+    # Create monitor first (without handler)
     _memory_monitor = MemoryMonitor(
         browser_pool=browser_pool,
         check_interval=30.0,  # Check every 30 seconds
     )
+
+    # Now create pressure handler with all dependencies
+    try:
+        # Get database connection for pressure handler
+        db_connection = None
+        async for session in get_database():
+            db_connection = await session.connection()
+            break
+
+        # Get Redis client for cancellation flag
+        redis_client = None
+        async for client in get_redis_client():
+            redis_client = client
+            break
+
+        # Get cancellation flag (need to call the service factory directly)
+        cancellation_flag = None
+        if redis_client is not None:
+            cancellation_flag = await get_job_cancellation_flag(redis_client, settings)
+
+        # Create pressure handler
+        _memory_pressure_handler = MemoryPressureHandler(
+            memory_monitor=_memory_monitor,
+            browser_pool=browser_pool,
+            db_connection=db_connection,
+            cancellation_flag=cancellation_flag,
+        )
+
+        # Inject handler into monitor
+        _memory_monitor.pressure_handler = _memory_pressure_handler
+
+    except Exception as e:
+        # Log error but continue without pressure handler
+        from crawler.core.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.warning("failed_to_create_pressure_handler", error=str(e))
+
     return _memory_monitor
+
+
+async def get_memory_pressure_handler(
+    settings: SettingsDep,
+) -> MemoryPressureHandler | None:
+    """Get memory pressure handler with singleton pattern.
+
+    The handler is created once and reused across requests.
+    Handler is created automatically with the memory monitor.
+
+    Args:
+        settings: Application settings from dependency
+
+    Returns:
+        MemoryPressureHandler instance or None if not initialized
+
+    Usage:
+        async def my_route(pressure_handler: MemoryPressureHandlerDep):
+            if pressure_handler:
+                status = await pressure_handler.handle_memory_status(...)
+    """
+    global _memory_pressure_handler, _memory_monitor
+
+    # Guard: return existing instance if available
+    if _memory_pressure_handler is not None:
+        return _memory_pressure_handler
+
+    # Guard: ensure monitor is created first (which creates the handler)
+    if _memory_monitor is None:
+        # Trigger monitor creation, which will also create the handler
+        await get_memory_monitor(settings)
+
+    return _memory_pressure_handler
 
 
 async def start_memory_monitor() -> None:
@@ -461,10 +537,12 @@ async def stop_memory_monitor() -> None:
 
     Should be called in FastAPI lifespan shutdown.
     """
-    global _memory_monitor
+    global _memory_monitor, _memory_pressure_handler
     if _memory_monitor is not None:
         await _memory_monitor.stop()
         _memory_monitor = None
+    # Also clear pressure handler singleton
+    _memory_pressure_handler = None
 
 
 # ============================================================================
@@ -478,6 +556,9 @@ BrowserPoolDep = Annotated[BrowserPool, Depends(get_browser_pool)]
 NATSQueueDep = Annotated[NATSQueueService, Depends(get_nats_queue_service)]
 LogPublisherDep = Annotated[LogPublisher, Depends(get_log_publisher)]
 MemoryMonitorDep = Annotated[MemoryMonitor, Depends(get_memory_monitor)]
+MemoryPressureHandlerDep = Annotated[
+    MemoryPressureHandler | None, Depends(get_memory_pressure_handler)
+]
 URLDedupCacheDep = Annotated[URLDeduplicationCache, Depends(get_url_dedup_cache)]
 JobCancellationFlagDep = Annotated[JobCancellationFlag, Depends(get_job_cancellation_flag)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]

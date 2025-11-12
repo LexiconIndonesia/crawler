@@ -224,7 +224,7 @@ class MemoryPressureHandler:
 
         logger.warning(
             "memory_pressure_jobs_paused",
-            memory_percent=self.memory_monitor._last_level.value,
+            memory_percent=self.memory_monitor.get_current_level().value,
         )
 
         return PressureResponse(
@@ -253,7 +253,7 @@ class MemoryPressureHandler:
 
         logger.info(
             "memory_pressure_jobs_resumed",
-            memory_percent=self.memory_monitor._last_level.value,
+            memory_percent=self.memory_monitor.get_current_level().value,
         )
 
         return PressureResponse(
@@ -266,11 +266,13 @@ class MemoryPressureHandler:
     async def _close_idle_contexts(self) -> PressureResponse:
         """Close idle browser contexts to free memory.
 
+        Closes contexts that have been idle for longer than min_idle_time_seconds.
+
         Returns:
             Response with number of contexts closed
         """
         # Guard: no browser pool
-        if self.browser_pool is None or not self.browser_pool._initialized:
+        if self.browser_pool is None or not self.browser_pool.is_initialized():
             return PressureResponse(
                 action=PressureAction.CLOSE_IDLE_CONTEXTS,
                 success=False,
@@ -278,22 +280,33 @@ class MemoryPressureHandler:
                 timestamp=datetime.now(UTC),
             )
 
-        closed_count = 0
+        try:
+            # Close idle contexts using BrowserPool public API
+            closed_count = await self.browser_pool.close_idle_contexts(
+                min_idle_seconds=self.min_idle_time_seconds
+            )
 
-        # Currently browser pool doesn't track idle contexts
-        # This would require extending BrowserInstance to track last_used_at
-        # For now, we log the intent and return success
-        logger.info(
-            "memory_pressure_idle_contexts_check",
-            min_idle_seconds=self.min_idle_time_seconds,
-        )
+            logger.info(
+                "memory_pressure_idle_contexts_closed",
+                closed_count=closed_count,
+                min_idle_seconds=self.min_idle_time_seconds,
+            )
 
-        return PressureResponse(
-            action=PressureAction.CLOSE_IDLE_CONTEXTS,
-            success=True,
-            details={"contexts_closed": closed_count},
-            timestamp=datetime.now(UTC),
-        )
+            return PressureResponse(
+                action=PressureAction.CLOSE_IDLE_CONTEXTS,
+                success=True,
+                details={"contexts_closed": closed_count},
+                timestamp=datetime.now(UTC),
+            )
+
+        except Exception as e:
+            logger.error("memory_pressure_close_idle_contexts_error", error=str(e))
+            return PressureResponse(
+                action=PressureAction.CLOSE_IDLE_CONTEXTS,
+                success=False,
+                details={"reason": f"error: {e}"},
+                timestamp=datetime.now(UTC),
+            )
 
     async def _cancel_low_priority_jobs(self) -> PressureResponse:
         """Cancel lowest priority active jobs to free resources.
@@ -330,7 +343,7 @@ class MemoryPressureHandler:
             for job in low_priority_jobs[:3]:
                 try:
                     # Set cancellation flag in Redis
-                    reason = f"Memory pressure: {self.memory_monitor._last_level.value}"
+                    reason = f"Memory pressure: {self.memory_monitor.get_current_level().value}"
                     await self.cancellation_flag.set_cancellation(str(job.id), reason=reason)
 
                     # Cancel job in database
@@ -346,7 +359,7 @@ class MemoryPressureHandler:
                         "memory_pressure_job_cancelled",
                         job_id=str(job.id),
                         priority=job.priority,
-                        memory_percent=self.memory_monitor._last_level.value,
+                        memory_percent=self.memory_monitor.get_current_level().value,
                     )
 
                 except Exception as e:
@@ -383,7 +396,7 @@ class MemoryPressureHandler:
             Response with number of browsers restarted
         """
         # Guard: no browser pool
-        if self.browser_pool is None or not self.browser_pool._initialized:
+        if self.browser_pool is None or not self.browser_pool.is_initialized():
             return PressureResponse(
                 action=PressureAction.RESTART_BROWSERS,
                 success=False,
@@ -392,55 +405,14 @@ class MemoryPressureHandler:
             )
 
         try:
-            restarted_count = 0
+            # Restart up to 2 idle browsers using BrowserPool public API
+            restarted_count = await self.browser_pool.restart_idle_browsers(max_count=2)
 
-            # Get browsers with lowest context count (least active)
-            async with self.browser_pool._lock:
-                # Sort browsers by active context count (ascending)
-                sorted_browsers = sorted(
-                    self.browser_pool._browsers,
-                    key=lambda b: b.active_contexts,
-                )
-
-                # Restart up to 2 least active browsers
-                for browser_instance in sorted_browsers[:2]:
-                    # Guard: skip if browser has active contexts
-                    if browser_instance.active_contexts > 0:
-                        logger.debug(
-                            "memory_pressure_browser_skip_active_contexts",
-                            active_contexts=browser_instance.active_contexts,
-                        )
-                        continue
-
-                    try:
-                        # Close old browser
-                        await browser_instance.browser.close()
-
-                        # Launch new browser
-                        new_browser = await self.browser_pool._launch_browser(
-                            browser_instance.browser_type
-                        )
-                        browser_instance.browser = new_browser
-                        browser_instance.created_at = datetime.now(UTC)
-                        browser_instance.is_healthy = True
-                        browser_instance.recovery_attempts = 0
-                        browser_instance.crash_timestamp = None
-
-                        restarted_count += 1
-
-                        logger.info(
-                            "memory_pressure_browser_restarted",
-                            browser_type=browser_instance.browser_type,
-                            memory_percent=self.memory_monitor._last_level.value,
-                        )
-
-                    except Exception as e:
-                        logger.error(
-                            "memory_pressure_browser_restart_failed",
-                            browser_type=browser_instance.browser_type,
-                            error=str(e),
-                        )
-                        continue
+            logger.info(
+                "memory_pressure_browsers_restarted",
+                restarted_count=restarted_count,
+                memory_percent=self.memory_monitor.get_current_level().value,
+            )
 
             return PressureResponse(
                 action=PressureAction.RESTART_BROWSERS,

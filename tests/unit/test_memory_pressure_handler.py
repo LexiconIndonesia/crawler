@@ -289,14 +289,20 @@ class TestMemoryPressureHandler:
         assert response.details["reason"] == "browser_pool_unavailable"
 
     async def test_close_idle_contexts_success(
-        self, pressure_handler: MemoryPressureHandler
+        self, pressure_handler: MemoryPressureHandler, mock_browser_pool: MagicMock
     ) -> None:
         """Test closing idle contexts successfully."""
+        # Mock the public close_idle_contexts method
+        mock_browser_pool.close_idle_contexts = AsyncMock(return_value=3)
+
         response = await pressure_handler._close_idle_contexts()
 
         assert response.action == PressureAction.CLOSE_IDLE_CONTEXTS
         assert response.success is True
-        assert "contexts_closed" in response.details
+        assert response.details["contexts_closed"] == 3
+        mock_browser_pool.close_idle_contexts.assert_called_once_with(
+            min_idle_seconds=pressure_handler.min_idle_time_seconds
+        )
 
     async def test_cancel_low_priority_jobs_no_db(self, mock_memory_monitor: MagicMock) -> None:
         """Test cancelling jobs with no database connection."""
@@ -356,42 +362,29 @@ class TestMemoryPressureHandler:
         self, pressure_handler: MemoryPressureHandler, mock_browser_pool: MagicMock
     ) -> None:
         """Test successfully restarting browsers."""
-        # Setup mock browser instances with no active contexts
-        mock_browser1 = MagicMock()
-        mock_browser1.active_contexts = 0
-        mock_browser1.browser_type = "chromium"
-        mock_browser1.browser.close = AsyncMock()
-
-        mock_browser2 = MagicMock()
-        mock_browser2.active_contexts = 0
-        mock_browser2.browser_type = "firefox"
-        mock_browser2.browser.close = AsyncMock()
-
-        mock_browser_pool._browsers = [mock_browser1, mock_browser2]
-        mock_browser_pool._launch_browser.return_value = MagicMock()
+        # Mock the public restart_idle_browsers method
+        mock_browser_pool.restart_idle_browsers = AsyncMock(return_value=2)
 
         response = await pressure_handler._restart_browsers()
 
         assert response.action == PressureAction.RESTART_BROWSERS
         assert response.success is True
         assert response.details["browsers_restarted"] == 2
+        mock_browser_pool.restart_idle_browsers.assert_called_once_with(max_count=2)
 
     async def test_restart_browsers_skip_active(
         self, pressure_handler: MemoryPressureHandler, mock_browser_pool: MagicMock
     ) -> None:
         """Test that browsers with active contexts are skipped."""
-        # Setup mock browser with active contexts
-        mock_browser = MagicMock()
-        mock_browser.active_contexts = 2  # Has active contexts
-        mock_browser.browser_type = "chromium"
-
-        mock_browser_pool._browsers = [mock_browser]
+        # Mock the public restart_idle_browsers method returning 0 (none restarted)
+        mock_browser_pool.restart_idle_browsers = AsyncMock(return_value=0)
 
         response = await pressure_handler._restart_browsers()
 
         assert response.action == PressureAction.RESTART_BROWSERS
         assert response.success is True
         assert response.details["browsers_restarted"] == 0  # None restarted
+        mock_browser_pool.restart_idle_browsers.assert_called_once_with(max_count=2)
 
     def test_get_status(self, pressure_handler: MemoryPressureHandler) -> None:
         """Test getting handler status."""
