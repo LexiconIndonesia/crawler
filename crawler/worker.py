@@ -12,6 +12,7 @@ This worker:
 import asyncio
 import json
 import signal
+from contextlib import aclosing
 from typing import Any
 
 from nats.js.api import AckPolicy, ConsumerConfig
@@ -356,12 +357,10 @@ class CrawlJobWorker:
                 return await self._process_job_with_connection(job_id, job_data, conn)
             else:
                 # Production mode - get connection from pool
-                async for db_session in get_db():
+                async with aclosing(get_db()) as db_iter:
+                    db_session = await db_iter.__anext__()
                     conn = await db_session.connection()
                     return await self._process_job_with_connection(job_id, job_data, conn)
-                # Edge case: no database session available
-                logger.error("no_database_session_available", job_id=job_id)
-                return False
 
         except Exception as e:
             logger.error("job_processing_failed", job_id=job_id, error=str(e), exc_info=True)

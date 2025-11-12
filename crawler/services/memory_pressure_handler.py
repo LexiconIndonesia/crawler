@@ -11,6 +11,7 @@ Monitors memory usage and takes action to reduce resource consumption:
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -73,12 +74,18 @@ class MemoryPressureHandler:
     - Restarting browsers to reclaim memory
     - Resuming normal operation below 70%
 
+    Note:
+        Database and Redis connections are acquired on-demand via get_db() and
+        get_redis() when needed, rather than being held persistently. This avoids
+        resource leaks and connection pool exhaustion.
+
     Usage:
         handler = MemoryPressureHandler(
             memory_monitor=monitor,
+            settings=settings,
             browser_pool=pool,
-            db_connection=conn,
-            cancellation_flag=flag
+            min_idle_time_seconds=60.0,
+            low_priority_threshold=3
         )
         await handler.handle_memory_status(status)
     """
@@ -325,7 +332,8 @@ class MemoryPressureHandler:
             cancelled_count = 0
 
             # Acquire database session on-demand
-            async for db_session in get_db():
+            async with aclosing(get_db()) as db_iter:
+                db_session = await db_iter.__anext__()
                 db_connection = await db_session.connection()
 
                 # Get pending jobs
@@ -342,7 +350,8 @@ class MemoryPressureHandler:
                 low_priority_jobs.sort(key=lambda j: j.priority)
 
                 # Acquire Redis client on-demand for cancellation flags
-                async for redis_client in get_redis():
+                async with aclosing(get_redis()) as redis_iter:
+                    redis_client = await redis_iter.__anext__()
                     cancellation_flag = JobCancellationFlag(
                         redis_client=redis_client, settings=self.settings
                     )
@@ -378,12 +387,6 @@ class MemoryPressureHandler:
                                 error=str(e),
                             )
                             continue
-
-                    # Break inner loop after processing
-                    break
-
-                # Break outer loop after processing
-                break
 
             return PressureResponse(
                 action=PressureAction.CANCEL_LOW_PRIORITY_JOBS,
