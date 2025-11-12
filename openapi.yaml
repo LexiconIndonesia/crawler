@@ -2350,7 +2350,7 @@ components:
           description: Updated list of crawl/scrape steps
           items:
             $ref: '#/components/schemas/CrawlStep'
-          minLength: 1
+          minItems: 1
           nullable: true
         variables:
           type: object

@@ -931,6 +931,21 @@ class SeedURLCrawler:
 
         return None
 
+    def _unwrap_selector_value(
+        self, selector: SelectorValue | str | SelectorConfig
+    ) -> str | SelectorConfig:
+        """Unwrap SelectorValue to its underlying type.
+
+        Args:
+            selector: Raw selector value (SelectorValue, str, or SelectorConfig)
+
+        Returns:
+            Unwrapped value (str or SelectorConfig)
+        """
+        if isinstance(selector, SelectorValue):
+            return selector.root
+        return selector
+
     def _get_detail_url_selector(self, step: CrawlStep) -> str | None:
         """Extract detail URL selector from step configuration.
 
@@ -957,11 +972,8 @@ class SeedURLCrawler:
 
         selector = selectors_dict["detail_urls"]
 
-        # Handle SelectorValue (RootModel wrapping Union[str, SelectorConfig])
-        if isinstance(selector, SelectorValue):
-            unwrapped = selector.root
-        else:
-            unwrapped = selector
+        # Unwrap SelectorValue if needed
+        unwrapped = self._unwrap_selector_value(selector)
 
         # Return string selector or extract from selector config
         if isinstance(unwrapped, str):
@@ -1002,11 +1014,8 @@ class SeedURLCrawler:
 
         selector = selectors_dict["container"]
 
-        # Handle SelectorValue (RootModel wrapping Union[str, SelectorConfig])
-        if isinstance(selector, SelectorValue):
-            unwrapped = selector.root
-        else:
-            unwrapped = selector
+        # Unwrap SelectorValue if needed
+        unwrapped = self._unwrap_selector_value(selector)
 
         # Return string selector or extract from selector config
         if isinstance(unwrapped, str):

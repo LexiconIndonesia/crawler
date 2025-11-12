@@ -490,7 +490,6 @@ class BrowserPool:
                 browser_pool_queue_size.inc()
                 logger.info(
                     "context_request_queued",
-                    queue_position=self._context_semaphore._value,
                     timeout=timeout,
                 )
 
@@ -569,7 +568,7 @@ class BrowserPool:
                         try:
                             await self._remove_and_replace_browser(browser_instance)
                         except BrowserCrashError:
-                            # Recovery failed, but we already released the semaphore
+                            # Recovery failed - semaphore will be released in finally block
                             pass
 
                     # Re-raise as BrowserCrashError
@@ -590,7 +589,8 @@ class BrowserPool:
                 browser_sessions_active.set(total_contexts)
                 # Use actual browser count, not initial pool_size
                 current_capacity = len(self._browsers) * self.max_contexts_per_browser
-                available_contexts = current_capacity - total_contexts
+                # Clamp to non-negative (can temporarily go negative under degradation)
+                available_contexts = max(0, current_capacity - total_contexts)
                 browser_pool_contexts_available.set(available_contexts)
 
             logger.debug(
@@ -623,9 +623,9 @@ class BrowserPool:
                     total_contexts = sum(b.active_contexts for b in self._browsers)
                     browser_sessions_active.set(total_contexts)
                     # Use actual browser count, not initial pool_size
-                    available_contexts = (
-                        len(self._browsers) * self.max_contexts_per_browser - total_contexts
-                    )
+                    # Clamp to non-negative (can temporarily go negative under degradation)
+                    current_capacity = len(self._browsers) * self.max_contexts_per_browser
+                    available_contexts = max(0, current_capacity - total_contexts)
                     browser_pool_contexts_available.set(available_contexts)
 
             # Release semaphore only if it was acquired
