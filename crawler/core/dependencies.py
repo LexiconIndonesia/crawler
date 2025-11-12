@@ -449,31 +449,14 @@ async def get_memory_monitor(
         check_interval=30.0,  # Check every 30 seconds
     )
 
-    # Now create pressure handler with all dependencies
+    # Create pressure handler without holding persistent connections
     try:
-        # Get database connection for pressure handler
-        db_connection = None
-        async for session in get_database():
-            db_connection = await session.connection()
-            break
-
-        # Get Redis client for cancellation flag
-        redis_client = None
-        async for client in get_redis_client():
-            redis_client = client
-            break
-
-        # Get cancellation flag (need to call the service factory directly)
-        cancellation_flag = None
-        if redis_client is not None:
-            cancellation_flag = await get_job_cancellation_flag(redis_client, settings)
-
-        # Create pressure handler
+        # Pressure handler should acquire connections as needed rather than holding them
+        # This avoids resource leaks and connection pool exhaustion
         _memory_pressure_handler = MemoryPressureHandler(
             memory_monitor=_memory_monitor,
             browser_pool=browser_pool,
-            db_connection=db_connection,
-            cancellation_flag=cancellation_flag,
+            settings=settings,  # Pass settings to create connections on-demand
         )
 
         # Inject handler into monitor

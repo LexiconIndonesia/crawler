@@ -16,21 +16,22 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncConnection
-
+from config import Settings
+from crawler.cache.session import get_redis
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import StatusEnum
 from crawler.db.repositories import CrawlJobRepository
+from crawler.db.session import get_db
 from crawler.services.memory_monitor import MemoryLevel
+from crawler.services.redis_cache import JobCancellationFlag
 
 if TYPE_CHECKING:
     from crawler.services.browser_pool import BrowserPool
     from crawler.services.memory_monitor import MemoryMonitor, MemoryStatus
-    from crawler.services.redis_cache import JobCancellationFlag
 
 logger = get_logger(__name__)
 
-__all__ = ["MemoryPressureHandler", "PressureState", "PressureAction"]
+__all__ = ["MemoryPressureHandler", "PressureState", "PressureAction", "PressureResponse"]
 
 
 class PressureState(str, Enum):
@@ -85,9 +86,8 @@ class MemoryPressureHandler:
     def __init__(
         self,
         memory_monitor: MemoryMonitor,
+        settings: Settings,
         browser_pool: BrowserPool | None = None,
-        db_connection: AsyncConnection | None = None,
-        cancellation_flag: JobCancellationFlag | None = None,
         min_idle_time_seconds: float = 60.0,
         low_priority_threshold: int = 3,
     ):
@@ -95,16 +95,18 @@ class MemoryPressureHandler:
 
         Args:
             memory_monitor: Memory monitor to observe memory status
+            settings: Application settings for creating connections on-demand
             browser_pool: Optional browser pool for cleanup actions
-            db_connection: Optional database connection for job cancellation
-            cancellation_flag: Optional flag service for job cancellation
             min_idle_time_seconds: Minimum idle time before closing context (default: 60s)
             low_priority_threshold: Priority threshold for low-priority jobs (default: <=3)
+
+        Note:
+            Database and Redis connections are acquired on-demand rather than held
+            persistently to avoid resource leaks and connection pool exhaustion.
         """
         self.memory_monitor = memory_monitor
+        self.settings = settings
         self.browser_pool = browser_pool
-        self.db_connection = db_connection
-        self.cancellation_flag = cancellation_flag
         self.min_idle_time_seconds = min_idle_time_seconds
         self.low_priority_threshold = low_priority_threshold
 
@@ -311,64 +313,74 @@ class MemoryPressureHandler:
     async def _cancel_low_priority_jobs(self) -> PressureResponse:
         """Cancel lowest priority active jobs to free resources.
 
+        Acquires database and Redis connections on-demand for the operation.
+
         Returns:
             Response with number of jobs cancelled
         """
-        # Guard: no database connection or cancellation flag
-        if self.db_connection is None or self.cancellation_flag is None:
-            return PressureResponse(
-                action=PressureAction.CANCEL_LOW_PRIORITY_JOBS,
-                success=False,
-                details={"reason": "db_or_flag_unavailable"},
-                timestamp=datetime.now(UTC),
-            )
-
         try:
-            # Get pending jobs (we'll filter by priority)
-            # Note: Repository doesn't have get_jobs_by_status, so we use get_pending
-            # In real implementation, we might need to add this method or use a query
-            job_repo = CrawlJobRepository(self.db_connection)
-            pending_jobs = await job_repo.get_pending(limit=100)
-
-            # Filter by priority threshold and sort by priority (ascending = lower priority first)
-            low_priority_jobs = [
-                job
-                for job in pending_jobs
-                if job.priority <= self.low_priority_threshold and job.status == StatusEnum.PENDING
-            ]
-            low_priority_jobs.sort(key=lambda j: j.priority)
-
             cancelled_count = 0
-            # Cancel up to 3 lowest priority jobs
-            for job in low_priority_jobs[:3]:
-                try:
-                    # Set cancellation flag in Redis
-                    reason = f"Memory pressure: {self.memory_monitor.get_current_level().value}"
-                    await self.cancellation_flag.set_cancellation(str(job.id), reason=reason)
 
-                    # Cancel job in database
-                    await job_repo.cancel(
-                        job_id=str(job.id),
-                        cancelled_by="memory_pressure_handler",
-                        reason=reason,
+            # Acquire database session on-demand
+            async for db_session in get_db():
+                db_connection = await db_session.connection()
+
+                # Get pending jobs
+                job_repo = CrawlJobRepository(db_connection)
+                pending_jobs = await job_repo.get_pending(limit=100)
+
+                # Filter by priority threshold and sort by priority (lower first)
+                low_priority_jobs = [
+                    job
+                    for job in pending_jobs
+                    if job.priority <= self.low_priority_threshold
+                    and job.status == StatusEnum.PENDING
+                ]
+                low_priority_jobs.sort(key=lambda j: j.priority)
+
+                # Acquire Redis client on-demand for cancellation flags
+                async for redis_client in get_redis():
+                    cancellation_flag = JobCancellationFlag(
+                        redis_client=redis_client, settings=self.settings
                     )
 
-                    cancelled_count += 1
+                    # Cancel up to 3 lowest priority jobs
+                    for job in low_priority_jobs[:3]:
+                        try:
+                            # Set cancellation flag in Redis
+                            memory_level = self.memory_monitor.get_current_level().value
+                            reason = f"Memory pressure: {memory_level}"
+                            await cancellation_flag.set_cancellation(str(job.id), reason=reason)
 
-                    logger.warning(
-                        "memory_pressure_job_cancelled",
-                        job_id=str(job.id),
-                        priority=job.priority,
-                        memory_percent=self.memory_monitor.get_current_level().value,
-                    )
+                            # Cancel job in database
+                            await job_repo.cancel(
+                                job_id=str(job.id),
+                                cancelled_by="memory_pressure_handler",
+                                reason=reason,
+                            )
 
-                except Exception as e:
-                    logger.error(
-                        "memory_pressure_job_cancel_failed",
-                        job_id=str(job.id),
-                        error=str(e),
-                    )
-                    continue
+                            cancelled_count += 1
+
+                            logger.warning(
+                                "memory_pressure_job_cancelled",
+                                job_id=str(job.id),
+                                priority=job.priority,
+                                memory_percent=self.memory_monitor.get_current_level().value,
+                            )
+
+                        except Exception as e:
+                            logger.error(
+                                "memory_pressure_job_cancel_failed",
+                                job_id=str(job.id),
+                                error=str(e),
+                            )
+                            continue
+
+                    # Break inner loop after processing
+                    break
+
+                # Break outer loop after processing
+                break
 
             return PressureResponse(
                 action=PressureAction.CANCEL_LOW_PRIORITY_JOBS,

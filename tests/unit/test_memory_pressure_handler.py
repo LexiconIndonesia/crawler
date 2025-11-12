@@ -36,17 +36,12 @@ def mock_browser_pool() -> MagicMock:
 
 
 @pytest.fixture
-def mock_db_connection() -> MagicMock:
-    """Create a mock database connection."""
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_cancellation_flag() -> MagicMock:
-    """Create a mock cancellation flag service."""
-    flag = MagicMock()
-    flag.set_cancellation = AsyncMock()
-    return flag
+def mock_settings() -> MagicMock:
+    """Create a mock settings instance."""
+    settings = MagicMock()
+    settings.redis_url = "redis://localhost:6379"
+    settings.database_url = "postgresql://localhost/test"
+    return settings
 
 
 @pytest.fixture
@@ -105,15 +100,13 @@ def memory_status_danger() -> MemoryStatus:
 def pressure_handler(
     mock_memory_monitor: MagicMock,
     mock_browser_pool: MagicMock,
-    mock_db_connection: MagicMock,
-    mock_cancellation_flag: MagicMock,
+    mock_settings: MagicMock,
 ) -> MemoryPressureHandler:
     """Create a pressure handler with all dependencies."""
     return MemoryPressureHandler(
         memory_monitor=mock_memory_monitor,
         browser_pool=mock_browser_pool,
-        db_connection=mock_db_connection,
-        cancellation_flag=mock_cancellation_flag,
+        settings=mock_settings,
         min_idle_time_seconds=60.0,
         low_priority_threshold=3,
     )
@@ -145,13 +138,14 @@ class TestPressureAction:
 class TestMemoryPressureHandler:
     """Tests for MemoryPressureHandler class."""
 
-    def test_init_default_values(self, mock_memory_monitor: MagicMock) -> None:
+    def test_init_default_values(
+        self, mock_memory_monitor: MagicMock, mock_settings: MagicMock
+    ) -> None:
         """Test handler initialization with default values."""
-        handler = MemoryPressureHandler(memory_monitor=mock_memory_monitor)
+        handler = MemoryPressureHandler(memory_monitor=mock_memory_monitor, settings=mock_settings)
         assert handler.memory_monitor == mock_memory_monitor
+        assert handler.settings == mock_settings
         assert handler.browser_pool is None
-        assert handler.db_connection is None
-        assert handler.cancellation_flag is None
         assert handler.min_idle_time_seconds == 60.0
         assert handler.low_priority_threshold == 3
         assert handler._current_state == PressureState.NORMAL
@@ -160,8 +154,7 @@ class TestMemoryPressureHandler:
     def test_init_custom_values(self, pressure_handler: MemoryPressureHandler) -> None:
         """Test handler initialization with custom values."""
         assert pressure_handler.browser_pool is not None
-        assert pressure_handler.db_connection is not None
-        assert pressure_handler.cancellation_flag is not None
+        assert pressure_handler.settings is not None
         assert pressure_handler.min_idle_time_seconds == 60.0
         assert pressure_handler.low_priority_threshold == 3
 
@@ -278,9 +271,13 @@ class TestMemoryPressureHandler:
         assert response.success is False
         assert response.details["reason"] == "not_paused"
 
-    async def test_close_idle_contexts_no_pool(self, mock_memory_monitor: MagicMock) -> None:
+    async def test_close_idle_contexts_no_pool(
+        self, mock_memory_monitor: MagicMock, mock_settings: MagicMock
+    ) -> None:
         """Test closing idle contexts with no browser pool."""
-        handler = MemoryPressureHandler(memory_monitor=mock_memory_monitor, browser_pool=None)
+        handler = MemoryPressureHandler(
+            memory_monitor=mock_memory_monitor, browser_pool=None, settings=mock_settings
+        )
 
         response = await handler._close_idle_contexts()
 
@@ -304,19 +301,62 @@ class TestMemoryPressureHandler:
             min_idle_seconds=pressure_handler.min_idle_time_seconds
         )
 
-    async def test_cancel_low_priority_jobs_no_db(self, mock_memory_monitor: MagicMock) -> None:
-        """Test cancelling jobs with no database connection."""
-        handler = MemoryPressureHandler(memory_monitor=mock_memory_monitor)
+    @patch("crawler.services.memory_pressure_handler.get_redis")
+    @patch("crawler.services.memory_pressure_handler.get_db")
+    async def test_cancel_low_priority_jobs_no_jobs(
+        self,
+        mock_get_db: Mock,
+        mock_get_redis: Mock,
+        mock_memory_monitor: MagicMock,
+        mock_settings: MagicMock,
+    ) -> None:
+        """Test cancelling jobs when no pending jobs exist."""
+        # Mock database session and connection
+        mock_connection = MagicMock()
+        mock_session = MagicMock()
+        mock_session.connection = AsyncMock(return_value=mock_connection)
 
-        response = await handler._cancel_low_priority_jobs()
+        async def db_generator():
+            yield mock_session
 
-        assert response.action == PressureAction.CANCEL_LOW_PRIORITY_JOBS
-        assert response.success is False
-        assert response.details["reason"] == "db_or_flag_unavailable"
+        mock_get_db.return_value = db_generator()
 
+        # Mock Redis client
+        mock_redis_client = MagicMock()
+
+        async def redis_generator():
+            yield mock_redis_client
+
+        mock_get_redis.return_value = redis_generator()
+
+        # Mock repository with no pending jobs
+        with patch(
+            "crawler.services.memory_pressure_handler.CrawlJobRepository"
+        ) as mock_repo_class:
+            mock_repo = MagicMock()
+            mock_repo.get_pending = AsyncMock(return_value=[])
+            mock_repo_class.return_value = mock_repo
+
+            handler = MemoryPressureHandler(
+                memory_monitor=mock_memory_monitor, settings=mock_settings
+            )
+            response = await handler._cancel_low_priority_jobs()
+
+            assert response.action == PressureAction.CANCEL_LOW_PRIORITY_JOBS
+            assert response.success is True
+            assert response.details["jobs_cancelled"] == 0
+
+    @patch("crawler.services.memory_pressure_handler.get_redis")
+    @patch("crawler.services.memory_pressure_handler.get_db")
     @patch("crawler.services.memory_pressure_handler.CrawlJobRepository")
+    @patch("crawler.services.memory_pressure_handler.JobCancellationFlag")
     async def test_cancel_low_priority_jobs_success(
-        self, mock_repo_class: Mock, pressure_handler: MemoryPressureHandler
+        self,
+        mock_flag_class: Mock,
+        mock_repo_class: Mock,
+        mock_get_db: Mock,
+        mock_get_redis: Mock,
+        pressure_handler: MemoryPressureHandler,
     ) -> None:
         """Test successfully cancelling low priority jobs."""
         # Mock pending jobs
@@ -330,10 +370,33 @@ class TestMemoryPressureHandler:
         mock_job2.priority = 5  # Normal priority
         mock_job2.status = StatusEnum.PENDING
 
+        # Mock repository
         mock_repo = MagicMock()
         mock_repo.get_pending = AsyncMock(return_value=[mock_job1, mock_job2])
         mock_repo.cancel = AsyncMock()
         mock_repo_class.return_value = mock_repo
+
+        # Mock database session and connection
+        mock_connection = MagicMock()
+        mock_session = MagicMock()
+        mock_session.connection = AsyncMock(return_value=mock_connection)
+
+        async def db_generator():
+            yield mock_session
+
+        mock_get_db.return_value = db_generator()
+
+        # Mock Redis client and cancellation flag
+        mock_redis_client = MagicMock()
+
+        async def redis_generator():
+            yield mock_redis_client
+
+        mock_get_redis.return_value = redis_generator()
+
+        mock_flag = MagicMock()
+        mock_flag.set_cancellation = AsyncMock()
+        mock_flag_class.return_value = mock_flag
 
         response = await pressure_handler._cancel_low_priority_jobs()
 
@@ -343,14 +406,18 @@ class TestMemoryPressureHandler:
         assert response.details["priority_threshold"] == 3
 
         # Verify cancellation flag was set
-        pressure_handler.cancellation_flag.set_cancellation.assert_called_once()
+        mock_flag.set_cancellation.assert_called_once()
 
         # Verify job was cancelled in database
         mock_repo.cancel.assert_called_once()
 
-    async def test_restart_browsers_no_pool(self, mock_memory_monitor: MagicMock) -> None:
+    async def test_restart_browsers_no_pool(
+        self, mock_memory_monitor: MagicMock, mock_settings: MagicMock
+    ) -> None:
         """Test restarting browsers with no browser pool."""
-        handler = MemoryPressureHandler(memory_monitor=mock_memory_monitor, browser_pool=None)
+        handler = MemoryPressureHandler(
+            memory_monitor=mock_memory_monitor, browser_pool=None, settings=mock_settings
+        )
 
         response = await handler._restart_browsers()
 
