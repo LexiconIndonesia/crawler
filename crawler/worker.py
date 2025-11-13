@@ -357,10 +357,13 @@ class CrawlJobWorker:
                 return await self._process_job_with_connection(job_id, job_data, conn)
             else:
                 # Production mode - get connection from pool
+                # Store result before exiting context to allow commit/rollback to run
                 async with aclosing(get_db()) as db_iter:
                     db_session = await db_iter.__anext__()
                     conn = await db_session.connection()
-                    return await self._process_job_with_connection(job_id, job_data, conn)
+                    result = await self._process_job_with_connection(job_id, job_data, conn)
+                # Return after context exits so get_db() can commit/rollback
+                return result
 
         except Exception as e:
             logger.error("job_processing_failed", job_id=job_id, error=str(e), exc_info=True)
