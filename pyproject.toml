@@ -36,6 +36,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "tenacity>=8.2.0",
     "croniter>=6.0.0",
+    "psutil>=6.0.0",
 ]
 
 [dependency-groups]
@@ -48,6 +49,7 @@ dev = [
     "types-redis>=4.6.0",
     "types-croniter>=6.0.0.20250809",
     "types-lxml>=2025.3.0",
+    "types-psutil>=6.0.0",
     "asyncpg-stubs>=0.30.0",
     "datamodel-code-generator>=0.35.0",
     "pyyaml>=6.0.0",

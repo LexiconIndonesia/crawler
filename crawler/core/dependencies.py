@@ -20,6 +20,8 @@ from crawler.db.session import get_db as _get_db
 from crawler.services.browser_pool import BrowserPool
 from crawler.services.cache import CacheService
 from crawler.services.log_publisher import LogPublisher
+from crawler.services.memory_monitor import MemoryMonitor
+from crawler.services.memory_pressure_handler import MemoryPressureHandler
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import (
     BrowserPoolStatus,
@@ -271,6 +273,12 @@ _browser_pool: BrowserPool | None = None
 # Global NATS queue service instance (singleton pattern)
 _nats_queue_service: NATSQueueService | None = None
 
+# Global memory monitor instance (singleton pattern)
+_memory_monitor: MemoryMonitor | None = None
+
+# Global memory pressure handler instance (singleton pattern)
+_memory_pressure_handler: MemoryPressureHandler | None = None
+
 
 async def get_browser_pool(
     settings: SettingsDep,
@@ -405,6 +413,121 @@ async def disconnect_nats_queue() -> None:
         _nats_queue_service = None
 
 
+async def get_memory_monitor(
+    settings: SettingsDep,
+) -> MemoryMonitor:
+    """Get memory monitor with singleton pattern.
+
+    The monitor is created once and reused across requests.
+    Monitor is started at app startup and stopped at shutdown.
+
+    Args:
+        settings: Application settings from dependency
+
+    Returns:
+        MemoryMonitor instance
+
+    Usage:
+        async def my_route(memory_monitor: MemoryMonitorDep):
+            status = await memory_monitor.check_memory()
+    """
+    global _memory_monitor, _memory_pressure_handler
+
+    # Guard: return existing instance if available
+    if _memory_monitor is not None:
+        return _memory_monitor
+
+    # Create new instance
+    from crawler.services.memory_monitor import MemoryMonitor
+
+    # Get browser pool if available
+    browser_pool = await get_browser_pool(settings) if _browser_pool is not None else None
+
+    # Create monitor first (without handler)
+    _memory_monitor = MemoryMonitor(
+        browser_pool=browser_pool,
+        check_interval=30.0,  # Check every 30 seconds
+    )
+
+    # Create pressure handler without holding persistent connections
+    try:
+        # Pressure handler should acquire connections as needed rather than holding them
+        # This avoids resource leaks and connection pool exhaustion
+        _memory_pressure_handler = MemoryPressureHandler(
+            memory_monitor=_memory_monitor,
+            browser_pool=browser_pool,
+            settings=settings,  # Pass settings to create connections on-demand
+        )
+
+        # Inject handler into monitor
+        _memory_monitor.pressure_handler = _memory_pressure_handler
+
+    except Exception as e:
+        # Log error but continue without pressure handler
+        from crawler.core.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.warning("failed_to_create_pressure_handler", error=str(e))
+
+    return _memory_monitor
+
+
+async def get_memory_pressure_handler(
+    settings: SettingsDep,
+) -> MemoryPressureHandler | None:
+    """Get memory pressure handler with singleton pattern.
+
+    The handler is created once and reused across requests.
+    Handler is created automatically with the memory monitor.
+
+    Args:
+        settings: Application settings from dependency
+
+    Returns:
+        MemoryPressureHandler instance or None if not initialized
+
+    Usage:
+        async def my_route(pressure_handler: MemoryPressureHandlerDep):
+            if pressure_handler:
+                status = await pressure_handler.handle_memory_status(...)
+    """
+    global _memory_pressure_handler, _memory_monitor
+
+    # Guard: return existing instance if available
+    if _memory_pressure_handler is not None:
+        return _memory_pressure_handler
+
+    # Guard: ensure monitor is created first (which creates the handler)
+    if _memory_monitor is None:
+        # Trigger monitor creation, which will also create the handler
+        await get_memory_monitor(settings)
+
+    return _memory_pressure_handler
+
+
+async def start_memory_monitor() -> None:
+    """Start memory monitor at application startup.
+
+    Should be called in FastAPI lifespan startup after browser pool initialization.
+    """
+    settings = get_settings()
+    monitor = await get_memory_monitor(settings)
+    await monitor.start()
+
+
+async def stop_memory_monitor() -> None:
+    """Stop memory monitor at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    global _memory_monitor, _memory_pressure_handler
+    if _memory_monitor is not None:
+        await _memory_monitor.stop()
+        _memory_monitor = None
+    # Also clear pressure handler singleton
+    _memory_pressure_handler = None
+
+
 # ============================================================================
 # Service Type Aliases for Dependency Injection
 # ============================================================================
@@ -415,6 +538,10 @@ StorageServiceDep = Annotated[StorageService, Depends(get_storage_service)]
 BrowserPoolDep = Annotated[BrowserPool, Depends(get_browser_pool)]
 NATSQueueDep = Annotated[NATSQueueService, Depends(get_nats_queue_service)]
 LogPublisherDep = Annotated[LogPublisher, Depends(get_log_publisher)]
+MemoryMonitorDep = Annotated[MemoryMonitor, Depends(get_memory_monitor)]
+MemoryPressureHandlerDep = Annotated[
+    MemoryPressureHandler | None, Depends(get_memory_pressure_handler)
+]
 URLDedupCacheDep = Annotated[URLDeduplicationCache, Depends(get_url_dedup_cache)]
 JobCancellationFlagDep = Annotated[JobCancellationFlag, Depends(get_job_cancellation_flag)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]

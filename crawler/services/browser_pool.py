@@ -50,6 +50,15 @@ class BrowserCrashError(Exception):
 
 
 @dataclass
+class ContextMetadata:
+    """Metadata for tracking browser context usage."""
+
+    context: BrowserContext
+    created_at: datetime
+    last_used_at: datetime
+
+
+@dataclass
 class BrowserInstance:
     """Wrapper for a browser instance with metadata."""
 
@@ -63,6 +72,12 @@ class BrowserInstance:
     recovery_attempts: int = 0
     last_recovery_attempt: datetime | None = None
     crash_timestamp: datetime | None = None  # Track when browser first crashed
+    context_metadata: dict[str, ContextMetadata] = None  # type: ignore[assignment]  # Map context id -> metadata
+
+    def __post_init__(self) -> None:
+        """Initialize context metadata dict if not provided."""
+        if self.context_metadata is None:
+            self.context_metadata = {}  # Always initialize in __post_init__
 
     def can_create_context(self) -> bool:
         """Check if browser can create a new context.
@@ -585,6 +600,16 @@ class BrowserPool:
             async with self._lock:
                 browser_instance.active_contexts += 1
                 context_created = True  # Set flag only after increment succeeds
+
+                # Track context metadata for idle detection
+                now = datetime.now(UTC)
+                context_id = str(id(context))  # Use object id as unique identifier (as string)
+                browser_instance.context_metadata[context_id] = ContextMetadata(
+                    context=context,
+                    created_at=now,
+                    last_used_at=now,
+                )
+
                 total_contexts = sum(b.active_contexts for b in self._browsers)
                 browser_sessions_active.set(total_contexts)
                 # Use actual browser count, not initial pool_size
@@ -620,6 +645,12 @@ class BrowserPool:
             if context_created and browser_instance is not None:
                 async with self._lock:
                     browser_instance.active_contexts -= 1
+
+                    # Remove context metadata
+                    if context is not None:
+                        context_id = str(id(context))
+                        browser_instance.context_metadata.pop(context_id, None)
+
                     total_contexts = sum(b.active_contexts for b in self._browsers)
                     browser_sessions_active.set(total_contexts)
                     # Use actual browser count, not initial pool_size
@@ -908,6 +939,164 @@ class BrowserPool:
                 logger.error("health_check_loop_error", error=str(e))
 
         logger.info("browser_health_check_loop_stopped")
+
+    def is_initialized(self) -> bool:
+        """Check if browser pool is initialized.
+
+        Returns:
+            True if pool is initialized and ready for use, False otherwise.
+        """
+        return self._initialized
+
+    async def get_browser_snapshot(self) -> list[tuple[int, BrowserInstance]]:
+        """Get snapshot of browser instances with their indices.
+
+        Returns indexed list of browser instances. Acquires lock internally
+        to ensure thread-safe access to the browser pool state.
+
+        Returns:
+            List of (index, BrowserInstance) tuples representing current pool state.
+            Returns empty list if pool is not initialized.
+
+        Usage:
+            snapshot = await pool.get_browser_snapshot()
+            for index, browser in snapshot:
+                # Process browser without holding pool lock
+                memory = get_memory(browser)
+        """
+        # Guard: pool not initialized
+        if not self._initialized:
+            return []
+
+        async with self._lock:
+            return [(i, b) for i, b in enumerate(self._browsers)]
+
+    async def restart_idle_browsers(self, max_count: int = 2) -> int:
+        """Restart idle browser instances to reclaim memory.
+
+        Only restarts browsers with no active contexts. Browsers are selected
+        in order of lowest active context count (prioritizing idle browsers).
+
+        Args:
+            max_count: Maximum number of browsers to restart (default: 2)
+
+        Returns:
+            Number of browsers successfully restarted
+
+        Usage:
+            restarted = await pool.restart_idle_browsers(max_count=2)
+            logger.info(f"Restarted {restarted} idle browsers")
+        """
+        # Guard: pool not initialized
+        if not self._initialized:
+            return 0
+
+        restarted_count = 0
+
+        async with self._lock:
+            # Sort browsers by active context count (ascending)
+            sorted_browsers = sorted(self._browsers, key=lambda b: b.active_contexts)
+
+            # Restart up to max_count idle browsers
+            for browser_instance in sorted_browsers[:max_count]:
+                # Guard: skip if browser has active contexts
+                if browser_instance.active_contexts > 0:
+                    logger.debug(
+                        "browser_restart_skip_active_contexts",
+                        active_contexts=browser_instance.active_contexts,
+                    )
+                    continue
+
+                try:
+                    # Close old browser
+                    await browser_instance.browser.close()
+
+                    # Launch new browser
+                    new_browser = await self._launch_browser(browser_instance.browser_type)
+                    browser_instance.browser = new_browser
+                    browser_instance.created_at = datetime.now(UTC)
+                    browser_instance.is_healthy = True
+                    browser_instance.recovery_attempts = 0
+                    browser_instance.crash_timestamp = None
+
+                    restarted_count += 1
+
+                    logger.info(
+                        "browser_restarted",
+                        browser_type=browser_instance.browser_type,
+                        reason="idle_memory_reclaim",
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        "browser_restart_failed",
+                        browser_type=browser_instance.browser_type,
+                        error=str(e),
+                    )
+                    continue
+
+        return restarted_count
+
+    async def close_idle_contexts(self, min_idle_seconds: float) -> int:
+        """Close browser contexts that have been idle for specified duration.
+
+        Args:
+            min_idle_seconds: Minimum idle time in seconds before closing context
+
+        Returns:
+            Number of contexts successfully closed
+
+        Usage:
+            closed = await pool.close_idle_contexts(min_idle_seconds=60.0)
+            logger.info(f"Closed {closed} idle contexts")
+        """
+        # Guard: pool not initialized
+        if not self._initialized:
+            return 0
+
+        closed_count = 0
+        now = datetime.now(UTC)
+
+        async with self._lock:
+            for browser_instance in self._browsers:
+                # Get list of idle contexts for this browser
+                idle_contexts = [
+                    (context_id, metadata)
+                    for context_id, metadata in browser_instance.context_metadata.items()
+                    if (now - metadata.last_used_at).total_seconds() >= min_idle_seconds
+                ]
+
+                # Close each idle context
+                for context_id, metadata in idle_contexts:
+                    try:
+                        await metadata.context.close()
+                        browser_instance.active_contexts -= 1
+                        browser_instance.context_metadata.pop(context_id)
+                        closed_count += 1
+
+                        logger.info(
+                            "idle_context_closed",
+                            context_id=context_id,
+                            idle_seconds=(now - metadata.last_used_at).total_seconds(),
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            "idle_context_close_failed",
+                            context_id=context_id,
+                            error=str(e),
+                        )
+                        continue
+
+            # Update metrics after closing contexts
+            if closed_count > 0:
+                total_contexts = sum(b.active_contexts for b in self._browsers)
+                browser_sessions_active.set(total_contexts)
+                current_capacity = len(self._browsers) * self.max_contexts_per_browser
+                available_contexts = max(0, current_capacity - total_contexts)
+                browser_pool_contexts_available.set(available_contexts)
+
+        return closed_count
 
     async def shutdown(self) -> None:
         """Gracefully shutdown the browser pool.
