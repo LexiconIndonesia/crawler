@@ -22,6 +22,7 @@ from crawler.core.logging import get_logger, setup_logging
 from crawler.db.generated.models import StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
 from crawler.db.session import get_db
+from crawler.services.job_retry_handler import create_retry_handler
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
 from crawler.services.step_orchestrator import StepOrchestrator
@@ -289,47 +290,79 @@ class CrawlJobWorker:
                 logger.info("job_completed_successfully", job_id=job_id)
                 return True
             else:
-                # Some steps failed
+                # Some steps failed - check if we should retry
                 error_msg = f"Workflow failed. Failed steps: {', '.join(failed_steps)}"
-                await job_repo.update_status(
+
+                # Extract error details from step results
+                step_errors = [result for result in context.step_results.values() if result.error]
+
+                # Create retry handler
+                retry_handler = await create_retry_handler(conn, self.nats_queue)
+
+                # Try to extract original exception from first error for classification
+                exc = None
+                if step_errors:
+                    # If step result stores the original exception, use it for proper classification
+                    # Otherwise fall back to generic Exception with error message
+                    exc = (
+                        step_errors[0].exception
+                        if step_errors[0].exception
+                        else Exception(step_errors[0].error)
+                    )
+
+                # Handle failure with retry logic
+                will_retry = await retry_handler.handle_job_failure(
                     job_id=job_id,
-                    status=StatusEnum.FAILED,
-                    started_at=None,
-                    completed_at=None,
-                    error_message=error_msg[:1000],  # Limit error message length
+                    exc=exc,
+                    error_message=error_msg,
                 )
-                logger.warning(
-                    "job_failed",
-                    job_id=job_id,
-                    failed_steps=failed_steps,
-                )
-                return True
+
+                # If will_retry=True, job is requeued, return False to nak
+                # If will_retry=False, job permanently failed, return True to ack
+                if will_retry:
+                    logger.info("job_will_retry", job_id=job_id, failed_steps=failed_steps)
+                else:
+                    logger.warning(
+                        "job_permanently_failed", job_id=job_id, failed_steps=failed_steps
+                    )
+
+                return not will_retry
 
         except ValueError as e:
-            # Dependency validation or configuration error
+            # Dependency validation or configuration error - usually not retryable
             error_msg = f"Workflow configuration error: {e}"
-            await job_repo.update_status(
+
+            retry_handler = await create_retry_handler(conn, self.nats_queue)
+            will_retry = await retry_handler.handle_job_failure(
                 job_id=job_id,
-                status=StatusEnum.FAILED,
-                started_at=None,
-                completed_at=None,
-                error_message=error_msg[:1000],
+                exc=e,
+                error_message=error_msg,
             )
-            logger.error("workflow_validation_error", job_id=job_id, error=str(e))
-            return True
+
+            logger.error(
+                "workflow_validation_error", job_id=job_id, error=str(e), will_retry=will_retry
+            )
+            return not will_retry
 
         except Exception as e:
-            # Unexpected error
+            # Unexpected error - may be retryable (network, timeout, etc.)
             error_msg = f"Workflow execution error: {e}"
-            await job_repo.update_status(
+
+            retry_handler = await create_retry_handler(conn, self.nats_queue)
+            will_retry = await retry_handler.handle_job_failure(
                 job_id=job_id,
-                status=StatusEnum.FAILED,
-                started_at=None,
-                completed_at=None,
-                error_message=error_msg[:1000],
+                exc=e,
+                error_message=error_msg,
             )
-            logger.error("workflow_execution_error", job_id=job_id, error=str(e), exc_info=True)
-            return True
+
+            logger.error(
+                "workflow_execution_error",
+                job_id=job_id,
+                error=str(e),
+                will_retry=will_retry,
+                exc_info=True,
+            )
+            return not will_retry
 
     async def process_job(self, job_id: str, job_data: dict[str, Any], conn: Any = None) -> bool:
         """Process a single crawl job.

@@ -217,6 +217,7 @@ class StepOrchestrator:
                     StepResult(
                         step_name=step_name,
                         error=f"Input validation failed: {e}",
+                        exception=e,  # Preserve original exception for retry classification
                         metadata={"validation_errors": e.errors},
                     )
                 )
@@ -246,7 +247,7 @@ class StepOrchestrator:
                 result.metadata["execution_time_seconds"] = round(execution_time, 3)
                 result.metadata["timeout_configured"] = timeout_seconds
 
-            except TimeoutError:
+            except TimeoutError as e:
                 # Step timeout exceeded
                 execution_time = time.time() - start_time
                 logger.error(
@@ -260,6 +261,7 @@ class StepOrchestrator:
                     StepResult(
                         step_name=step_name,
                         error=f"Step execution timeout after {timeout_seconds}s",
+                        exception=e,  # Preserve original exception for retry classification
                         metadata={
                             "timeout": True,
                             "timeout_seconds": timeout_seconds,

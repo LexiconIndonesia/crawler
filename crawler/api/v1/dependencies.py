@@ -8,11 +8,18 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from crawler.api.v1.services import DuplicateService, JobService, LogService, WebsiteService
+from crawler.api.v1.services import (
+    DLQService,
+    DuplicateService,
+    JobService,
+    LogService,
+    WebsiteService,
+)
 from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep, NATSQueueDep
 from crawler.db.repositories import (
     CrawlJobRepository,
     CrawlLogRepository,
+    DeadLetterQueueRepository,
     DuplicateGroupRepository,
     ScheduledJobRepository,
     WebsiteConfigHistoryRepository,
@@ -166,8 +173,44 @@ async def get_duplicate_service(
     return DuplicateService(duplicate_repo=duplicate_repo)
 
 
+async def get_dlq_service(
+    db: DBSessionDep,
+) -> DLQService:
+    """Get DLQ service with injected dependencies.
+
+    Args:
+        db: Database session from centralized dependency injection
+
+    Returns:
+        DLQService instance with injected repositories
+
+    Usage:
+        async def my_route(dlq_service: DLQServiceDep):
+            entries = await dlq_service.list_entries()
+
+    Note:
+        This function properly manages database connections from the session's
+        connection pool to avoid concurrent operation errors with asyncpg.
+    """
+    # Get connection from session - this uses the connection pool
+    # The connection is managed by the session's transaction context
+    conn = await db.connection()
+
+    # Create repositories with the connection
+    # Each repository will execute queries sequentially within the transaction
+    dlq_repo = DeadLetterQueueRepository(conn)
+    crawl_job_repo = CrawlJobRepository(conn)
+
+    # Return service with injected repositories
+    return DLQService(
+        dlq_repo=dlq_repo,
+        crawl_job_repo=crawl_job_repo,
+    )
+
+
 # Type aliases for dependency injection
 WebsiteServiceDep = Annotated[WebsiteService, Depends(get_website_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 LogServiceDep = Annotated[LogService, Depends(get_log_service)]
 DuplicateServiceDep = Annotated[DuplicateService, Depends(get_duplicate_service)]
+DLQServiceDep = Annotated[DLQService, Depends(get_dlq_service)]

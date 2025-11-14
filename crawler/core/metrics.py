@@ -96,3 +96,24 @@ browser_memory_usage_bytes = Gauge(
 memory_alerts_total = Counter(
     "memory_alerts_total", "Total memory alerts triggered", ["level", "type"]
 )
+
+# Dead Letter Queue Metrics
+dlq_entries_total = Counter(
+    "dlq_entries_total", "Total jobs added to Dead Letter Queue", ["error_category", "job_type"]
+)
+
+dlq_entries_unresolved = Gauge("dlq_entries_unresolved", "Number of unresolved entries in DLQ")
+
+dlq_entries_by_category = Gauge(
+    "dlq_entries_by_category", "Number of DLQ entries by error category", ["error_category"]
+)
+
+dlq_retry_attempts_total = Counter(
+    "dlq_retry_attempts_total", "Total manual retry attempts from DLQ", ["success"]
+)
+
+dlq_resolutions_total = Counter("dlq_resolutions_total", "Total DLQ entries manually resolved")
+
+dlq_oldest_unresolved_age_seconds = Gauge(
+    "dlq_oldest_unresolved_age_seconds", "Age of oldest unresolved DLQ entry in seconds"
+)

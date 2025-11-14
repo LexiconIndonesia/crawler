@@ -57,11 +57,14 @@ def handle_service_errors(
             except ValueError as e:
                 # Check if this is a "not found" error (should be 404, not 400)
                 error_msg = str(e).lower()
-                is_job_not_found = "not found" in error_msg and (
-                    "job with id" in error_msg or "job id" in error_msg
+                is_not_found = "not found" in error_msg and (
+                    "job with id" in error_msg
+                    or "job id" in error_msg
+                    or "entry with id" in error_msg
+                    or "dlq entry" in error_msg
                 )
 
-                if is_job_not_found:
+                if is_not_found:
                     # Resource not found - return 404
                     logger.warning(
                         "resource_not_found",

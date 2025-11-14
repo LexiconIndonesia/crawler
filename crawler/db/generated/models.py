@@ -8,6 +8,27 @@ from typing import Any, Optional
 import uuid
 
 
+class BackoffStrategyEnum(str, enum.Enum):
+    EXPONENTIAL = "exponential"
+    LINEAR = "linear"
+    FIXED = "fixed"
+
+
+class ErrorCategoryEnum(str, enum.Enum):
+    NETWORK = "network"
+    RATE_LIMIT = "rate_limit"
+    SERVER_ERROR = "server_error"
+    BROWSER_CRASH = "browser_crash"
+    RESOURCE_UNAVAILABLE = "resource_unavailable"
+    TIMEOUT = "timeout"
+    CLIENT_ERROR = "client_error"
+    AUTH_ERROR = "auth_error"
+    NOT_FOUND = "not_found"
+    VALIDATION_ERROR = "validation_error"
+    BUSINESS_LOGIC_ERROR = "business_logic_error"
+    UNKNOWN = "unknown"
+
+
 class JobTypeEnum(str, enum.Enum):
     ONE_TIME = "one_time"
     SCHEDULED = "scheduled"
@@ -191,6 +212,28 @@ class CrawledPage(pydantic.BaseModel):
     created_at: datetime.datetime
 
 
+class DeadLetterQueue(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    seed_url: str
+    website_id: Optional[uuid.UUID]
+    job_type: JobTypeEnum
+    priority: int
+    error_category: ErrorCategoryEnum
+    error_message: str
+    stack_trace: Optional[str]
+    http_status: Optional[int]
+    total_attempts: int
+    first_attempt_at: datetime.datetime
+    last_attempt_at: datetime.datetime
+    added_to_dlq_at: datetime.datetime
+    retry_attempted: bool
+    retry_attempted_at: Optional[datetime.datetime]
+    retry_success: Optional[bool]
+    resolved_at: Optional[datetime.datetime]
+    resolution_notes: Optional[str]
+
+
 class DuplicateGroup(pydantic.BaseModel):
     id: uuid.UUID
     canonical_page_id: uuid.UUID
@@ -208,6 +251,31 @@ class DuplicateRelationship(pydantic.BaseModel):
     confidence_threshold: Optional[int]
     detected_at: datetime.datetime
     detected_by: Optional[str]
+
+
+class RetryHistory(pydantic.BaseModel):
+    id: int
+    job_id: uuid.UUID
+    attempt_number: int
+    error_category: ErrorCategoryEnum
+    error_message: str
+    stack_trace: Optional[str]
+    retry_delay_seconds: int
+    attempted_at: datetime.datetime
+
+
+class RetryPolicy(pydantic.BaseModel):
+    id: uuid.UUID
+    error_category: ErrorCategoryEnum
+    is_retryable: bool
+    max_attempts: int
+    backoff_strategy: BackoffStrategyEnum
+    initial_delay_seconds: int
+    max_delay_seconds: int
+    backoff_multiplier: float
+    description: Optional[str]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
 
 class ScheduledJob(pydantic.BaseModel):

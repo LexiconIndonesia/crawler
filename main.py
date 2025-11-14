@@ -19,6 +19,7 @@ from crawler.core.dependencies import (
     stop_memory_monitor,
 )
 from crawler.core.logging import get_logger
+from crawler.services.dlq_metrics_updater import start_dlq_metrics_updater, stop_dlq_metrics_updater
 
 logger = get_logger(__name__)
 
@@ -57,12 +58,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("memory_monitor_start_failed_on_startup", error=str(e))
         # Continue without memory monitoring - app can still function
 
+    # Start DLQ metrics updater
+    try:
+        await start_dlq_metrics_updater(interval_seconds=60)
+        logger.info("dlq_metrics_updater_started")
+    except Exception as e:
+        logger.error("dlq_metrics_updater_start_failed_on_startup", error=str(e))
+        # Continue without DLQ metrics - app can still function
+
     yield
 
     # Shutdown
     logger.info("application_shutdown")
 
-    # Stop memory monitor first
+    # Stop DLQ metrics updater first
+    try:
+        await stop_dlq_metrics_updater()
+        logger.info("dlq_metrics_updater_stopped")
+    except Exception as e:
+        logger.error("dlq_metrics_updater_stop_failed_on_shutdown", error=str(e))
+
+    # Stop memory monitor
     try:
         await stop_memory_monitor()
         logger.info("memory_monitor_stopped")
