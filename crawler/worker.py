@@ -176,7 +176,8 @@ class CrawlJobWorker:
             conn: Database connection
 
         Returns:
-            True if job processed successfully, False if it should be requeued
+            True if message should be acked (job handled successfully or by JobRetryHandler),
+            False only for infrastructure-level failures requiring requeue via nak()
         """
         job_repo = CrawlJobRepository(conn)
 
@@ -317,8 +318,11 @@ class CrawlJobWorker:
                     error_message=error_msg,
                 )
 
-                # If will_retry=True, job is requeued, return False to nak
-                # If will_retry=False, job permanently failed, return True to ack
+                # If will_retry=True, JobRetryHandler has already scheduled a retry.
+                # If will_retry=False, JobRetryHandler has marked the job as permanently failed
+                # and (optionally) added it to the DLQ.
+                # In both cases the failure has been fully handled, so we should ack
+                # the current message and NOT rely on JetStream requeue.
                 if will_retry:
                     logger.info("job_will_retry", job_id=job_id, failed_steps=failed_steps)
                 else:
@@ -326,7 +330,7 @@ class CrawlJobWorker:
                         "job_permanently_failed", job_id=job_id, failed_steps=failed_steps
                     )
 
-                return not will_retry
+                return True
 
         except ValueError as e:
             # Dependency validation or configuration error - usually not retryable
@@ -342,7 +346,8 @@ class CrawlJobWorker:
             logger.error(
                 "workflow_validation_error", job_id=job_id, error=str(e), will_retry=will_retry
             )
-            return not will_retry
+            # Failure already handled by JobRetryHandler; always ack.
+            return True
 
         except Exception as e:
             # Unexpected error - may be retryable (network, timeout, etc.)
@@ -362,7 +367,8 @@ class CrawlJobWorker:
                 will_retry=will_retry,
                 exc_info=True,
             )
-            return not will_retry
+            # Failure already handled by JobRetryHandler; always ack.
+            return True
 
     async def process_job(self, job_id: str, job_data: dict[str, Any], conn: Any = None) -> bool:
         """Process a single crawl job.

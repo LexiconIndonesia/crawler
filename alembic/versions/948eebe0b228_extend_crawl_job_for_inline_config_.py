@@ -4,7 +4,6 @@ Revision ID: 948eebe0b228
 Revises: 356b49daa767
 Create Date: 2025-11-07 22:46:31.511710
 
-Corresponds to sql/migrations/003_seed_url_submissions.sql
 
 Changes:
 - Make website_id nullable (support inline config without template)

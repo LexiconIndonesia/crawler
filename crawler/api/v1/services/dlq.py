@@ -72,10 +72,8 @@ class DLQService:
             offset=offset,
         )
 
-        # Convert API enum to DB enum if provided
-        db_error_category = (
-            DBErrorCategoryEnum[error_category.value.upper()] if error_category else None
-        )
+        # Convert API enum to DB enum if provided (values are now identical)
+        db_error_category = DBErrorCategoryEnum(error_category.value) if error_category else None
 
         try:
             # Get entries and count in parallel
@@ -328,10 +326,10 @@ class DLQService:
             # Get stats by category
             category_stats_list = await self.dlq_repo.get_stats_by_category()
 
-            # Convert to API models
+            # Convert to API models (values are now identical, just use value)
             by_category = [
                 DLQCategoryStats(
-                    error_category=ErrorCategoryEnum(cat_stat.error_category.value.lower()),
+                    error_category=ErrorCategoryEnum(cat_stat.error_category.value),
                     total=cat_stat.entry_count,
                     unresolved=cat_stat.unresolved_count,
                 )
@@ -374,9 +372,9 @@ class DLQService:
             job_id=db_entry.job_id,
             seed_url=db_entry.seed_url,
             website_id=db_entry.website_id,
-            job_type=JobTypeEnum(db_entry.job_type.value.lower()),
+            job_type=JobTypeEnum(db_entry.job_type.value),
             priority=db_entry.priority,
-            error_category=ErrorCategoryEnum(db_entry.error_category.value.lower()),
+            error_category=ErrorCategoryEnum(db_entry.error_category.value),
             error_message=db_entry.error_message,
             stack_trace=db_entry.stack_trace,
             http_status=db_entry.http_status,

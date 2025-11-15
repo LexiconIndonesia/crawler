@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from crawler.core import metrics
 from crawler.core.logging import get_logger
+from crawler.db.generated.models import ErrorCategoryEnum
 from crawler.db.repositories import DeadLetterQueueRepository
 from crawler.db.session import get_db
 
@@ -39,10 +40,19 @@ async def update_dlq_metrics() -> None:
 
             # Get stats by category
             stats_by_category = await dlq_repo.get_stats_by_category()
-            for category_stat in stats_by_category:
-                metrics.dlq_entries_by_category.labels(
-                    error_category=category_stat.error_category.value
-                ).set(category_stat.entry_count)
+
+            # Build a dict of category counts for efficient lookup
+            category_counts = {
+                category_stat.error_category: category_stat.entry_count
+                for category_stat in stats_by_category
+            }
+
+            # Update all error categories (set missing ones to 0)
+            for error_category in ErrorCategoryEnum:
+                count = category_counts.get(error_category, 0)
+                metrics.dlq_entries_by_category.labels(error_category=error_category.value).set(
+                    count
+                )
 
             # Get oldest unresolved entry
             oldest_entries = await dlq_repo.get_oldest_unresolved(limit=1)
@@ -58,6 +68,9 @@ async def update_dlq_metrics() -> None:
             # Break after processing with one session
             break
 
+    except asyncio.CancelledError:
+        logger.info("dlq_metrics_update_cancelled")
+        raise
     except Exception as e:
         logger.error("dlq_metrics_update_failed", error=str(e), exc_info=True)
 

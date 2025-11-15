@@ -4,7 +4,6 @@ Revision ID: 7ae2337d8974
 Revises:
 Create Date: 2025-11-07 22:43:40.582579
 
-Corresponds to sql/migrations/001_initial_schema.sql
 
 Creates:
 - Enums: job_type_enum, status_enum, log_level_enum

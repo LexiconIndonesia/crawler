@@ -2123,7 +2123,7 @@ components:
     ErrorCategoryEnum:
       type: string
       enum:
-        - network_error
+        - network
         - timeout
         - rate_limit
         - server_error
@@ -2136,8 +2136,8 @@ components:
         - business_logic_error
         - unknown
       description: |
-        Category of error for retry policy classification:
-        - network_error: Connection failures, DNS errors
+        Category of error for retry policy classification (values match DB canonical strings):
+        - network: Connection failures, DNS errors
         - timeout: Request timeouts
         - rate_limit: HTTP 429 or rate limiting
         - server_error: HTTP 5xx errors
@@ -2154,11 +2154,13 @@ components:
       type: string
       enum:
         - one_time
+        - scheduled
         - recurring
       description: |
-        Type of crawl job:
+        Type of crawl job (values match DB canonical strings):
         - one_time: Single execution job
-        - recurring: Scheduled recurring job
+        - scheduled: Job triggered by a schedule
+        - recurring: Recurring job pattern
 
     PaginationTypeEnum:
       type: string

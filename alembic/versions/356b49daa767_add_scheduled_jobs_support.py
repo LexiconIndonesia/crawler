@@ -4,7 +4,6 @@ Revision ID: 356b49daa767
 Revises: 7ae2337d8974
 Create Date: 2025-11-07 22:45:41.158952
 
-Corresponds to sql/migrations/002_scheduled_jobs.sql
 
 Adds:
 - cron_schedule column to website table
