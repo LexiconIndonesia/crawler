@@ -6,12 +6,13 @@ This module provides a background service that:
 3. Publishes the jobs to NATS queue for workers to pick up
 4. Updates the next_run_time for recurring jobs
 5. Handles graceful shutdown and restart
+6. Handles missed schedules after downtime (catch-up within 1 hour)
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from crawler.core.logging import get_logger
@@ -29,6 +30,210 @@ logger = get_logger(__name__)
 
 # Global task reference for lifecycle management
 _processor_task: asyncio.Task | None = None
+
+# Maximum delay for catch-up (1 hour)
+MAX_CATCHUP_DELAY = timedelta(hours=1)
+
+
+async def handle_missed_schedules(
+    scheduled_job_repo: ScheduledJobRepository,
+    crawl_job_repo: CrawlJobRepository,
+    website_repo: WebsiteRepository,
+    nats_queue: NATSQueueService,
+    batch_size: int = 100,
+) -> tuple[int, int]:
+    """Handle missed schedules after scheduler restart/downtime.
+
+    This function detects schedules that were missed during downtime and:
+    - Catches up (executes immediately) if missed by < 1 hour
+    - Skips (just reschedules) if missed by > 1 hour
+
+    Args:
+        scheduled_job_repo: Repository for scheduled job operations
+        crawl_job_repo: Repository for crawl job operations
+        website_repo: Repository for website operations
+        nats_queue: NATS queue service for job publishing
+        batch_size: Maximum number of jobs to process per batch
+
+    Returns:
+        Tuple of (caught_up_count, skipped_count)
+
+    Design:
+    - Missed schedule = next_run_time is in the past (< now) and is_active=true
+    - Catch-up threshold = now - 1 hour
+    - Jobs missed by < 1 hour: execute immediately + reschedule
+    - Jobs missed by > 1 hour: skip execution, just reschedule
+    - All rescheduling uses calculate_next_run(cron, now) for consistency
+    """
+    now = datetime.now(UTC)
+    catchup_threshold = now - MAX_CATCHUP_DELAY
+    caught_up = 0
+    skipped = 0
+
+    logger.info(
+        "checking_missed_schedules",
+        now=now.isoformat(),
+        catchup_threshold=catchup_threshold.isoformat(),
+        max_catchup_hours=MAX_CATCHUP_DELAY.total_seconds() / 3600,
+    )
+
+    try:
+        # Get all active jobs with next_run_time in the past
+        # Use cutoff_time = now to get all overdue jobs
+        missed_jobs = await scheduled_job_repo.get_due_jobs(cutoff_time=now, limit=batch_size)
+    except Exception as e:
+        logger.error(
+            "missed_schedule_query_failed",
+            error=str(e),
+            reason="Failed to query missed schedules from database",
+        )
+        return (0, 0)
+
+    if not missed_jobs:
+        logger.info("no_missed_schedules")
+        return (0, 0)
+
+    logger.info("found_missed_schedules", count=len(missed_jobs))
+
+    for job in missed_jobs:
+        try:
+            # Guard: website not found or deleted
+            website = await website_repo.get_by_id(str(job.website_id))
+            if not website or website.deleted_at is not None:
+                logger.warning(
+                    "website_not_found_for_missed_job",
+                    scheduled_job_id=str(job.id),
+                    website_id=str(job.website_id),
+                    reason="Website deleted or not found - deactivating scheduled job",
+                )
+                await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
+                continue
+
+            # Calculate how late the job is
+            if job.next_run_time is None:
+                logger.warning(
+                    "missed_job_no_next_run_time",
+                    scheduled_job_id=str(job.id),
+                    reason="Job has no next_run_time - skipping",
+                )
+                continue
+
+            delay = now - job.next_run_time
+            should_catchup = delay < MAX_CATCHUP_DELAY
+
+            # Calculate next run time
+            try:
+                next_run_time = calculate_next_run(job.cron_schedule, now)
+            except ValueError as e:
+                logger.error(
+                    "cron_calculation_failed_for_missed_job",
+                    scheduled_job_id=str(job.id),
+                    cron_schedule=job.cron_schedule,
+                    error=str(e),
+                    reason="Invalid cron - deactivating job",
+                )
+                await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
+                continue
+
+            if should_catchup:
+                # Catch up: execute now + reschedule
+                logger.info(
+                    "catching_up_missed_schedule",
+                    scheduled_job_id=str(job.id),
+                    website_id=str(job.website_id),
+                    website_name=website.name,
+                    missed_time=job.next_run_time.isoformat(),
+                    delay_minutes=delay.total_seconds() / 60,
+                    next_run_time=next_run_time.isoformat(),
+                )
+
+                # Create and publish crawl job (same as regular processing)
+                crawl_job = await crawl_job_repo.create_template_based_job(
+                    website_id=str(job.website_id),
+                    seed_url=website.base_url,
+                    variables=job.job_config or {},
+                    job_type=JobTypeEnum.SCHEDULED,
+                    priority=5,  # Normal scheduled job priority
+                    scheduled_at=now,
+                    max_retries=3,
+                    metadata={
+                        "scheduled_job_id": str(job.id),
+                        "cron_schedule": job.cron_schedule,
+                        "catchup": True,
+                        "missed_time": job.next_run_time.isoformat(),
+                    },
+                )
+
+                if not crawl_job:
+                    logger.error(
+                        "catchup_job_creation_failed",
+                        scheduled_job_id=str(job.id),
+                        reason="create_template_based_job returned None",
+                    )
+                    continue
+
+                job_data = {
+                    "website_id": str(crawl_job.website_id) if crawl_job.website_id else None,
+                    "seed_url": crawl_job.seed_url,
+                    "job_type": crawl_job.job_type.value,
+                    "priority": crawl_job.priority,
+                }
+                published = await nats_queue.publish_job(str(crawl_job.id), job_data)
+
+                if not published:
+                    logger.error(
+                        "catchup_job_publish_failed",
+                        crawl_job_id=str(crawl_job.id),
+                        scheduled_job_id=str(job.id),
+                    )
+                    await crawl_job_repo.update_status(
+                        job_id=str(crawl_job.id), status=StatusEnum.FAILED
+                    )
+                    continue
+
+                caught_up += 1
+                scheduled_jobs_processed_total.inc()
+
+            else:
+                # Skip: just reschedule without executing
+                delay_hours = delay.total_seconds() / 3600
+                logger.warning(
+                    "skipping_missed_schedule",
+                    scheduled_job_id=str(job.id),
+                    website_id=str(job.website_id),
+                    website_name=website.name,
+                    missed_time=job.next_run_time.isoformat(),
+                    delay_hours=delay_hours,
+                    next_run_time=next_run_time.isoformat(),
+                    reason=f"Missed by {delay_hours:.1f} hours (> 1 hour threshold)",
+                )
+                skipped += 1
+
+            # Update next_run_time for both caught-up and skipped jobs
+            await scheduled_job_repo.update_next_run(
+                job_id=str(job.id),
+                next_run_time=next_run_time,
+                last_run_time=now if should_catchup else job.last_run_time,
+            )
+
+        except Exception as e:
+            logger.error(
+                "missed_schedule_processing_error",
+                scheduled_job_id=str(job.id),
+                error=str(e),
+                exc_info=True,
+                reason="Unexpected error processing missed schedule - continuing",
+            )
+            continue
+
+    logger.info(
+        "missed_schedule_handling_complete",
+        total_missed=len(missed_jobs),
+        caught_up=caught_up,
+        skipped=skipped,
+    )
+
+    return (caught_up, skipped)
 
 
 async def process_scheduled_jobs(
@@ -224,6 +429,7 @@ async def scheduled_job_processor_loop(
         batch_size: Maximum jobs to process per cycle (default: 100)
 
     This loop runs continuously until cancelled:
+    - On first run: handles missed schedules from downtime
     - Polls database every interval_seconds
     - Processes all due jobs in batches
     - Handles errors gracefully and continues
@@ -235,8 +441,38 @@ async def scheduled_job_processor_loop(
         batch_size=batch_size,
     )
 
+    # First run: handle missed schedules after restart
+    first_run = True
+
     while True:
         try:
+            if first_run:
+                # Handle missed schedules on startup
+                try:
+                    caught_up, skipped = await handle_missed_schedules(
+                        scheduled_job_repo=scheduled_job_repo,
+                        crawl_job_repo=crawl_job_repo,
+                        website_repo=website_repo,
+                        nats_queue=nats_queue,
+                        batch_size=batch_size,
+                    )
+                    logger.info(
+                        "missed_schedule_catchup_complete",
+                        caught_up=caught_up,
+                        skipped=skipped,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "missed_schedule_catchup_failed",
+                        error=str(e),
+                        exc_info=True,
+                        reason=(
+                            "Failed to handle missed schedules - continuing with normal processing"
+                        ),
+                    )
+                first_run = False
+
+            # Normal scheduled job processing
             await process_scheduled_jobs(
                 scheduled_job_repo=scheduled_job_repo,
                 crawl_job_repo=crawl_job_repo,
