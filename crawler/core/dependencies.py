@@ -8,7 +8,7 @@ for all dependencies.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import redis.asyncio as redis
 from fastapi import Depends
@@ -23,6 +23,9 @@ from crawler.services.log_publisher import LogPublisher
 from crawler.services.memory_monitor import MemoryMonitor
 from crawler.services.memory_pressure_handler import MemoryPressureHandler
 from crawler.services.nats_queue import NATSQueueService
+
+if TYPE_CHECKING:
+    from crawler.services.retry_scheduler_cache import RetrySchedulerCache
 from crawler.services.redis_cache import (
     BrowserPoolStatus,
     JobCancellationFlag,
@@ -279,6 +282,9 @@ _memory_monitor: MemoryMonitor | None = None
 # Global memory pressure handler instance (singleton pattern)
 _memory_pressure_handler: MemoryPressureHandler | None = None
 
+# Global retry scheduler cache instance (singleton pattern)
+_retry_scheduler_cache: RetrySchedulerCache | None = None
+
 
 async def get_browser_pool(
     settings: SettingsDep,
@@ -411,6 +417,68 @@ async def disconnect_nats_queue() -> None:
     if _nats_queue_service is not None:
         await _nats_queue_service.disconnect()
         _nats_queue_service = None
+
+
+async def get_retry_scheduler_cache(
+    redis: RedisDep,
+    settings: SettingsDep,
+) -> RetrySchedulerCache:
+    """Get retry scheduler cache with singleton pattern.
+
+    The cache is created once and reused across requests.
+    Cache is initialized at app startup.
+
+    Args:
+        redis: Redis client from dependency
+        settings: Application settings from dependency
+
+    Returns:
+        RetrySchedulerCache instance
+    """
+    global _retry_scheduler_cache
+
+    # Guard: return existing instance if available
+    if _retry_scheduler_cache is not None:
+        return _retry_scheduler_cache
+
+    # Create new instance
+    from crawler.services.retry_scheduler_cache import RetrySchedulerCache
+
+    _retry_scheduler_cache = RetrySchedulerCache(redis, settings)
+    return _retry_scheduler_cache
+
+
+async def start_retry_scheduler_service(
+    interval_seconds: int = 5,
+    batch_size: int = 100,
+) -> None:
+    """Start retry scheduler service at application startup.
+
+    Should be called in FastAPI lifespan startup.
+
+    Args:
+        interval_seconds: Polling interval in seconds (default: 5)
+        batch_size: Maximum jobs to process per iteration (default: 100)
+    """
+    from crawler.services import start_retry_scheduler
+
+    settings = get_settings()
+    # Get Redis client from generator
+    async for redis_client in get_redis_client():
+        retry_cache = await get_retry_scheduler_cache(redis_client, settings)
+        nats_queue = await get_nats_queue_service(settings)
+        await start_retry_scheduler(retry_cache, nats_queue, interval_seconds, batch_size)
+        break  # Only need one iteration
+
+
+async def stop_retry_scheduler_service() -> None:
+    """Stop retry scheduler service at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    from crawler.services import stop_retry_scheduler
+
+    await stop_retry_scheduler()
 
 
 async def get_memory_monitor(

@@ -16,7 +16,9 @@ from crawler.core.dependencies import (
     initialize_browser_pool,
     shutdown_browser_pool,
     start_memory_monitor,
+    start_retry_scheduler_service,
     stop_memory_monitor,
+    stop_retry_scheduler_service,
 )
 from crawler.core.logging import get_logger
 from crawler.services.dlq_metrics_updater import start_dlq_metrics_updater, stop_dlq_metrics_updater
@@ -66,12 +68,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("dlq_metrics_updater_start_failed_on_startup", error=str(e))
         # Continue without DLQ metrics - app can still function
 
+    # Start retry scheduler (non-blocking retry delays)
+    try:
+        await start_retry_scheduler_service(interval_seconds=5, batch_size=100)
+        logger.info("retry_scheduler_started")
+    except Exception as e:
+        logger.error("retry_scheduler_start_failed_on_startup", error=str(e))
+        # Continue without retry scheduler - will fall back to blocking sleep
+
     yield
 
     # Shutdown
     logger.info("application_shutdown")
 
-    # Stop DLQ metrics updater first
+    # Stop retry scheduler first (before NATS/Redis)
+    try:
+        await stop_retry_scheduler_service()
+        logger.info("retry_scheduler_stopped")
+    except Exception as e:
+        logger.error("retry_scheduler_stop_failed_on_shutdown", error=str(e))
+
+    # Stop DLQ metrics updater
     try:
         await stop_dlq_metrics_updater()
         logger.info("dlq_metrics_updater_stopped")

@@ -10,6 +10,7 @@ This module provides:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
 
     from crawler.services.nats_queue import NATSQueueService
+    from crawler.services.retry_scheduler_cache import RetrySchedulerCache
 
 logger = get_logger(__name__)
 
@@ -46,6 +48,7 @@ class JobRetryHandler:
         retry_history_repo: RetryHistoryRepository,
         dlq_repo: DeadLetterQueueRepository,
         nats_queue: NATSQueueService,
+        retry_scheduler_cache: RetrySchedulerCache | None = None,
     ):
         """Initialize retry handler.
 
@@ -55,12 +58,14 @@ class JobRetryHandler:
             retry_history_repo: Repository for tracking retry attempts
             dlq_repo: Repository for dead letter queue operations
             nats_queue: NATS queue service for requeueing jobs
+            retry_scheduler_cache: Optional Redis cache for scheduling delayed retries
         """
         self.job_repo = job_repo
         self.retry_policy_service = RetryPolicyService(retry_policy_repo)
         self.retry_history_repo = retry_history_repo
         self.dlq_repo = dlq_repo
         self.nats_queue = nats_queue
+        self.retry_scheduler_cache = retry_scheduler_cache
 
     async def should_retry(
         self,
@@ -258,39 +263,71 @@ class JobRetryHandler:
             )
 
             # Schedule retry with delay
-            if delay > 0:
+            if delay > 0 and self.retry_scheduler_cache:
+                # Use Redis-based scheduling (non-blocking)
+                retry_at = datetime.now(UTC) + timedelta(seconds=delay)
                 logger.info(
                     "scheduling_delayed_retry",
                     job_id=str(job_id),
                     delay_seconds=delay,
+                    retry_at=retry_at.isoformat(),
                 )
-                # Sleep before requeueing
-                await asyncio.sleep(delay)
 
-            # Requeue job
-            try:
-                await self.nats_queue.publish_job(str(job_id), {"job_id": str(job_id)})
-            except Exception as e:
-                logger.error(
-                    "failed_to_requeue_job",
-                    job_id=str(job_id),
-                    error=str(e),
-                    exc_info=True,
-                )
-                # Revert job status since we couldn't queue it
-                await self.job_repo.update_status(
-                    job_id=str(job_id),
-                    status=StatusEnum.FAILED,
-                    error_message=f"Failed to requeue: {str(e)}",
-                )
-                return False
+                # Schedule in Redis (retry scheduler will enqueue when ready)
+                scheduled = await self.retry_scheduler_cache.schedule_retry(str(job_id), retry_at)
 
-            logger.info(
-                "job_requeued_for_retry",
-                job_id=str(job_id),
-                retry_count=job.retry_count + 1,
-                delay_seconds=delay,
-            )
+                if not scheduled:
+                    logger.error("failed_to_schedule_retry", job_id=str(job_id))
+                    # Revert job status since we couldn't schedule it
+                    await self.job_repo.update_status(
+                        job_id=str(job_id),
+                        status=StatusEnum.FAILED,
+                        error_message="Failed to schedule retry",
+                    )
+                    return False
+
+                logger.info(
+                    "job_scheduled_for_retry",
+                    job_id=str(job_id),
+                    retry_count=job.retry_count + 1,
+                    delay_seconds=delay,
+                    retry_at=retry_at.isoformat(),
+                )
+            else:
+                # Immediate retry or fallback (no scheduler available)
+                if delay > 0:
+                    logger.warning(
+                        "retry_scheduler_unavailable_blocking",
+                        job_id=str(job_id),
+                        delay_seconds=delay,
+                    )
+                    # Fallback to blocking sleep if scheduler not available
+                    await asyncio.sleep(delay)
+
+                # Requeue job immediately
+                try:
+                    await self.nats_queue.publish_job(str(job_id), {"job_id": str(job_id)})
+                except Exception as e:
+                    logger.error(
+                        "failed_to_requeue_job",
+                        job_id=str(job_id),
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    # Revert job status since we couldn't queue it
+                    await self.job_repo.update_status(
+                        job_id=str(job_id),
+                        status=StatusEnum.FAILED,
+                        error_message=f"Failed to requeue: {str(e)}",
+                    )
+                    return False
+
+                logger.info(
+                    "job_requeued_for_retry",
+                    job_id=str(job_id),
+                    retry_count=job.retry_count + 1,
+                    delay_seconds=delay,
+                )
 
             return True
         else:
@@ -397,13 +434,16 @@ class JobRetryHandler:
 
 
 async def create_retry_handler(
-    conn: AsyncConnection, nats_queue: NATSQueueService
+    conn: AsyncConnection,
+    nats_queue: NATSQueueService,
+    retry_scheduler_cache: RetrySchedulerCache | None = None,
 ) -> JobRetryHandler:
     """Factory function to create JobRetryHandler with repositories.
 
     Args:
         conn: Database connection
         nats_queue: NATS queue service
+        retry_scheduler_cache: Optional Redis cache for scheduling delayed retries
 
     Returns:
         Configured JobRetryHandler instance
@@ -413,4 +453,11 @@ async def create_retry_handler(
     retry_history_repo = RetryHistoryRepository(conn)
     dlq_repo = DeadLetterQueueRepository(conn)
 
-    return JobRetryHandler(job_repo, retry_policy_repo, retry_history_repo, dlq_repo, nats_queue)
+    return JobRetryHandler(
+        job_repo,
+        retry_policy_repo,
+        retry_history_repo,
+        dlq_repo,
+        nats_queue,
+        retry_scheduler_cache,
+    )

@@ -52,6 +52,7 @@ class CrawlJobWorker:
         cancellation_flag: JobCancellationFlag,
         dedup_cache: URLDeduplicationCache,
         settings: Settings,
+        retry_scheduler_cache: Any | None = None,
     ):
         """Initialize worker with injected dependencies.
 
@@ -60,11 +61,13 @@ class CrawlJobWorker:
             cancellation_flag: Job cancellation flag service
             dedup_cache: URL deduplication cache service
             settings: Application settings
+            retry_scheduler_cache: Optional retry scheduler cache for non-blocking delays
         """
         self.nats_queue = nats_queue
         self.cancellation_flag = cancellation_flag
         self.dedup_cache = dedup_cache
         self.settings = settings
+        self.retry_scheduler_cache = retry_scheduler_cache
         self.processing = False
 
     async def setup(self) -> None:
@@ -298,7 +301,9 @@ class CrawlJobWorker:
                 step_errors = [result for result in context.step_results.values() if result.error]
 
                 # Create retry handler
-                retry_handler = await create_retry_handler(conn, self.nats_queue)
+                retry_handler = await create_retry_handler(
+                    conn, self.nats_queue, self.retry_scheduler_cache
+                )
 
                 # Try to extract original exception from first error for classification
                 exc = None
@@ -336,7 +341,9 @@ class CrawlJobWorker:
             # Dependency validation or configuration error - usually not retryable
             error_msg = f"Workflow configuration error: {e}"
 
-            retry_handler = await create_retry_handler(conn, self.nats_queue)
+            retry_handler = await create_retry_handler(
+                conn, self.nats_queue, self.retry_scheduler_cache
+            )
             will_retry = await retry_handler.handle_job_failure(
                 job_id=job_id,
                 exc=e,
@@ -353,7 +360,9 @@ class CrawlJobWorker:
             # Unexpected error - may be retryable (network, timeout, etc.)
             error_msg = f"Workflow execution error: {e}"
 
-            retry_handler = await create_retry_handler(conn, self.nats_queue)
+            retry_handler = await create_retry_handler(
+                conn, self.nats_queue, self.retry_scheduler_cache
+            )
             will_retry = await retry_handler.handle_job_failure(
                 job_id=job_id,
                 exc=e,
@@ -516,12 +525,18 @@ async def main() -> None:
     cancellation_flag = JobCancellationFlag(redis_client, settings)
     dedup_cache = URLDeduplicationCache(redis_client, settings)
 
+    # Create retry scheduler cache for non-blocking retry delays
+    from crawler.services.retry_scheduler_cache import RetrySchedulerCache
+
+    retry_scheduler_cache = RetrySchedulerCache(redis_client, settings)
+
     # Create and run worker with dependency injection
     worker = CrawlJobWorker(
         nats_queue=nats_queue,
         cancellation_flag=cancellation_flag,
         dedup_cache=dedup_cache,
         settings=settings,
+        retry_scheduler_cache=retry_scheduler_cache,
     )
 
     try:
