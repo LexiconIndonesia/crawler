@@ -27,6 +27,7 @@ from .websites import (
     get_website_by_id_handler,
     list_websites_handler,
     rollback_config_handler,
+    trigger_crawl_handler,
     update_website_handler,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "get_website_by_id_handler",
     "list_websites_handler",
     "rollback_config_handler",
+    "trigger_crawl_handler",
     "update_website_handler",
     "create_seed_job_handler",
     "create_seed_job_inline_handler",

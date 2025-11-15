@@ -976,6 +976,110 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidationError'
 
+  /api/v1/websites/{id}/trigger:
+    post:
+      tags:
+        - Websites
+      summary: Manually trigger immediate crawl job execution
+      description: |
+        Create a high-priority crawl job for immediate execution.
+
+        This endpoint:
+        1. Validates the website exists and is active
+        2. Creates a one-time crawl job with **priority 10** (highest)
+        3. Uses the website's base_url as the seed URL
+        4. Pushes the job to the front of the queue
+        5. Returns the job ID for tracking
+
+        **Use Cases:**
+        - Emergency content updates
+        - Testing website configuration
+        - Manual refresh after site changes
+        - On-demand crawling outside scheduled runs
+
+        **Priority Handling:**
+        - Manual triggers get **priority 10** (highest)
+        - Will be processed before scheduled jobs (priority 4-6)
+        - Will be processed before retry jobs (priority 0)
+
+        **Note:** This creates a new job independent of scheduled jobs.
+      operationId: triggerWebsiteCrawl
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerCrawlRequest'
+            examples:
+              default:
+                summary: Trigger with default settings
+                value: {}
+              with_reason:
+                summary: Trigger with reason
+                value:
+                  reason: "Emergency content update"
+              with_variables:
+                summary: Trigger with variable overrides
+                value:
+                  reason: "Testing new configuration"
+                  variables:
+                    category: "breaking-news"
+                    limit: "50"
+      responses:
+        '201':
+          description: Crawl job triggered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerCrawlResponse'
+              examples:
+                success:
+                  value:
+                    job_id: "660e8400-e29b-41d4-a716-446655440001"
+                    website_id: "550e8400-e29b-41d4-a716-446655440000"
+                    seed_url: "https://news.example.com"
+                    priority: 10
+                    status: "pending"
+                    triggered_at: "2025-11-15T10:30:00Z"
+                    message: "High-priority crawl job created and queued"
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                website_inactive:
+                  value:
+                    detail: "Website is inactive and cannot be crawled"
+                    error_code: "WEBSITE_INACTIVE"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
   /api/v1/jobs/seed:
     post:
       tags:
@@ -3301,6 +3405,68 @@ components:
           nullable: true
           description: ID of re-crawl job if triggered
           example: null
+
+    TriggerCrawlRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+          description: Optional reason for triggering the crawl
+          example: "Emergency content update"
+        variables:
+          type: object
+          nullable: true
+          description: Optional variable overrides for this specific crawl
+          additionalProperties: true
+          example:
+            category: "breaking-news"
+            limit: "50"
+
+    TriggerCrawlResponse:
+      type: object
+      required:
+        - job_id
+        - website_id
+        - seed_url
+        - priority
+        - status
+        - triggered_at
+        - message
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: Created job ID
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        website_id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        seed_url:
+          type: string
+          format: uri
+          description: Seed URL for the crawl (website base_url)
+          example: "https://news.example.com"
+        priority:
+          type: integer
+          description: Job priority (always 10 for manual triggers)
+          example: 10
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+          description: Initial job status (always 'pending')
+          example: "pending"
+        triggered_at:
+          type: string
+          format: date-time
+          description: Timestamp when the job was triggered
+          example: "2025-11-15T10:30:00Z"
+        message:
+          type: string
+          description: Confirmation message
+          example: "High-priority crawl job created and queued"
 
     DeleteWebsiteResponse:
       type: object

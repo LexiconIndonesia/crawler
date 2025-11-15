@@ -29,14 +29,16 @@ from crawler.db.repositories import (
 
 async def get_website_service(
     db: DBSessionDep,
+    nats_queue: NATSQueueDep,
 ) -> WebsiteService:
     """Get website service with injected dependencies.
 
     Args:
         db: Database session from centralized dependency injection
+        nats_queue: NATS queue service from centralized dependency injection
 
     Returns:
-        WebsiteService instance with injected repositories
+        WebsiteService instance with injected repositories and services
 
     Usage:
         async def my_route(website_service: WebsiteServiceDep):
@@ -57,12 +59,13 @@ async def get_website_service(
     config_history_repo = WebsiteConfigHistoryRepository(conn)
     crawl_job_repo = CrawlJobRepository(conn)
 
-    # Return service with injected repositories
+    # Return service with injected repositories and services
     return WebsiteService(
         website_repo=website_repo,
         scheduled_job_repo=scheduled_job_repo,
         config_history_repo=config_history_repo,
         crawl_job_repo=crawl_job_repo,
+        nats_queue=nats_queue,
     )
 
 

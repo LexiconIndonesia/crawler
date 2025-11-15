@@ -41,12 +41,18 @@ class TestWebsiteService:
         return AsyncMock()
 
     @pytest.fixture
+    def mock_nats_queue(self):
+        """Create a mock NATS queue service."""
+        return AsyncMock()
+
+    @pytest.fixture
     def website_service(
         self,
         mock_website_repo,
         mock_scheduled_job_repo,
         mock_config_history_repo,
         mock_crawl_job_repo,
+        mock_nats_queue,
     ):
         """Create WebsiteService with mocked dependencies."""
         return WebsiteService(
@@ -54,6 +60,7 @@ class TestWebsiteService:
             scheduled_job_repo=mock_scheduled_job_repo,
             config_history_repo=mock_config_history_repo,
             crawl_job_repo=mock_crawl_job_repo,
+            nats_queue=mock_nats_queue,
         )
 
     @pytest.fixture

@@ -16,6 +16,8 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -300,3 +302,38 @@ async def rollback_config_handler(
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500
     return await website_service.rollback_config(website_id, request.version, request)
+
+
+@handle_service_errors(operation="triggering crawl")
+async def trigger_crawl_handler(
+    website_id: str,
+    request: TriggerCrawlRequest,
+    website_service: WebsiteService,
+) -> TriggerCrawlResponse:
+    """Handle manual trigger of high-priority crawl job.
+
+    This handler creates an immediate, high-priority crawl job for the specified website.
+    The job is created with priority 10 (highest) and pushed to the front of the queue.
+
+    Args:
+        website_id: Website ID to crawl
+        request: Trigger request with optional reason and variables
+        website_service: Injected website service
+
+    Returns:
+        Trigger response with job details and confirmation
+
+    Raises:
+        HTTPException: If website not found, inactive, or job creation/publish fails
+    """
+    logger.info(
+        "trigger_crawl_request",
+        website_id=website_id,
+        reason=request.reason,
+        has_variables=request.variables is not None,
+    )
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400 (website not found or inactive)
+    # RuntimeError -> 500 (job creation or publish failure)
+    return await website_service.trigger_crawl(website_id, request)

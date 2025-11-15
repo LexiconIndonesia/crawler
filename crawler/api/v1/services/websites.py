@@ -13,6 +13,8 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -33,6 +35,8 @@ from crawler.db.repositories import (
     WebsiteConfigHistoryRepository,
     WebsiteRepository,
 )
+from crawler.services.nats_queue import NATSQueueService
+from crawler.services.priority_queue import PRIORITY_MANUAL_TRIGGER
 
 logger = get_logger(__name__)
 
@@ -46,6 +50,7 @@ class WebsiteService:
         scheduled_job_repo: ScheduledJobRepository,
         config_history_repo: WebsiteConfigHistoryRepository,
         crawl_job_repo: CrawlJobRepository,
+        nats_queue: NATSQueueService,
     ):
         """Initialize service with dependencies.
 
@@ -54,11 +59,13 @@ class WebsiteService:
             scheduled_job_repo: Scheduled job repository for database access
             config_history_repo: Website config history repository for versioning
             crawl_job_repo: Crawl job repository for triggering re-crawls
+            nats_queue: NATS queue service for job queueing
         """
         self.website_repo = website_repo
         self.scheduled_job_repo = scheduled_job_repo
         self.config_history_repo = config_history_repo
         self.crawl_job_repo = crawl_job_repo
+        self.nats_queue = nats_queue
 
     async def create_website(
         self,
@@ -866,4 +873,133 @@ class WebsiteService:
             rolled_back_from_version=current_version,
             rolled_back_to_version=target_version,
             recrawl_job_id=recrawl_job_id,
+        )
+
+    async def trigger_crawl(
+        self, website_id: str, request: TriggerCrawlRequest
+    ) -> TriggerCrawlResponse:
+        """Trigger an immediate high-priority crawl job.
+
+        This method:
+        1. Validates the website exists and is active
+        2. Creates a one-time crawl job with **priority 10** (highest)
+        3. Uses the website's base_url as the seed URL
+        4. Publishes the job to the queue (front of queue due to high priority)
+        5. Returns the job ID and details for tracking
+
+        Args:
+            website_id: Website ID to crawl
+            request: Trigger request with optional reason and variables
+
+        Returns:
+            Trigger response with job details
+
+        Raises:
+            ValueError: If website not found or inactive
+            RuntimeError: If job creation or publishing fails
+        """
+        logger.info(
+            "triggering_manual_crawl",
+            website_id=website_id,
+            reason=request.reason,
+            has_variables=request.variables is not None,
+        )
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_trigger", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Guard: validate website is active
+        if website.status != DbStatusEnum.ACTIVE:
+            logger.warning(
+                "website_inactive_for_trigger",
+                website_id=website_id,
+                status=website.status.value,
+            )
+            raise ValueError(f"Website is {website.status.value} and cannot be crawled")
+
+        # Extract max_retries from website config if available
+        max_retries = 3  # Default
+        if isinstance(website.config, dict):
+            global_config = website.config.get("global_config", {})
+            if isinstance(global_config, dict):
+                retry_config = global_config.get("retry", {})
+                if isinstance(retry_config, dict):
+                    max_attempts = retry_config.get("max_attempts")
+                    if max_attempts is not None:
+                        max_retries = max_attempts
+
+        # Create high-priority crawl job
+        # Priority 10 = PRIORITY_MANUAL_TRIGGER (highest priority)
+        triggered_at = datetime.now(UTC)
+        metadata = {"trigger_reason": request.reason} if request.reason else None
+
+        crawl_job = await self.crawl_job_repo.create_template_based_job(
+            website_id=website_id,
+            seed_url=website.base_url,
+            variables=request.variables or {},
+            job_type=JobTypeEnum.ONE_TIME,
+            priority=PRIORITY_MANUAL_TRIGGER,  # Priority 10 - highest
+            scheduled_at=None,  # Immediate execution
+            max_retries=max_retries,
+            metadata=metadata,
+        )
+
+        # Guard: job creation failed
+        if not crawl_job:
+            logger.error(
+                "trigger_job_creation_failed",
+                website_id=website_id,
+                reason="create_template_based_job returned None",
+            )
+            raise RuntimeError("Failed to create crawl job")
+
+        logger.info(
+            "trigger_job_created",
+            job_id=str(crawl_job.id),
+            website_id=website_id,
+            priority=crawl_job.priority,
+            seed_url=website.base_url,
+        )
+
+        # Publish job to NATS queue
+        job_data = {
+            "website_id": str(crawl_job.website_id),
+            "seed_url": crawl_job.seed_url,
+            "job_type": crawl_job.job_type.value,
+            "priority": crawl_job.priority,
+            "manual_trigger": True,
+        }
+        published = await self.nats_queue.publish_job(str(crawl_job.id), job_data)
+
+        # Guard: publish failed
+        if not published:
+            logger.error(
+                "trigger_job_publish_failed",
+                job_id=str(crawl_job.id),
+                website_id=website_id,
+                reason="NATS queue publish returned False",
+            )
+            raise RuntimeError("Failed to publish job to queue")
+
+        logger.info(
+            "trigger_job_published",
+            job_id=str(crawl_job.id),
+            website_id=website_id,
+            priority=crawl_job.priority,
+        )
+
+        # Build response
+        from crawler.api.generated.models import Status1
+
+        return TriggerCrawlResponse(
+            job_id=crawl_job.id,
+            website_id=UUID(website_id),
+            seed_url=AnyUrl(website.base_url),
+            priority=crawl_job.priority,
+            status=Status1.pending,  # Job always starts as pending
+            triggered_at=triggered_at,
+            message="High-priority crawl job created and queued",
         )

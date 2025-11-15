@@ -13,6 +13,8 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -27,6 +29,7 @@ from crawler.api.v1.handlers import (
     get_website_by_id_handler,
     list_websites_handler,
     rollback_config_handler,
+    trigger_crawl_handler,
     update_website_handler,
 )
 
@@ -601,3 +604,68 @@ async def rollback_config(
         HTTPException: If website or version not found, or rollback fails
     """
     return await rollback_config_handler(id, request, website_service)
+
+
+@router.post(
+    "/{id}/trigger",
+    response_model=TriggerCrawlResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Manually trigger immediate crawl job execution",
+    operation_id="triggerWebsiteCrawl",
+    description="""
+    Create a high-priority crawl job for immediate execution.
+
+    This endpoint:
+    1. Validates the website exists and is active
+    2. Creates a one-time crawl job with **priority 10** (highest)
+    3. Uses the website's base_url as the seed URL
+    4. Pushes the job to the front of the queue
+    5. Returns the job ID for tracking
+
+    **Use Cases:**
+    - Emergency content updates
+    - Testing website configuration
+    - Manual refresh after site changes
+    - On-demand crawling outside scheduled runs
+
+    **Priority Handling:**
+    - Manual triggers get **priority 10** (highest)
+    - Will be processed before scheduled jobs (priority 4-6)
+    - Will be processed before retry jobs (priority 0)
+
+    **Note:** This creates a new job independent of scheduled jobs.
+    """,
+    responses={
+        201: {
+            "description": "Crawl job triggered successfully",
+            "model": TriggerCrawlResponse,
+        },
+        400: {
+            "description": "Website inactive or invalid request",
+            "model": ErrorResponse,
+        },
+        404: {
+            "description": "Website not found",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def trigger_website_crawl(
+    id: Annotated[str, Path(description="Website ID")],
+    request: TriggerCrawlRequest,
+    website_service: WebsiteServiceDep,
+) -> TriggerCrawlResponse:
+    """Trigger immediate high-priority crawl for a website.
+
+    Args:
+        id: Website ID
+        request: Trigger request with optional reason and variables
+        website_service: Injected website service
+
+    Returns:
+        Trigger response with job ID and details
+
+    Raises:
+        HTTPException: If website not found, inactive, or job creation fails
+    """
+    return await trigger_crawl_handler(id, request, website_service)
