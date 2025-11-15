@@ -308,13 +308,17 @@ class CrawlJobWorker:
                 # Try to extract original exception from first error for classification
                 exc = None
                 if step_errors:
-                    # If step result stores the original exception, use it for proper classification
-                    # Otherwise fall back to generic Exception with error message
-                    exc = (
-                        step_errors[0].exception
-                        if step_errors[0].exception
-                        else Exception(step_errors[0].error)
-                    )
+                    step = step_errors[0]
+                    # Safely extract exception attribute (may not exist on all step result types)
+                    exc = getattr(step, "exception", None)
+                    if not exc:
+                        # Fall back to creating Exception from error attribute
+                        error_text = getattr(step, "error", None)
+                        if error_text:
+                            exc = Exception(error_text)
+                        else:
+                            # Last resort: stringify the step result
+                            exc = Exception(str(step))
 
                 # Handle failure with retry logic
                 will_retry = await retry_handler.handle_job_failure(

@@ -285,6 +285,9 @@ _memory_pressure_handler: MemoryPressureHandler | None = None
 # Global retry scheduler cache instance (singleton pattern)
 _retry_scheduler_cache: RetrySchedulerCache | None = None
 
+# Global Redis client for retry scheduler (singleton pattern)
+_retry_scheduler_redis: redis.Redis | None = None
+
 
 async def get_browser_pool(
     settings: SettingsDep,
@@ -462,13 +465,17 @@ async def start_retry_scheduler_service(
     """
     from crawler.services import start_retry_scheduler
 
+    global _retry_scheduler_redis
+
     settings = get_settings()
-    # Get Redis client from generator
-    async for redis_client in get_redis_client():
-        retry_cache = await get_retry_scheduler_cache(redis_client, settings)
-        nats_queue = await get_nats_queue_service(settings)
-        await start_retry_scheduler(retry_cache, nats_queue, interval_seconds, batch_size)
-        break  # Only need one iteration
+
+    # Create dedicated Redis client for retry scheduler (avoid generator leak)
+    _retry_scheduler_redis = await redis.from_url(settings.redis_url)
+
+    retry_cache = await get_retry_scheduler_cache(_retry_scheduler_redis, settings)
+    nats_queue = await get_nats_queue_service(settings)
+
+    await start_retry_scheduler(retry_cache, nats_queue, interval_seconds, batch_size)
 
 
 async def stop_retry_scheduler_service() -> None:
@@ -478,7 +485,18 @@ async def stop_retry_scheduler_service() -> None:
     """
     from crawler.services import stop_retry_scheduler
 
+    global _retry_scheduler_redis, _retry_scheduler_cache
+
+    # Stop scheduler task
     await stop_retry_scheduler()
+
+    # Cleanup singletons
+    _retry_scheduler_cache = None
+
+    # Close Redis client
+    if _retry_scheduler_redis is not None:
+        await _retry_scheduler_redis.aclose()  # type: ignore[attr-defined]
+        _retry_scheduler_redis = None
 
 
 async def get_memory_monitor(
