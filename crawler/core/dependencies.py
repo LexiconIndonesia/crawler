@@ -23,6 +23,7 @@ from crawler.services.log_publisher import LogPublisher
 from crawler.services.memory_monitor import MemoryMonitor
 from crawler.services.memory_pressure_handler import MemoryPressureHandler
 from crawler.services.nats_queue import NATSQueueService
+from crawler.services.priority_queue import PriorityQueueService
 
 if TYPE_CHECKING:
     from crawler.services.retry_scheduler_cache import RetrySchedulerCache
@@ -232,6 +233,20 @@ async def get_job_progress_cache(
     from crawler.services.redis_cache import JobProgressCache
 
     return JobProgressCache(redis_client=redis_client, settings=settings)
+
+
+async def get_priority_queue(
+    redis_client: RedisDep,
+) -> PriorityQueueService:
+    """Get priority queue service with injected dependencies.
+
+    Args:
+        redis_client: Redis client from dependency
+
+    Returns:
+        PriorityQueueService instance
+    """
+    return PriorityQueueService(redis_client=redis_client)
 
 
 async def get_websocket_token_service(
@@ -719,3 +734,4 @@ BrowserPoolStatusDep = Annotated[BrowserPoolStatus, Depends(get_browser_pool_sta
 JobProgressCacheDep = Annotated[JobProgressCache, Depends(get_job_progress_cache)]
 WebSocketTokenServiceDep = Annotated[WebSocketTokenService, Depends(get_websocket_token_service)]
 LogBufferDep = Annotated[LogBuffer, Depends(get_log_buffer)]
+PriorityQueueDep = Annotated[PriorityQueueService, Depends(get_priority_queue)]

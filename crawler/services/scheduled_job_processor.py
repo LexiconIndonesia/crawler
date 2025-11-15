@@ -106,12 +106,13 @@ async def process_scheduled_jobs(
                 continue
 
             # Create crawl job from scheduled job using website base_url as seed
+            # Priority 5 = normal scheduled jobs (within 4-6 range as per requirements)
             crawl_job = await crawl_job_repo.create_template_based_job(
                 website_id=str(scheduled_job.website_id),
                 seed_url=website.base_url,  # Use website base_url as seed_url
                 variables=scheduled_job.job_config or {},  # Use job_config as variables
                 job_type=JobTypeEnum.SCHEDULED,
-                priority=5,  # Default priority for scheduled jobs
+                priority=5,  # PRIORITY_SCHEDULED - normal scheduled jobs
                 scheduled_at=now,
                 max_retries=3,  # Default retry count
                 metadata={

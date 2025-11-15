@@ -7,6 +7,7 @@ from .memory_monitor import MemoryLevel, MemoryMonitor, MemoryStatus
 from .memory_pressure_handler import MemoryPressureHandler, PressureAction, PressureState
 from .nats_queue import NATSQueueService
 from .pagination import PaginationService
+from .priority_queue import PriorityQueueService
 from .redis_cache import (
     BrowserPoolStatus,
     JobCancellationFlag,
@@ -38,6 +39,7 @@ __all__ = [
     "PressureState",
     "NATSQueueService",
     "PaginationService",
+    "PriorityQueueService",
     "URLDeduplicationCache",
     "URLExtractorService",
     "ExtractedURL",
