@@ -1,6 +1,6 @@
 """Website service with business logic."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from pydantic import AnyUrl
@@ -13,6 +13,7 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    ScheduleStatusResponse,
     TriggerCrawlRequest,
     TriggerCrawlResponse,
     UpdateWebsiteRequest,
@@ -1002,4 +1003,142 @@ class WebsiteService:
             status=Status1.pending,  # Job always starts as pending
             triggered_at=triggered_at,
             message="High-priority crawl job created and queued",
+        )
+
+    async def pause_schedule(self, website_id: str) -> ScheduleStatusResponse:
+        """Pause scheduled crawls for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Schedule status response
+
+        Raises:
+            ValueError: If website not found or no scheduled job exists
+            RuntimeError: If pause operation fails
+        """
+        logger.info("pausing_schedule", website_id=website_id)
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_pause", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get scheduled jobs
+        scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
+
+        # Guard: verify scheduled job exists
+        if not scheduled_jobs:
+            logger.warning("no_scheduled_job_for_pause", website_id=website_id)
+            raise ValueError("No scheduled job found for website")
+
+        # Pause all scheduled jobs (set is_active=False)
+        scheduled_job_id = None
+        cron_schedule = None
+        last_run_time = None
+
+        for job in scheduled_jobs:
+            updated_job = await self.scheduled_job_repo.toggle_status(
+                job_id=job.id, is_active=False
+            )
+            if updated_job:
+                scheduled_job_id = updated_job.id
+                cron_schedule = updated_job.cron_schedule
+                last_run_time = updated_job.last_run_time
+                logger.info("scheduled_job_paused", job_id=updated_job.id)
+
+        logger.info(
+            "schedule_paused",
+            website_id=website_id,
+            scheduled_job_id=str(scheduled_job_id) if scheduled_job_id else None,
+        )
+
+        return ScheduleStatusResponse(
+            id=UUID(website_id),
+            name=website.name,
+            scheduled_job_id=scheduled_job_id,
+            is_active=False,
+            cron_schedule=cron_schedule,
+            next_run_time=None,  # No next run when paused
+            last_run_time=last_run_time,
+            message=f"Scheduled crawls paused for website '{website.name}'",
+        )
+
+    async def resume_schedule(self, website_id: str) -> ScheduleStatusResponse:
+        """Resume scheduled crawls for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Schedule status response
+
+        Raises:
+            ValueError: If website not found or no scheduled job exists
+            RuntimeError: If resume operation fails
+        """
+        logger.info("resuming_schedule", website_id=website_id)
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_resume", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get scheduled jobs
+        scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
+
+        # Guard: verify scheduled job exists
+        if not scheduled_jobs:
+            logger.warning("no_scheduled_job_for_resume", website_id=website_id)
+            raise ValueError("No scheduled job found for website")
+
+        # Resume all scheduled jobs (set is_active=True and recalculate next_run_time)
+        scheduled_job_id = None
+        cron_schedule = None
+        next_run_time = None
+        last_run_time = None
+
+        for job in scheduled_jobs:
+            # Calculate next run time from cron schedule
+            is_valid, result = validate_and_calculate_next_run(job.cron_schedule)
+            if is_valid and isinstance(result, datetime):
+                next_run_time = result
+            else:
+                # Fallback to current time + 1 day if cron validation fails
+                next_run_time = datetime.now(UTC) + timedelta(days=1)
+
+            # Update job with is_active=True and new next_run_time
+            updated_job = await self.scheduled_job_repo.update(
+                job_id=job.id, is_active=True, next_run_time=next_run_time
+            )
+
+            if updated_job:
+                scheduled_job_id = updated_job.id
+                cron_schedule = updated_job.cron_schedule
+                last_run_time = updated_job.last_run_time
+                logger.info(
+                    "scheduled_job_resumed",
+                    job_id=updated_job.id,
+                    next_run_time=next_run_time.isoformat() if next_run_time else None,
+                )
+
+        logger.info(
+            "schedule_resumed",
+            website_id=website_id,
+            scheduled_job_id=str(scheduled_job_id) if scheduled_job_id else None,
+            next_run_time=next_run_time.isoformat() if next_run_time else None,
+        )
+
+        return ScheduleStatusResponse(
+            id=UUID(website_id),
+            name=website.name,
+            scheduled_job_id=scheduled_job_id,
+            is_active=True,
+            cron_schedule=cron_schedule,
+            next_run_time=next_run_time,
+            last_run_time=last_run_time,
+            message=f"Scheduled crawls resumed for website '{website.name}'",
         )

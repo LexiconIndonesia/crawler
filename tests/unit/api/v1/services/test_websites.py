@@ -724,3 +724,183 @@ class TestWebsiteService:
         job_call_args = website_service.scheduled_job_repo.create.call_args
         # Should use default bi-weekly cron since new_cron is None
         assert job_call_args.kwargs["cron_schedule"] == "0 0 1,15 * *"
+
+    @pytest.mark.asyncio
+    async def test_pause_schedule_success(self, website_service) -> None:
+        """Test successfully pausing a website schedule."""
+        # Arrange
+        website_id = str(uuid7())
+        scheduled_job_id = uuid7()
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.active,
+            cron_schedule="0 0 1,15 * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        mock_scheduled_job = MagicMock()
+        mock_scheduled_job.id = scheduled_job_id
+        mock_scheduled_job.cron_schedule = "0 0 1,15 * *"
+        mock_scheduled_job.last_run_time = datetime.now(UTC)
+
+        mock_updated_job = MagicMock()
+        mock_updated_job.id = scheduled_job_id
+        mock_updated_job.cron_schedule = "0 0 1,15 * *"
+        mock_updated_job.last_run_time = mock_scheduled_job.last_run_time
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.scheduled_job_repo.get_by_website_id.return_value = [mock_scheduled_job]
+        website_service.scheduled_job_repo.toggle_status.return_value = mock_updated_job
+
+        # Act
+        result = await website_service.pause_schedule(website_id)
+
+        # Assert
+        assert result.is_active is False
+        assert result.next_run_time is None  # No next run when paused
+        assert result.scheduled_job_id == scheduled_job_id
+        assert result.name == "Test Website"
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_called_once()
+        website_service.scheduled_job_repo.toggle_status.assert_called_once_with(
+            job_id=scheduled_job_id, is_active=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_pause_schedule_website_not_found(self, website_service) -> None:
+        """Test pausing schedule fails when website not found."""
+        # Arrange
+        website_id = str(uuid7())
+        website_service.website_repo.get_by_id.return_value = None
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="not found"):
+            await website_service.pause_schedule(website_id)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pause_schedule_no_scheduled_job(self, website_service) -> None:
+        """Test pausing schedule fails when no scheduled job exists."""
+        # Arrange
+        website_id = str(uuid7())
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.active,
+            cron_schedule="0 0 1,15 * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.scheduled_job_repo.get_by_website_id.return_value = []
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="No scheduled job found"):
+            await website_service.pause_schedule(website_id)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_resume_schedule_success(self, website_service) -> None:
+        """Test successfully resuming a website schedule."""
+        # Arrange
+        website_id = str(uuid7())
+        scheduled_job_id = uuid7()
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.active,
+            cron_schedule="0 0 1,15 * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        mock_scheduled_job = MagicMock()
+        mock_scheduled_job.id = scheduled_job_id
+        mock_scheduled_job.cron_schedule = "0 0 1,15 * *"
+        mock_scheduled_job.last_run_time = datetime.now(UTC)
+
+        mock_updated_job = MagicMock()
+        mock_updated_job.id = scheduled_job_id
+        mock_updated_job.cron_schedule = "0 0 1,15 * *"
+        mock_updated_job.last_run_time = mock_scheduled_job.last_run_time
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.scheduled_job_repo.get_by_website_id.return_value = [mock_scheduled_job]
+        website_service.scheduled_job_repo.update.return_value = mock_updated_job
+
+        # Act
+        result = await website_service.resume_schedule(website_id)
+
+        # Assert
+        assert result.is_active is True
+        assert result.next_run_time is not None  # Should have next run time
+        assert result.scheduled_job_id == scheduled_job_id
+        assert result.name == "Test Website"
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_called_once()
+        website_service.scheduled_job_repo.update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_resume_schedule_website_not_found(self, website_service) -> None:
+        """Test resuming schedule fails when website not found."""
+        # Arrange
+        website_id = str(uuid7())
+        website_service.website_repo.get_by_id.return_value = None
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="not found"):
+            await website_service.resume_schedule(website_id)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_schedule_no_scheduled_job(self, website_service) -> None:
+        """Test resuming schedule fails when no scheduled job exists."""
+        # Arrange
+        website_id = str(uuid7())
+
+        mock_website = Website(
+            id=uuid7(),
+            name="Test Website",
+            base_url="https://example.com",
+            config={},
+            status=StatusEnum.active,
+            cron_schedule="0 0 1,15 * *",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            created_by=None,
+            deleted_at=None,
+        )
+
+        website_service.website_repo.get_by_id.return_value = mock_website
+        website_service.scheduled_job_repo.get_by_website_id.return_value = []
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="No scheduled job found"):
+            await website_service.resume_schedule(website_id)
+
+        website_service.website_repo.get_by_id.assert_called_once_with(website_id)
+        website_service.scheduled_job_repo.get_by_website_id.assert_called_once()

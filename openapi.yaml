@@ -1080,6 +1080,184 @@ paths:
               schema:
                 $ref: '#/components/schemas/ValidationError'
 
+  /api/v1/websites/{id}/pause:
+    post:
+      tags:
+        - Websites
+      summary: Pause scheduled crawls for a website
+      description: |
+        Pause all scheduled crawls for the specified website.
+
+        This endpoint:
+        1. Validates the website exists
+        2. Sets the is_active flag to false on all scheduled jobs for this website
+        3. Prevents the scheduler from triggering future crawls
+        4. Does not affect currently running jobs
+        5. Returns updated website status with schedule info
+
+        **Use Cases:**
+        - Temporarily stop scheduled crawls for maintenance
+        - Pause crawls while investigating issues
+        - Disable scheduling without deleting configuration
+
+        **Note:** Already running jobs will continue to completion.
+        To cancel running jobs, use the job cancellation endpoint.
+      operationId: pauseWebsiteSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+            examples:
+              default:
+                summary: Pause schedule
+                value: {}
+      responses:
+        '200':
+          description: Website schedule paused successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleStatusResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    scheduled_job_id: "660e8400-e29b-41d4-a716-446655440000"
+                    is_active: false
+                    cron_schedule: "0 0 1,15 * *"
+                    next_run_time: null
+                    last_run_time: "2025-11-01T00:00:00Z"
+                    message: "Scheduled crawls paused for website 'Example News Site'"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+                no_scheduled_job:
+                  value:
+                    detail: "No scheduled job found for website"
+                    error_code: "NO_SCHEDULED_JOB"
+        '422':
+          description: Validation error (invalid UUID format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/websites/{id}/resume:
+    post:
+      tags:
+        - Websites
+      summary: Resume scheduled crawls for a website
+      description: |
+        Resume scheduled crawls for the specified website.
+
+        This endpoint:
+        1. Validates the website exists
+        2. Sets the is_active flag to true on all scheduled jobs for this website
+        3. Recalculates the next_run_time based on the cron schedule
+        4. Allows the scheduler to trigger future crawls
+        5. Returns updated website status with schedule info
+
+        **Use Cases:**
+        - Resume crawls after maintenance
+        - Re-enable scheduling after fixing issues
+        - Restart scheduled crawls after a pause
+
+        **Note:** The next_run_time is recalculated from the current time
+        using the existing cron schedule.
+      operationId: resumeWebsiteSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Website ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+            examples:
+              default:
+                summary: Resume schedule
+                value: {}
+      responses:
+        '200':
+          description: Website schedule resumed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleStatusResponse'
+              examples:
+                success:
+                  value:
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example News Site"
+                    scheduled_job_id: "660e8400-e29b-41d4-a716-446655440000"
+                    is_active: true
+                    cron_schedule: "0 0 1,15 * *"
+                    next_run_time: "2025-12-01T00:00:00Z"
+                    last_run_time: "2025-11-01T00:00:00Z"
+                    message: "Scheduled crawls resumed for website 'Example News Site'"
+        '404':
+          description: Website not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    detail: "Website with ID '550e8400-e29b-41d4-a716-446655440000' not found"
+                    error_code: "WEBSITE_NOT_FOUND"
+                no_scheduled_job:
+                  value:
+                    detail: "No scheduled job found for website"
+                    error_code: "NO_SCHEDULED_JOB"
+        '422':
+          description: Validation error (invalid UUID format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/jobs/seed:
     post:
       tags:
@@ -3467,6 +3645,55 @@ components:
           type: string
           description: Confirmation message
           example: "High-priority crawl job created and queued"
+
+    ScheduleStatusResponse:
+      type: object
+      required:
+        - id
+        - name
+        - is_active
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        scheduled_job_id:
+          type: string
+          format: uuid
+          description: Scheduled job ID (if exists)
+          nullable: true
+          example: "660e8400-e29b-41d4-a716-446655440000"
+        is_active:
+          type: boolean
+          description: Whether scheduled crawls are active
+          example: false
+        cron_schedule:
+          type: string
+          description: Cron expression for the schedule
+          nullable: true
+          example: "0 0 1,15 * *"
+        next_run_time:
+          type: string
+          format: date-time
+          description: Next scheduled run time (null if paused)
+          nullable: true
+          example: "2025-12-01T00:00:00Z"
+        last_run_time:
+          type: string
+          format: date-time
+          description: Last scheduled run time
+          nullable: true
+          example: "2025-11-01T00:00:00Z"
+        message:
+          type: string
+          description: Status message
+          example: "Scheduled crawls paused for website 'Example News Site'"
 
     DeleteWebsiteResponse:
       type: object
