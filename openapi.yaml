@@ -2363,6 +2363,16 @@ components:
         - inactive
       description: Status of website or job
 
+    CrawlJobStatus:
+      type: string
+      enum:
+        - pending
+        - running
+        - completed
+        - failed
+        - cancelled
+      description: Status of a crawl job
+
     ScheduleTypeEnum:
       type: string
       enum:
@@ -2494,9 +2504,9 @@ components:
             IANA timezone name for schedule calculations (e.g., UTC, America/New_York, Asia/Jakarta).
             The schedule will run at the specified local time in this timezone.
             For example, "0 2 * * *" with timezone "Asia/Jakarta" means 2 AM Jakarta time every day.
+            Validated at application layer using Python's zoneinfo module.
           default: "UTC"
           example: "Asia/Jakarta"
-          pattern: '^[A-Za-z]+(/[A-Za-z_]+)?$'
         enabled:
           type: boolean
           description: Enable/disable schedule
@@ -3636,10 +3646,10 @@ components:
           description: Job priority (always 10 for manual triggers)
           example: 10
         status:
-          type: string
-          enum: [pending, running, completed, failed, cancelled]
-          description: Initial job status (always 'pending')
-          example: "pending"
+          allOf:
+            - $ref: '#/components/schemas/CrawlJobStatus'
+            - description: Initial job status (always 'pending')
+              example: "pending"
         triggered_at:
           type: string
           format: date-time

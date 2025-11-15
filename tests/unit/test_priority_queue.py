@@ -164,6 +164,9 @@ class TestEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_success(self, priority_queue, mock_redis):
         """Test successfully enqueuing a job."""
+        # Mock zscore to indicate job doesn't exist
+        mock_redis.zscore.return_value = None
+
         # Setup mock pipeline
         pipeline_mock = AsyncMock()
         pipeline_mock.zadd = AsyncMock()
@@ -193,15 +196,8 @@ class TestEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_duplicate_job(self, priority_queue, mock_redis):
         """Test enqueuing a job that already exists."""
-        # Setup mock pipeline - ZADD returns 0 for duplicate
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zadd = AsyncMock()
-        pipeline_mock.set = AsyncMock()
-        pipeline_mock.expire = AsyncMock()
-        pipeline_mock.execute = AsyncMock(return_value=[0, True, True])  # ZADD added 0 (duplicate)
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Mock zscore to indicate job already exists
+        mock_redis.zscore.return_value = 1234567.0  # Job exists with some score
 
         job_id = "duplicate-job"
         job_data = {"test": "data"}
@@ -209,10 +205,15 @@ class TestEnqueue:
         result = await priority_queue.enqueue(job_id=job_id, job_data=job_data, priority=5)
 
         assert result is False  # Should return False for duplicate
+        # Verify zscore was called to check existence
+        mock_redis.zscore.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_enqueue_stores_metadata(self, priority_queue, mock_redis):
         """Test that enqueue stores priority and scheduling metadata."""
+        # Mock zscore to indicate job doesn't exist
+        mock_redis.zscore.return_value = None
+
         pipeline_mock = AsyncMock()
         pipeline_mock.zadd = AsyncMock()
         pipeline_mock.set = AsyncMock()

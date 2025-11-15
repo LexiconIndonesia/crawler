@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from crawler.core.logging import get_logger
 from crawler.core.metrics import scheduled_jobs_processed_total
@@ -34,6 +34,88 @@ _processor_task: asyncio.Task | None = None
 
 # Maximum delay for catch-up (1 hour)
 MAX_CATCHUP_DELAY = timedelta(hours=1)
+
+
+async def _create_and_publish_crawl_job(
+    crawl_job_repo: CrawlJobRepository,
+    nats_queue: NATSQueueService,
+    website_id: str,
+    seed_url: str,
+    job_config: dict[str, Any] | None,
+    scheduled_job_id: str,
+    cron_schedule: str,
+    now: datetime,
+    is_catchup: bool = False,
+    missed_time: datetime | None = None,
+) -> str | None:
+    """Create and publish a crawl job. Returns crawl_job_id on success, None on failure.
+
+    Args:
+        crawl_job_repo: Repository for crawl job operations
+        nats_queue: NATS queue service for job publishing
+        website_id: Website ID for the crawl job
+        seed_url: Seed URL to start crawling from
+        job_config: Job configuration variables
+        scheduled_job_id: ID of the scheduled job that triggered this crawl
+        cron_schedule: Cron schedule expression
+        now: Current timestamp
+        is_catchup: Whether this is a catch-up job for a missed schedule
+        missed_time: The original scheduled time that was missed (for catch-up jobs)
+
+    Returns:
+        Crawl job ID on success, None on failure
+    """
+    # Build metadata
+    metadata: dict[str, str] = {
+        "scheduled_job_id": scheduled_job_id,
+        "cron_schedule": cron_schedule,
+    }
+    if is_catchup:
+        metadata["catchup"] = "true"  # Store as string for consistency
+        if missed_time:
+            metadata["missed_time"] = missed_time.isoformat()
+
+    # Create crawl job
+    crawl_job = await crawl_job_repo.create_template_based_job(
+        website_id=website_id,
+        seed_url=seed_url,
+        variables=job_config or {},
+        job_type=JobTypeEnum.SCHEDULED,
+        priority=5,  # Normal scheduled job priority
+        scheduled_at=now,
+        max_retries=3,
+        metadata=metadata,
+    )
+
+    # Guard: job creation failed
+    if not crawl_job:
+        logger.error(
+            "job_creation_failed",
+            scheduled_job_id=scheduled_job_id,
+            reason="create_template_based_job returned None",
+        )
+        return None
+
+    # Publish job to NATS queue
+    job_data = {
+        "website_id": str(crawl_job.website_id) if crawl_job.website_id else None,
+        "seed_url": crawl_job.seed_url,
+        "job_type": crawl_job.job_type.value,
+        "priority": crawl_job.priority,
+    }
+    published = await nats_queue.publish_job(str(crawl_job.id), job_data)
+
+    # Guard: publish failed
+    if not published:
+        logger.error(
+            "job_publish_failed",
+            crawl_job_id=str(crawl_job.id),
+            scheduled_job_id=scheduled_job_id,
+        )
+        await crawl_job_repo.update_status(job_id=str(crawl_job.id), status=StatusEnum.FAILED)
+        return None
+
+    return str(crawl_job.id)
 
 
 async def handle_missed_schedules(
@@ -164,47 +246,21 @@ async def handle_missed_schedules(
                 )
 
                 # Create and publish crawl job (same as regular processing)
-                crawl_job = await crawl_job_repo.create_template_based_job(
+                crawl_job_id = await _create_and_publish_crawl_job(
+                    crawl_job_repo=crawl_job_repo,
+                    nats_queue=nats_queue,
                     website_id=str(job.website_id),
                     seed_url=website.base_url,
-                    variables=job.job_config or {},
-                    job_type=JobTypeEnum.SCHEDULED,
-                    priority=5,  # Normal scheduled job priority
-                    scheduled_at=now,
-                    max_retries=3,
-                    metadata={
-                        "scheduled_job_id": str(job.id),
-                        "cron_schedule": job.cron_schedule,
-                        "catchup": True,
-                        "missed_time": job.next_run_time.isoformat(),
-                    },
+                    job_config=job.job_config,
+                    scheduled_job_id=str(job.id),
+                    cron_schedule=job.cron_schedule,
+                    now=now,
+                    is_catchup=True,
+                    missed_time=job.next_run_time,
                 )
 
-                if not crawl_job:
-                    logger.error(
-                        "catchup_job_creation_failed",
-                        scheduled_job_id=str(job.id),
-                        reason="create_template_based_job returned None",
-                    )
-                    continue
-
-                job_data = {
-                    "website_id": str(crawl_job.website_id) if crawl_job.website_id else None,
-                    "seed_url": crawl_job.seed_url,
-                    "job_type": crawl_job.job_type.value,
-                    "priority": crawl_job.priority,
-                }
-                published = await nats_queue.publish_job(str(crawl_job.id), job_data)
-
-                if not published:
-                    logger.error(
-                        "catchup_job_publish_failed",
-                        crawl_job_id=str(crawl_job.id),
-                        scheduled_job_id=str(job.id),
-                    )
-                    await crawl_job_repo.update_status(
-                        job_id=str(crawl_job.id), status=StatusEnum.FAILED
-                    )
+                # Guard: job creation or publishing failed
+                if not crawl_job_id:
                     continue
 
                 caught_up += 1
@@ -326,53 +382,22 @@ async def process_scheduled_jobs(
                 )
                 continue
 
-            # Create crawl job from scheduled job using website base_url as seed
-            # Priority 5 = normal scheduled jobs (within 4-6 range as per requirements)
-            crawl_job = await crawl_job_repo.create_template_based_job(
+            # Create and publish crawl job using helper function
+            crawl_job_id = await _create_and_publish_crawl_job(
+                crawl_job_repo=crawl_job_repo,
+                nats_queue=nats_queue,
                 website_id=str(scheduled_job.website_id),
-                seed_url=website.base_url,  # Use website base_url as seed_url
-                variables=scheduled_job.job_config or {},  # Use job_config as variables
-                job_type=JobTypeEnum.SCHEDULED,
-                priority=5,  # PRIORITY_SCHEDULED - normal scheduled jobs
-                scheduled_at=now,
-                max_retries=3,  # Default retry count
-                metadata={
-                    "scheduled_job_id": str(scheduled_job.id),
-                    "cron_schedule": scheduled_job.cron_schedule,
-                },
+                seed_url=website.base_url,
+                job_config=scheduled_job.job_config,
+                scheduled_job_id=str(scheduled_job.id),
+                cron_schedule=scheduled_job.cron_schedule,
+                now=now,
+                is_catchup=False,
+                missed_time=None,
             )
 
-            # Guard: job creation failed
-            if not crawl_job:
-                logger.error(
-                    "crawl_job_creation_failed",
-                    scheduled_job_id=str(scheduled_job.id),
-                    website_id=str(scheduled_job.website_id),
-                    reason="create_template_based_job returned None",
-                )
-                continue
-
-            # Publish job to NATS queue
-            job_data = {
-                "website_id": str(crawl_job.website_id) if crawl_job.website_id else None,
-                "seed_url": crawl_job.seed_url,
-                "job_type": crawl_job.job_type.value,
-                "priority": crawl_job.priority,
-            }
-            published = await nats_queue.publish_job(str(crawl_job.id), job_data)
-
-            # Guard: publish failed
-            if not published:
-                logger.error(
-                    "job_publish_failed",
-                    crawl_job_id=str(crawl_job.id),
-                    scheduled_job_id=str(scheduled_job.id),
-                    reason="NATS queue publish returned False",
-                )
-                # Mark job as failed since it wasn't enqueued
-                await crawl_job_repo.update_status(
-                    job_id=str(crawl_job.id), status=StatusEnum.FAILED
-                )
+            # Guard: job creation or publishing failed
+            if not crawl_job_id:
                 continue
 
             # Calculate next run time from cron expression in job's timezone
@@ -424,7 +449,7 @@ async def process_scheduled_jobs(
             logger.info(
                 "scheduled_job_processed",
                 scheduled_job_id=str(scheduled_job.id),
-                crawl_job_id=str(crawl_job.id),
+                crawl_job_id=crawl_job_id,
                 website_id=str(scheduled_job.website_id),
                 seed_url=website.base_url,
                 next_run_time=next_run_time.isoformat(),

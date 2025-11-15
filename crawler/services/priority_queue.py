@@ -160,6 +160,17 @@ class PriorityQueueService:
             Use remove() first if you need to re-enqueue with different priority.
         """
         try:
+            # Check if job already exists
+            exists = await self.redis.zscore(self.queue_key, job_id) is not None
+            if exists:
+                logger.warning(
+                    "job_already_in_queue",
+                    job_id=job_id,
+                    priority=priority,
+                    reason="Job already exists in queue - not updating",
+                )
+                return False
+
             score = self._calculate_score(priority, scheduled_at)
 
             # Store job data as JSON in a hash
@@ -173,34 +184,23 @@ class PriorityQueueService:
 
             # Use pipeline for atomicity
             async with self.redis.pipeline(transaction=True) as pipe:
-                # Add job to sorted set (NX = only if not exists)
-                await pipe.zadd(self.queue_key, {job_id: score}, nx=True)
+                # Add job to sorted set
+                await pipe.zadd(self.queue_key, {job_id: score})
                 # Store job metadata
                 await pipe.set(data_key, json.dumps(job_data_with_meta))
                 # Set TTL on data (7 days) to prevent memory leaks
                 await pipe.expire(data_key, 7 * 24 * 3600)
-                results = await pipe.execute()
+                await pipe.execute()
 
-            # ZADD with NX returns number of elements added (0 if already exists)
-            added = bool(results[0] == 1)
+            logger.info(
+                "job_enqueued",
+                job_id=job_id,
+                priority=priority,
+                score=score,
+                scheduled_at=scheduled_at.isoformat() if scheduled_at else None,
+            )
 
-            if added:
-                logger.info(
-                    "job_enqueued",
-                    job_id=job_id,
-                    priority=priority,
-                    score=score,
-                    scheduled_at=scheduled_at.isoformat() if scheduled_at else None,
-                )
-            else:
-                logger.warning(
-                    "job_already_in_queue",
-                    job_id=job_id,
-                    priority=priority,
-                    reason="Job already exists in queue - not updating",
-                )
-
-            return added
+            return True
 
         except Exception as e:
             logger.error(

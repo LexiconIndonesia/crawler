@@ -24,6 +24,7 @@ from .models import (
     CancelJobResponse,
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
+    CrawlJobStatus,
     CrawlLogEntry,
     CrawlLogsResponse,
     DeleteWebsiteResponse,
@@ -131,6 +132,7 @@ __all__ = [
     "CrawlStep",
     # Enums
     "StatusEnum",
+    "CrawlJobStatus",
     "ScheduleTypeEnum",
     "StepTypeEnum",
     "MethodEnum",

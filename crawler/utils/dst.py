@@ -184,18 +184,24 @@ def safe_next_run_utc(
     warning = None
     if transition_type == "spring_forward":
         # Convert to local time to show what time it would be
-        tz = ZoneInfo(timezone_name)
-        local_time = next_run_utc.astimezone(tz)
-        warning = (
-            f"Next run falls during spring forward in {timezone_name}. "
-            f"Scheduled for {local_time.strftime('%I:%M %p %Z')} (skipped hour adjusted)."
-        )
+        try:
+            tz = ZoneInfo(timezone_name)
+            local_time = next_run_utc.astimezone(tz)
+            warning = (
+                f"Next run falls during spring forward in {timezone_name}. "
+                f"Scheduled for {local_time.strftime('%I:%M %p %Z')} (skipped hour adjusted)."
+            )
+        except Exception:
+            warning = f"Next run falls during spring forward in {timezone_name}."
     elif transition_type == "fall_back":
-        tz = ZoneInfo(timezone_name)
-        local_time = next_run_utc.astimezone(tz)
-        warning = (
-            f"Next run falls during fall back in {timezone_name}. "
-            f"Scheduled for {local_time.strftime('%I:%M %p %Z')} (first occurrence)."
-        )
+        try:
+            tz = ZoneInfo(timezone_name)
+            local_time = next_run_utc.astimezone(tz)
+            warning = (
+                f"Next run falls during fall back in {timezone_name}. "
+                f"Scheduled for {local_time.strftime('%I:%M %p %Z')} (first occurrence)."
+            )
+        except Exception:
+            warning = f"Next run falls during fall back in {timezone_name}."
 
     return next_run_utc, warning

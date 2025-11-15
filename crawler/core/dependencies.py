@@ -549,13 +549,9 @@ async def start_scheduled_job_processor_service(
 
     # Create dedicated database session for scheduled job processor
     # Using a dedicated session avoids conflicts with request-scoped sessions
-    async for session in _get_db():
-        _scheduled_job_processor_db = session
-        break
+    from crawler.db.session import async_session_maker
 
-    # Guard: ensure we got a session
-    if _scheduled_job_processor_db is None:
-        raise RuntimeError("Failed to create database session for scheduled job processor")
+    _scheduled_job_processor_db = async_session_maker()
 
     # Create repositories with dedicated session
     scheduled_job_conn = await _scheduled_job_processor_db.connection()

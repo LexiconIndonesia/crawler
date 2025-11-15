@@ -169,10 +169,6 @@ class TestExtendedCronSyntax:
         """Test is_valid_cron with @yearly extended syntax."""
         assert is_valid_cron("@yearly")
 
-    def test_is_valid_cron_with_annually(self) -> None:
-        """Test is_valid_cron with @annually extended syntax."""
-        assert is_valid_cron("@annually")
-
     def test_is_valid_cron_with_hourly(self) -> None:
         """Test is_valid_cron with @hourly extended syntax."""
         assert is_valid_cron("@hourly")

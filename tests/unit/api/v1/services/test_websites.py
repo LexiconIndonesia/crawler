@@ -754,6 +754,8 @@ class TestWebsiteService:
         mock_updated_job.id = scheduled_job_id
         mock_updated_job.cron_schedule = "0 0 1,15 * *"
         mock_updated_job.last_run_time = mock_scheduled_job.last_run_time
+        mock_updated_job.is_active = False
+        mock_updated_job.next_run_time = None
 
         website_service.website_repo.get_by_id.return_value = mock_website
         website_service.scheduled_job_repo.get_by_website_id.return_value = [mock_scheduled_job]
@@ -845,6 +847,8 @@ class TestWebsiteService:
         mock_updated_job.id = scheduled_job_id
         mock_updated_job.cron_schedule = "0 0 1,15 * *"
         mock_updated_job.last_run_time = mock_scheduled_job.last_run_time
+        mock_updated_job.is_active = True
+        mock_updated_job.next_run_time = datetime.now(UTC)
 
         website_service.website_repo.get_by_id.return_value = mock_website
         website_service.scheduled_job_repo.get_by_website_id.return_value = [mock_scheduled_job]

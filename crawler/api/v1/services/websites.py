@@ -8,6 +8,7 @@ from pydantic import AnyUrl
 from crawler.api.generated import (
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
+    CrawlJobStatus,
     CreateWebsiteRequest,
     DeleteWebsiteResponse,
     ListWebsitesResponse,
@@ -1003,14 +1004,12 @@ class WebsiteService:
         )
 
         # Build response
-        from crawler.api.generated.models import Status1
-
         return TriggerCrawlResponse(
             job_id=crawl_job.id,
             website_id=UUID(website_id),
             seed_url=AnyUrl(website.base_url),
             priority=crawl_job.priority,
-            status=Status1.pending,  # Job always starts as pending
+            status=CrawlJobStatus.pending,  # Job always starts as pending
             triggered_at=triggered_at,
             message="High-priority crawl job created and queued",
         )

@@ -249,12 +249,6 @@ class TestExtendedCronSyntax:
         assert is_valid
         assert error is None
 
-    def test_validate_extended_syntax_annually(self) -> None:
-        """Test validation with @annually extended syntax."""
-        is_valid, error = validate_cron_expression("@annually")
-        assert is_valid
-        assert error is None
-
     def test_validate_extended_syntax_hourly(self) -> None:
         """Test validation with @hourly extended syntax."""
         is_valid, error = validate_cron_expression("@hourly")

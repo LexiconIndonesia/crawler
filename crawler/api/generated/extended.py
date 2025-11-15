@@ -4,6 +4,7 @@ This module extends the auto-generated models with custom business logic validat
 """
 
 from typing import TypeVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -30,9 +31,6 @@ from .models import (
     GlobalConfig as _GlobalConfig,
 )
 from .models import (
-    UpdateWebsiteRequest as _UpdateWebsiteRequest,
-)
-from .models import (
     RetryConfig as _RetryConfig,
 )
 from .models import (
@@ -40,6 +38,9 @@ from .models import (
 )
 from .models import (
     StepConfig as _StepConfig,
+)
+from .models import (
+    UpdateWebsiteRequest as _UpdateWebsiteRequest,
 )
 
 # Type variable for mixin self-reference
@@ -141,8 +142,6 @@ class ScheduleConfig(_ScheduleConfig):
         Raises:
             ValueError: If the timezone is not recognized
         """
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
         try:
             # Attempt to create ZoneInfo to validate the timezone
             ZoneInfo(v)

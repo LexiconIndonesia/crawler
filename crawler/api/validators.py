@@ -14,7 +14,7 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
     Args:
         cron_expression: Cron expression string
             - Standard: 5 or 6 fields (minute hour day month weekday [second])
-            - Extended: @yearly, @annually, @monthly, @weekly, @daily, @midnight, @hourly
+            - Extended: @yearly, @monthly, @weekly, @daily, @midnight, @hourly
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -30,7 +30,6 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
     # Check for extended syntax first (@yearly, @daily, etc.)
     extended_syntax = [
         "@yearly",
-        "@annually",
         "@monthly",
         "@weekly",
         "@daily",

@@ -25,28 +25,17 @@ def upgrade() -> None:
         ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT 'UTC'
     """)
 
-    # Add check constraint to validate IANA timezone format
-    op.execute("""
-        ALTER TABLE scheduled_job
-        ADD CONSTRAINT ck_scheduled_job_valid_timezone
-        CHECK (timezone ~ '^[A-Za-z]+(/[A-Za-z_]+)?$')
-    """)
-
     # Add column comment for documentation
+    # Note: Timezone validation is handled at application layer using Python's zoneinfo
     op.execute("""
         COMMENT ON COLUMN scheduled_job.timezone IS
-        'IANA timezone name (e.g., UTC, America/New_York, Asia/Jakarta) for schedule calculations'
+        'IANA timezone name (e.g., UTC, America/New_York, Asia/Jakarta) for schedule
+         calculations. Validated at application layer.'
     """)
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # Drop check constraint first
-    op.execute("""
-        ALTER TABLE scheduled_job
-        DROP CONSTRAINT IF EXISTS ck_scheduled_job_valid_timezone
-    """)
-
     # Drop timezone column
     op.execute("""
         ALTER TABLE scheduled_job
