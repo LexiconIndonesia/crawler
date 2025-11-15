@@ -465,14 +465,23 @@ async def start_retry_scheduler_service(
     """
     from crawler.services import start_retry_scheduler
 
-    global _retry_scheduler_redis
+    global _retry_scheduler_redis, _retry_scheduler_cache
 
     settings = get_settings()
 
     # Create dedicated Redis client for retry scheduler (avoid generator leak)
+    previous_client = _retry_scheduler_redis
     _retry_scheduler_redis = await redis.from_url(settings.redis_url)
 
+    # Ensure the singleton cache is bound to the dedicated client
+    # (if cache was instantiated before startup, it may point to a request-scoped client)
+    _retry_scheduler_cache = None
     retry_cache = await get_retry_scheduler_cache(_retry_scheduler_redis, settings)
+
+    # Cleanup previous client if it existed
+    if previous_client is not None:
+        await previous_client.aclose()  # type: ignore[attr-defined]
+
     nats_queue = await get_nats_queue_service(settings)
 
     await start_retry_scheduler(retry_cache, nats_queue, interval_seconds, batch_size)
