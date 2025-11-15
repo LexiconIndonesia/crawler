@@ -288,6 +288,9 @@ _retry_scheduler_cache: RetrySchedulerCache | None = None
 # Global Redis client for retry scheduler (singleton pattern)
 _retry_scheduler_redis: redis.Redis | None = None
 
+# Global database session for scheduled job processor (singleton pattern)
+_scheduled_job_processor_db: AsyncSession | None = None
+
 
 async def get_browser_pool(
     settings: SettingsDep,
@@ -506,6 +509,78 @@ async def stop_retry_scheduler_service() -> None:
     if _retry_scheduler_redis is not None:
         await _retry_scheduler_redis.aclose()  # type: ignore[attr-defined]
         _retry_scheduler_redis = None
+
+
+async def start_scheduled_job_processor_service(
+    interval_seconds: int = 60,
+    batch_size: int = 100,
+) -> None:
+    """Start scheduled job processor service at application startup.
+
+    Should be called in FastAPI lifespan startup.
+
+    Args:
+        interval_seconds: Polling interval in seconds (default: 60)
+        batch_size: Maximum jobs to process per iteration (default: 100)
+    """
+    from crawler.db.repositories.crawl_job import CrawlJobRepository
+    from crawler.db.repositories.scheduled_job import ScheduledJobRepository
+    from crawler.db.repositories.website import WebsiteRepository
+    from crawler.services import start_scheduled_job_processor
+
+    global _scheduled_job_processor_db
+
+    settings = get_settings()
+
+    # Create dedicated database session for scheduled job processor
+    # Using a dedicated session avoids conflicts with request-scoped sessions
+    async for session in _get_db():
+        _scheduled_job_processor_db = session
+        break
+
+    # Guard: ensure we got a session
+    if _scheduled_job_processor_db is None:
+        raise RuntimeError("Failed to create database session for scheduled job processor")
+
+    # Create repositories with dedicated session
+    scheduled_job_conn = await _scheduled_job_processor_db.connection()
+    crawl_job_conn = await _scheduled_job_processor_db.connection()
+    website_conn = await _scheduled_job_processor_db.connection()
+
+    scheduled_job_repo = ScheduledJobRepository(scheduled_job_conn)
+    crawl_job_repo = CrawlJobRepository(crawl_job_conn)
+    website_repo = WebsiteRepository(website_conn)
+
+    # Get NATS queue service
+    nats_queue = await get_nats_queue_service(settings)
+
+    # Start processor background task
+    await start_scheduled_job_processor(
+        scheduled_job_repo=scheduled_job_repo,
+        crawl_job_repo=crawl_job_repo,
+        website_repo=website_repo,
+        nats_queue=nats_queue,
+        interval_seconds=interval_seconds,
+        batch_size=batch_size,
+    )
+
+
+async def stop_scheduled_job_processor_service() -> None:
+    """Stop scheduled job processor service at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    from crawler.services import stop_scheduled_job_processor
+
+    global _scheduled_job_processor_db
+
+    # Stop processor task
+    await stop_scheduled_job_processor()
+
+    # Close database session
+    if _scheduled_job_processor_db is not None:
+        await _scheduled_job_processor_db.close()
+        _scheduled_job_processor_db = None
 
 
 async def get_memory_monitor(

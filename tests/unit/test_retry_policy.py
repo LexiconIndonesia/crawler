@@ -1,15 +1,19 @@
 """Unit tests for retry policy error classification and backoff calculation."""
 
+from unittest.mock import patch
+
 import pytest
 
 from crawler.db.generated.models import BackoffStrategyEnum, ErrorCategoryEnum
 from crawler.services.retry_policy import (
+    ErrorClassificationRule,
     calculate_backoff,
     calculate_exponential_backoff,
     calculate_fixed_backoff,
     calculate_linear_backoff,
     classify_exception,
     classify_http_status,
+    classify_with_custom_rules,
     get_error_context,
 )
 
@@ -279,3 +283,438 @@ class TestRealWorldScenarios:
 
         # Expected: always 10 seconds
         assert attempts == [10, 10, 10, 10, 10]
+
+
+# ============================================================================
+# Logging Tests
+# ============================================================================
+
+
+class TestClassificationLogging:
+    """Test that classification decisions are properly logged."""
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_http_status_classification_logs_decision(self, mock_logger):
+        """Test that HTTP status classification logs the decision."""
+        classify_http_status(404, log_decision=True)
+
+        # Should have logged the classification
+        mock_logger.info.assert_called_once()
+        call_kwargs = mock_logger.info.call_args[1]
+
+        assert call_kwargs["classification_type"] == "http_status"
+        assert call_kwargs["status_code"] == 404
+        assert call_kwargs["error_category"] == "not_found"
+        assert call_kwargs["is_retryable"] is False
+        assert "reason" in call_kwargs
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_http_status_classification_no_logging(self, mock_logger):
+        """Test that logging can be disabled for HTTP status classification."""
+        classify_http_status(404, log_decision=False)
+
+        # Should not have logged anything
+        mock_logger.info.assert_not_called()
+        mock_logger.warning.assert_not_called()
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_exception_classification_logs_decision(self, mock_logger):
+        """Test that exception classification logs the decision."""
+        exc = TimeoutError("Connection timed out")
+        classify_exception(exc, log_decision=True)
+
+        # Should have logged the classification
+        mock_logger.info.assert_called_once()
+        call_kwargs = mock_logger.info.call_args[1]
+
+        assert call_kwargs["classification_type"] == "exception"
+        assert call_kwargs["exception_type"] == "TimeoutError"
+        assert call_kwargs["error_category"] == "timeout"
+        assert call_kwargs["is_retryable"] is True
+        assert "reason" in call_kwargs
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_exception_classification_no_logging(self, mock_logger):
+        """Test that logging can be disabled for exception classification."""
+        exc = TimeoutError("Connection timed out")
+        classify_exception(exc, log_decision=False)
+
+        # Should not have logged anything
+        mock_logger.info.assert_not_called()
+        mock_logger.warning.assert_not_called()
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_unknown_http_status_logs_warning(self, mock_logger):
+        """Test that unknown HTTP status codes log a warning."""
+        classify_http_status(999, log_decision=True)
+
+        # Should have logged a warning
+        mock_logger.warning.assert_called_once()
+        call_kwargs = mock_logger.warning.call_args[1]
+
+        assert call_kwargs["error_category"] == "unknown"
+        assert call_kwargs["status_code"] == 999
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_unknown_exception_logs_warning(self, mock_logger):
+        """Test that unknown exceptions log a warning."""
+        exc = RuntimeError("Some random error")
+        classify_exception(exc, log_decision=True)
+
+        # Should have logged a warning
+        mock_logger.warning.assert_called_once()
+        call_kwargs = mock_logger.warning.call_args[1]
+
+        assert call_kwargs["error_category"] == "unknown"
+        assert call_kwargs["exception_type"] == "RuntimeError"
+        assert call_kwargs["error_message"] == "Some random error"
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_retryable_errors_log_info(self, mock_logger):
+        """Test that retryable errors (5xx, timeouts, network) log at INFO level."""
+        # Server error (retryable)
+        classify_http_status(503, log_decision=True)
+        assert mock_logger.info.called
+
+        mock_logger.reset_mock()
+
+        # Network error (retryable)
+        exc = ConnectionError("Connection refused")
+        classify_exception(exc, log_decision=True)
+        assert mock_logger.info.called
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_permanent_errors_log_info(self, mock_logger):
+        """Test that permanent errors (4xx, validation) log at INFO level."""
+        # Client error (permanent)
+        classify_http_status(404, log_decision=True)
+        assert mock_logger.info.called
+
+        mock_logger.reset_mock()
+
+        # Validation error (permanent)
+        exc = ValueError("Invalid configuration")
+        classify_exception(exc, log_decision=True)
+        assert mock_logger.info.called
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_browser_crash_logs_warning(self, mock_logger):
+        """Test that browser crashes log at WARNING level."""
+
+        # Create a custom exception class to simulate BrowserCrashError
+        class BrowserCrashError(Exception):
+            pass
+
+        exc = BrowserCrashError("Browser process crashed")
+        classify_exception(exc, log_decision=True)
+        assert mock_logger.warning.called
+
+
+# ============================================================================
+# Custom Classification Rules Tests
+# ============================================================================
+
+
+class TestCustomClassificationRules:
+    """Test custom error classification rules."""
+
+    def test_custom_rule_matches_exception(self):
+        """Test that custom rule can match on exception message."""
+
+        def is_custom_rate_limit(exc, status_code):
+            """Check if error message contains rate limit keywords."""
+            if exc and "rate" in str(exc).lower() and "limit" in str(exc).lower():
+                return True
+            return False
+
+        rule = ErrorClassificationRule(
+            name="custom_rate_limit_detection",
+            predicate=is_custom_rate_limit,
+            category=ErrorCategoryEnum.RATE_LIMIT,
+            reason="Custom rate limit detection via error message keywords",
+            is_retryable=True,
+        )
+
+        exc = Exception("API rate limit exceeded")
+        category, is_retryable = classify_with_custom_rules(
+            exc=exc, custom_rules=[rule], log_decision=False
+        )
+
+        assert category == ErrorCategoryEnum.RATE_LIMIT
+        assert is_retryable is True  # Custom rule override
+
+    def test_custom_rule_matches_status_code(self):
+        """Test that custom rule can match on HTTP status code."""
+
+        def is_cloudflare_error(exc, status_code):
+            """Check for Cloudflare-specific errors."""
+            return status_code in (520, 521, 522, 523, 524)
+
+        rule = ErrorClassificationRule(
+            name="cloudflare_errors",
+            predicate=is_cloudflare_error,
+            category=ErrorCategoryEnum.SERVER_ERROR,
+            reason="Cloudflare errors are retryable server issues",
+            is_retryable=True,
+        )
+
+        category, is_retryable = classify_with_custom_rules(
+            http_status=520, custom_rules=[rule], log_decision=False
+        )
+
+        assert category == ErrorCategoryEnum.SERVER_ERROR
+        assert is_retryable is True  # Custom rule override
+
+    def test_custom_rules_evaluated_in_order(self):
+        """Test that custom rules are evaluated in order (first match wins)."""
+
+        def always_match(exc, status_code):
+            return True
+
+        rule1 = ErrorClassificationRule(
+            name="first_rule",
+            predicate=always_match,
+            category=ErrorCategoryEnum.NETWORK,
+            reason="First rule",
+        )
+
+        rule2 = ErrorClassificationRule(
+            name="second_rule",
+            predicate=always_match,
+            category=ErrorCategoryEnum.TIMEOUT,
+            reason="Second rule",
+        )
+
+        # First rule should win
+        category, is_retryable = classify_with_custom_rules(
+            exc=Exception("Test"), custom_rules=[rule1, rule2], log_decision=False
+        )
+
+        assert category == ErrorCategoryEnum.NETWORK
+        assert is_retryable is None  # No override specified
+
+    def test_custom_rule_falls_back_to_standard_classification(self):
+        """Test that standard classification is used when no custom rules match."""
+
+        def never_match(exc, status_code):
+            return False
+
+        rule = ErrorClassificationRule(
+            name="never_matches",
+            predicate=never_match,
+            category=ErrorCategoryEnum.NETWORK,
+            reason="Never matches",
+        )
+
+        # Should fall back to standard classification (404 → NOT_FOUND)
+        category, is_retryable = classify_with_custom_rules(
+            http_status=404, custom_rules=[rule], log_decision=False
+        )
+
+        assert category == ErrorCategoryEnum.NOT_FOUND
+        assert is_retryable is None  # No custom rule matched, so no override
+
+    def test_custom_rule_with_both_exception_and_status(self):
+        """Test custom rule that checks both exception and status code."""
+
+        def is_auth_timeout(exc, status_code):
+            """Match if both timeout and 401."""
+            return status_code == 401 and exc and "timeout" in str(exc).lower()
+
+        rule = ErrorClassificationRule(
+            name="auth_timeout",
+            predicate=is_auth_timeout,
+            category=ErrorCategoryEnum.TIMEOUT,
+            reason="Auth timeout is retryable",
+            is_retryable=True,
+        )
+
+        exc = Exception("Authentication timeout")
+        category, is_retryable = classify_with_custom_rules(
+            exc=exc, http_status=401, custom_rules=[rule], log_decision=False
+        )
+
+        # Should match custom rule (TIMEOUT) not standard classification (AUTH_ERROR)
+        assert category == ErrorCategoryEnum.TIMEOUT
+        assert is_retryable is True  # Custom rule override
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_custom_rule_logs_when_matched(self, mock_logger):
+        """Test that custom rule match is logged."""
+
+        def always_match(exc, status_code):
+            return True
+
+        rule = ErrorClassificationRule(
+            name="test_rule",
+            predicate=always_match,
+            category=ErrorCategoryEnum.NETWORK,
+            reason="Test reason",
+            is_retryable=True,
+        )
+
+        classify_with_custom_rules(exc=Exception("Test"), custom_rules=[rule], log_decision=True)
+
+        # Should have logged the custom rule match
+        mock_logger.info.assert_called_once()
+        call_kwargs = mock_logger.info.call_args[1]
+
+        assert call_kwargs["classification_type"] == "custom_rule"
+        assert call_kwargs["rule_name"] == "test_rule"
+        assert call_kwargs["error_category"] == "network"
+        assert call_kwargs["is_retryable"] is True
+        assert call_kwargs["reason"] == "Test reason"
+
+    @patch("crawler.services.retry_policy.logger")
+    def test_custom_rule_error_is_logged_and_skipped(self, mock_logger):
+        """Test that errors in custom rules are logged and rule is skipped."""
+
+        def broken_predicate(exc, status_code):
+            raise ValueError("Predicate crashed")
+
+        rule = ErrorClassificationRule(
+            name="broken_rule",
+            predicate=broken_predicate,
+            category=ErrorCategoryEnum.NETWORK,
+            reason="Should not be used",
+        )
+
+        # Should skip broken rule and use standard classification
+        category, is_retryable = classify_with_custom_rules(
+            http_status=404, custom_rules=[rule], log_decision=False
+        )
+
+        # Should fall back to standard classification
+        assert category == ErrorCategoryEnum.NOT_FOUND
+        assert is_retryable is None  # No custom rule matched
+
+        # Should have logged the error
+        mock_logger.error.assert_called_once()
+        call_kwargs = mock_logger.error.call_args[1]
+        assert call_kwargs["rule_name"] == "broken_rule"
+
+    def test_no_custom_rules_uses_standard_classification(self):
+        """Test that standard classification is used when no custom rules provided."""
+        # Should use standard classification (503 → SERVER_ERROR)
+        category, is_retryable = classify_with_custom_rules(http_status=503, log_decision=False)
+        assert category == ErrorCategoryEnum.SERVER_ERROR
+        assert is_retryable is None  # No custom rules, so no override
+
+    def test_empty_custom_rules_list_uses_standard_classification(self):
+        """Test that standard classification is used when custom rules list is empty."""
+        category, is_retryable = classify_with_custom_rules(
+            http_status=503, custom_rules=[], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.SERVER_ERROR
+        assert is_retryable is None  # No custom rules, so no override
+
+    def test_classify_with_no_error_returns_unknown(self):
+        """Test that UNKNOWN is returned when no error or status provided."""
+        category, is_retryable = classify_with_custom_rules(log_decision=False)
+        assert category == ErrorCategoryEnum.UNKNOWN
+        assert is_retryable is None  # No custom rules, so no override
+
+    def test_custom_rule_with_domain_specific_logic(self):
+        """Test realistic domain-specific custom rule."""
+
+        def is_shopify_rate_limit(exc, status_code):
+            """Detect Shopify-specific rate limiting."""
+            # Shopify returns 429 with specific header patterns
+            if status_code == 429:
+                return True
+            # Also check for Shopify error message patterns
+            if exc and "shopify" in str(exc).lower() and "throttled" in str(exc).lower():
+                return True
+            return False
+
+        rule = ErrorClassificationRule(
+            name="shopify_rate_limit",
+            predicate=is_shopify_rate_limit,
+            category=ErrorCategoryEnum.RATE_LIMIT,
+            reason="Shopify API rate limiting detected",
+            is_retryable=True,
+        )
+
+        # Test with status code
+        category, is_retryable = classify_with_custom_rules(
+            http_status=429, custom_rules=[rule], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.RATE_LIMIT
+        assert is_retryable is True  # Custom rule override
+
+        # Test with exception message
+        exc = Exception("Shopify API throttled - too many requests")
+        category, is_retryable = classify_with_custom_rules(
+            exc=exc, custom_rules=[rule], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.RATE_LIMIT
+        assert is_retryable is True  # Custom rule override
+
+    def test_custom_rule_with_no_retryable_override(self):
+        """Test that is_retryable can be None (uses category default)."""
+
+        def always_match(exc, status_code):
+            return True
+
+        rule = ErrorClassificationRule(
+            name="no_override",
+            predicate=always_match,
+            category=ErrorCategoryEnum.NETWORK,
+            reason="Test",
+            is_retryable=None,  # No override - use category default
+        )
+
+        category, is_retryable = classify_with_custom_rules(
+            exc=Exception("Test"), custom_rules=[rule], log_decision=False
+        )
+
+        assert category == ErrorCategoryEnum.NETWORK
+        assert is_retryable is None  # No override specified
+
+    def test_custom_rule_validation_empty_name(self):
+        """Test that empty name raises ValueError."""
+
+        def always_match(exc, status_code):
+            return True
+
+        with pytest.raises(ValueError, match="Rule name cannot be empty"):
+            ErrorClassificationRule(
+                name="",
+                predicate=always_match,
+                category=ErrorCategoryEnum.NETWORK,
+                reason="Test",
+            )
+
+    def test_custom_rule_validation_none_predicate(self):
+        """Test that None predicate raises ValueError."""
+        with pytest.raises(ValueError, match="Rule predicate cannot be None"):
+            ErrorClassificationRule(
+                name="test",
+                predicate=None,  # type: ignore
+                category=ErrorCategoryEnum.NETWORK,
+                reason="Test",
+            )
+
+    def test_custom_rule_validation_non_callable_predicate(self):
+        """Test that non-callable predicate raises ValueError."""
+        with pytest.raises(ValueError, match="Rule predicate must be callable"):
+            ErrorClassificationRule(
+                name="test",
+                predicate="not a function",  # type: ignore
+                category=ErrorCategoryEnum.NETWORK,
+                reason="Test",
+            )
+
+    def test_custom_rule_validation_empty_reason(self):
+        """Test that empty reason raises ValueError."""
+
+        def always_match(exc, status_code):
+            return True
+
+        with pytest.raises(ValueError, match="Rule reason cannot be empty"):
+            ErrorClassificationRule(
+                name="test",
+                predicate=always_match,
+                category=ErrorCategoryEnum.NETWORK,
+                reason="",
+            )

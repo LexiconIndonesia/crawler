@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import random
 import traceback
+from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING
@@ -29,44 +30,106 @@ logger = get_logger(__name__)
 # ============================================================================
 
 
-def classify_http_status(status_code: int) -> ErrorCategoryEnum:
+def classify_http_status(status_code: int, *, log_decision: bool = True) -> ErrorCategoryEnum:
     """Classify HTTP status codes into error categories.
 
     Args:
         status_code: HTTP status code
+        log_decision: Whether to log the classification decision (default: True)
 
     Returns:
         ErrorCategoryEnum for the given status code
     """
     # Guard: handle 404 explicitly
     if status_code == 404:
-        return ErrorCategoryEnum.NOT_FOUND
+        category = ErrorCategoryEnum.NOT_FOUND
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=False,
+                reason="404 Not Found is a permanent error",
+            )
+        return category
 
     # Guard: handle authentication/authorization
     if status_code in (401, 403):
-        return ErrorCategoryEnum.AUTH_ERROR
+        category = ErrorCategoryEnum.AUTH_ERROR
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=False,
+                reason="Authentication/authorization errors are typically permanent",
+            )
+        return category
 
     # Guard: handle rate limiting
     if status_code == 429:
-        return ErrorCategoryEnum.RATE_LIMIT
+        category = ErrorCategoryEnum.RATE_LIMIT
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Rate limit errors should be retried with backoff",
+            )
+        return category
 
     # Guard: handle client errors (4xx except handled above)
     if 400 <= status_code < 500:
-        return ErrorCategoryEnum.CLIENT_ERROR
+        category = ErrorCategoryEnum.CLIENT_ERROR
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=False,
+                reason="Client errors (4xx) are typically permanent",
+            )
+        return category
 
     # Guard: handle server errors (5xx)
     if 500 <= status_code < 600:
-        return ErrorCategoryEnum.SERVER_ERROR
+        category = ErrorCategoryEnum.SERVER_ERROR
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Server errors (5xx) are typically transient and retryable",
+            )
+        return category
 
     # All other status codes are unknown
-    return ErrorCategoryEnum.UNKNOWN
+    category = ErrorCategoryEnum.UNKNOWN
+    if log_decision:
+        logger.warning(
+            "error_classified_as_unknown",
+            classification_type="http_status",
+            status_code=status_code,
+            error_category=category.value,
+            is_retryable=False,
+            reason="Unexpected status code outside standard HTTP ranges",
+        )
+    return category
 
 
-def classify_exception(exc: Exception) -> ErrorCategoryEnum:
+def classify_exception(exc: Exception, *, log_decision: bool = True) -> ErrorCategoryEnum:
     """Classify Python exceptions into error categories.
 
     Args:
         exc: The exception to classify
+        log_decision: Whether to log the classification decision (default: True)
 
     Returns:
         ErrorCategoryEnum for the given exception
@@ -76,7 +139,18 @@ def classify_exception(exc: Exception) -> ErrorCategoryEnum:
 
     # Timeout errors (separate from network for different retry policy)
     if exc_type_name in ("TimeoutError", "ConnectTimeout", "ReadTimeout"):
-        return ErrorCategoryEnum.TIMEOUT
+        category = ErrorCategoryEnum.TIMEOUT
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Timeout errors are typically transient and retryable",
+            )
+        return category
 
     # Network errors (connection, DNS, SSL issues)
     if exc_type_name in (
@@ -86,7 +160,18 @@ def classify_exception(exc: Exception) -> ErrorCategoryEnum:
         "ConnectionRefusedError",
         "ConnectionResetError",
     ):
-        return ErrorCategoryEnum.NETWORK
+        category = ErrorCategoryEnum.NETWORK
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Network errors are typically transient and retryable",
+            )
+        return category
 
     # Specific httpx network errors
     if exc_module == "httpx" and exc_type_name in (
@@ -96,11 +181,33 @@ def classify_exception(exc: Exception) -> ErrorCategoryEnum:
         "PoolTimeout",
         "ProtocolError",
     ):
-        return ErrorCategoryEnum.NETWORK
+        category = ErrorCategoryEnum.NETWORK
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="httpx network errors are typically transient and retryable",
+            )
+        return category
 
     # Browser crash errors
     if exc_type_name == "BrowserCrashError":
-        return ErrorCategoryEnum.BROWSER_CRASH
+        category = ErrorCategoryEnum.BROWSER_CRASH
+        if log_decision:
+            logger.warning(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Browser crash detected - will retry with fresh browser instance",
+            )
+        return category
 
     # Playwright/Selenium errors that indicate browser issues
     if exc_type_name in (
@@ -108,15 +215,48 @@ def classify_exception(exc: Exception) -> ErrorCategoryEnum:
         "BrowserContextClosedError",
         "PageClosedError",
     ):
-        return ErrorCategoryEnum.BROWSER_CRASH
+        category = ErrorCategoryEnum.BROWSER_CRASH
+        if log_decision:
+            logger.warning(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Browser context/page closed unexpectedly - indicates crash",
+            )
+        return category
 
     # Timeout errors (asyncio, page load, selector wait)
     if "timeout" in exc_type_name.lower() or "TimeoutException" in exc_type_name:
-        return ErrorCategoryEnum.TIMEOUT
+        category = ErrorCategoryEnum.TIMEOUT
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Timeout errors are typically transient and retryable",
+            )
+        return category
 
     # Validation errors (config, input, step validation)
     if exc_type_name in ("StepValidationError", "ValidationError", "ValueError"):
-        return ErrorCategoryEnum.VALIDATION_ERROR
+        category = ErrorCategoryEnum.VALIDATION_ERROR
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=False,
+                reason="Validation errors indicate permanent configuration/input issues",
+            )
+        return category
 
     # Resource exhaustion (memory, disk, connections)
     if exc_type_name in ("MemoryError", "ResourceWarning", "OSError"):
@@ -125,11 +265,46 @@ def classify_exception(exc: Exception) -> ErrorCategoryEnum:
             # errno 24: Too many open files
             # errno 28: No space left on device
             if exc.errno in (24, 28):
-                return ErrorCategoryEnum.RESOURCE_UNAVAILABLE
-        return ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+                category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+                if log_decision:
+                    logger.warning(
+                        "error_classified",
+                        classification_type="exception",
+                        exception_type=exc_type_name,
+                        exception_module=exc_module,
+                        error_category=category.value,
+                        is_retryable=True,
+                        os_errno=exc.errno,
+                        reason=f"Resource exhaustion (errno {exc.errno}) - may resolve with retry",
+                    )
+                return category
+        category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+        if log_decision:
+            logger.warning(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=True,
+                reason="Resource exhaustion - may resolve with retry and cleanup",
+            )
+        return category
 
     # Unknown error type
-    return ErrorCategoryEnum.UNKNOWN
+    category = ErrorCategoryEnum.UNKNOWN
+    if log_decision:
+        logger.warning(
+            "error_classified_as_unknown",
+            classification_type="exception",
+            exception_type=exc_type_name,
+            exception_module=exc_module,
+            error_category=category.value,
+            is_retryable=False,
+            error_message=str(exc),
+            reason="Exception type not recognized - treating conservatively as permanent",
+        )
+    return category
 
 
 def get_error_context(exc: Exception) -> dict[str, str]:
@@ -147,6 +322,148 @@ def get_error_context(exc: Exception) -> dict[str, str]:
         "error_message": str(exc),
         "stack_trace": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
     }
+
+
+# ============================================================================
+# Custom Classification Rules
+# ============================================================================
+
+
+class ErrorClassificationRule:
+    """Custom rule for classifying errors.
+
+    Rules are evaluated in order and the first matching rule wins.
+    Each rule has a predicate function that determines if it matches
+    and a target category to return when it matches.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        predicate: Callable[[Exception | None, int | None], bool],
+        category: ErrorCategoryEnum,
+        reason: str,
+        is_retryable: bool | None = None,
+    ):
+        """Initialize classification rule.
+
+        Args:
+            name: Human-readable name for the rule
+            predicate: Function that takes (exc, status_code) and returns bool
+            category: ErrorCategoryEnum to return when rule matches
+            reason: Explanation of why this rule matches (for logging)
+            is_retryable: Optional override for retryability (if None, uses category default)
+
+        Raises:
+            ValueError: If name is empty, predicate is None/not callable, or reason is empty
+        """
+        # Guard: validate name
+        if not name:
+            raise ValueError("Rule name cannot be empty")
+
+        # Guard: validate predicate
+        if predicate is None:
+            raise ValueError("Rule predicate cannot be None")
+        if not callable(predicate):
+            raise ValueError("Rule predicate must be callable")
+
+        # Guard: validate reason
+        if not reason:
+            raise ValueError("Rule reason cannot be empty")
+
+        self.name = name
+        self.predicate = predicate
+        self.category = category
+        self.reason = reason
+        self.is_retryable = is_retryable
+
+
+def classify_with_custom_rules(
+    exc: Exception | None = None,
+    http_status: int | None = None,
+    custom_rules: list[ErrorClassificationRule] | None = None,
+    *,
+    log_decision: bool = True,
+) -> tuple[ErrorCategoryEnum, bool | None]:
+    """Classify error with optional custom rules.
+
+    Custom rules are evaluated first, then falls back to standard classification.
+
+    Args:
+        exc: Optional exception to classify
+        http_status: Optional HTTP status code
+        custom_rules: List of custom classification rules to try first
+        log_decision: Whether to log the classification decision (default: True)
+
+    Returns:
+        Tuple of (error_category, is_retryable_override).
+        is_retryable_override is None if using category default, or bool if custom rule overrides.
+
+    Examples:
+        >>> # Create custom rule for domain-specific errors
+        >>> def is_rate_limit_error(exc, status_code):
+        ...     # Custom logic: check if error message contains rate limit keywords
+        ...     if exc and "rate" in str(exc).lower() and "limit" in str(exc).lower():
+        ...         return True
+        ...     return False
+        >>> rule = ErrorClassificationRule(
+        ...     name="custom_rate_limit_detection",
+        ...     predicate=is_rate_limit_error,
+        ...     category=ErrorCategoryEnum.RATE_LIMIT,
+        ...     reason="Custom rate limit detection via error message keywords",
+        ...     is_retryable=True,
+        ... )
+        >>> category, is_retryable = classify_with_custom_rules(
+        ...     exc=Exception("API rate limit exceeded"),
+        ...     custom_rules=[rule]
+        ... )
+        >>> # category = ErrorCategoryEnum.RATE_LIMIT, is_retryable = True
+    """
+    # Try custom rules first (in order)
+    if custom_rules:
+        for rule in custom_rules:
+            try:
+                if rule.predicate(exc, http_status):
+                    if log_decision:
+                        logger.info(
+                            "error_classified_custom_rule",
+                            classification_type="custom_rule",
+                            rule_name=rule.name,
+                            error_category=rule.category.value,
+                            is_retryable=rule.is_retryable,
+                            reason=rule.reason,
+                            exception_type=type(exc).__name__ if exc else None,
+                            status_code=http_status,
+                        )
+                    # Return category and retryable override (may be None)
+                    return (rule.category, rule.is_retryable)
+            except Exception as e:
+                # Guard: if custom rule raises exception, log and skip it
+                logger.error(
+                    "custom_rule_error",
+                    rule_name=rule.name,
+                    error=str(e),
+                    reason="Custom classification rule raised exception - skipping",
+                )
+                continue
+
+    # Fall back to standard classification (no override)
+    if http_status is not None:
+        return (classify_http_status(http_status, log_decision=log_decision), None)
+
+    if exc is not None:
+        return (classify_exception(exc, log_decision=log_decision), None)
+
+    # No error provided - return UNKNOWN (no override)
+    category = ErrorCategoryEnum.UNKNOWN
+    if log_decision:
+        logger.warning(
+            "error_classified_as_unknown",
+            classification_type="no_error_provided",
+            error_category=category.value,
+            reason="No exception or HTTP status provided for classification",
+        )
+    return (category, None)
 
 
 # ============================================================================

@@ -17,8 +17,10 @@ from crawler.core.dependencies import (
     shutdown_browser_pool,
     start_memory_monitor,
     start_retry_scheduler_service,
+    start_scheduled_job_processor_service,
     stop_memory_monitor,
     stop_retry_scheduler_service,
+    stop_scheduled_job_processor_service,
 )
 from crawler.core.logging import get_logger
 from crawler.services.dlq_metrics_updater import start_dlq_metrics_updater, stop_dlq_metrics_updater
@@ -76,12 +78,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("retry_scheduler_start_failed_on_startup", error=str(e))
         # Continue without retry scheduler - will fall back to blocking sleep
 
+    # Start scheduled job processor (creates crawl jobs from scheduled jobs)
+    try:
+        await start_scheduled_job_processor_service(interval_seconds=60, batch_size=100)
+        logger.info("scheduled_job_processor_started")
+    except Exception as e:
+        logger.error("scheduled_job_processor_start_failed_on_startup", error=str(e))
+        # Continue without scheduled job processor - scheduled jobs won't be auto-executed
+
     yield
 
     # Shutdown
     logger.info("application_shutdown")
 
-    # Stop retry scheduler first (before NATS/Redis)
+    # Stop scheduled job processor first (before database shutdown)
+    try:
+        await stop_scheduled_job_processor_service()
+        logger.info("scheduled_job_processor_stopped")
+    except Exception as e:
+        logger.error("scheduled_job_processor_stop_failed_on_shutdown", error=str(e))
+
+    # Stop retry scheduler (before NATS/Redis)
     try:
         await stop_retry_scheduler_service()
         logger.info("retry_scheduler_stopped")
