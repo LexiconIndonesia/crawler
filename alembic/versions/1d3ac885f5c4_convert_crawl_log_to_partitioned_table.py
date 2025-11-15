@@ -4,7 +4,6 @@ Revision ID: 1d3ac885f5c4
 Revises: 948eebe0b228
 Create Date: 2025-11-07 22:48:27.115921
 
-Corresponds to sql/migrations/004_partition_crawl_log.sql
 
 Converts crawl_log to use native PostgreSQL partitioning with:
 - Monthly partitions for better query performance

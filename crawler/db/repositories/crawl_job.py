@@ -334,3 +334,17 @@ class CrawlJobRepository:
             max_retries=max_retries,
             metadata=json.dumps(metadata) if metadata else None,
         )
+
+    async def update_retry_count(
+        self, job_id: str | UUID, retry_count: int
+    ) -> models.CrawlJob | None:
+        """Update retry count for a job.
+
+        Args:
+            job_id: Job ID
+            retry_count: New retry count
+
+        Returns:
+            Updated CrawlJob model or None
+        """
+        return await self._querier.update_retry_count(id=to_uuid(job_id), retry_count=retry_count)

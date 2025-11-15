@@ -25,6 +25,7 @@ class StepResult:
         extracted_data: Data extracted using selectors
         metadata: Additional metadata (headers, timing, etc)
         error: Error message if step failed
+        exception: Original exception object if step failed (for retry classification)
     """
 
     step_name: str
@@ -33,6 +34,7 @@ class StepResult:
     extracted_data: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    exception: Exception | None = None
 
     @property
     def success(self) -> bool:

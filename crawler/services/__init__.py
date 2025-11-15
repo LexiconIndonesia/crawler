@@ -20,6 +20,8 @@ from .resource_cleanup import (
     HTTPResourceManager,
     ResourceManager,
 )
+from .retry_scheduler import start_retry_scheduler, stop_retry_scheduler
+from .retry_scheduler_cache import RetrySchedulerCache
 from .seed_url_crawler import CrawlOutcome, CrawlResult, SeedURLCrawler, SeedURLCrawlerConfig
 from .url_extractor import ExtractedURL, URLExtractorService
 
@@ -50,4 +52,7 @@ __all__ = [
     "HTTPResourceManager",
     "BrowserResourceManager",
     "CleanupCoordinator",
+    "RetrySchedulerCache",
+    "start_retry_scheduler",
+    "stop_retry_scheduler",
 ]

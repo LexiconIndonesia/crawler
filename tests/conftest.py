@@ -21,6 +21,9 @@ from crawler.db.repositories import (
     CrawledPageRepository,
     CrawlJobRepository,
     CrawlLogRepository,
+    DeadLetterQueueRepository,
+    RetryHistoryRepository,
+    RetryPolicyRepository,
     ScheduledJobRepository,
     WebsiteConfigHistoryRepository,
     WebsiteRepository,
@@ -233,6 +236,24 @@ async def website_config_history_repo(
 
 
 @pytest_asyncio.fixture
+async def retry_policy_repo(db_connection: AsyncConnection) -> RetryPolicyRepository:
+    """Create retry policy repository fixture."""
+    return RetryPolicyRepository(db_connection)
+
+
+@pytest_asyncio.fixture
+async def retry_history_repo(db_connection: AsyncConnection) -> RetryHistoryRepository:
+    """Create retry history repository fixture."""
+    return RetryHistoryRepository(db_connection)
+
+
+@pytest_asyncio.fixture
+async def dlq_repo(db_connection: AsyncConnection) -> DeadLetterQueueRepository:
+    """Create dead letter queue repository fixture."""
+    return DeadLetterQueueRepository(db_connection)
+
+
+@pytest_asyncio.fixture
 async def redis_client() -> AsyncGenerator[redis.Redis, None]:
     """Create a Redis client for testing.
 
@@ -255,6 +276,45 @@ async def redis_client() -> AsyncGenerator[redis.Redis, None]:
         await client.aclose()  # type: ignore[attr-defined]
 
 
+async def seed_retry_policies(conn: AsyncConnection) -> None:
+    """Seed default retry policies for testing."""
+    raw_conn = await conn.get_raw_connection()
+
+    # Insert default retry policies
+    seed_sql = """
+    INSERT INTO retry_policy (
+        error_category, is_retryable, max_attempts, backoff_strategy,
+        initial_delay_seconds, max_delay_seconds, backoff_multiplier, description
+    ) VALUES
+        ('network', true, 3, 'exponential', 5, 300, 2.0,
+         'Network errors like connection reset'),
+        ('timeout', true, 2, 'exponential', 5, 60, 2.0,
+         'Request timeouts'),
+        ('rate_limit', true, 5, 'exponential', 10, 1800, 2.0,
+         'HTTP 429 rate limiting'),
+        ('server_error', true, 3, 'exponential', 10, 300, 2.0,
+         'HTTP 5xx errors'),
+        ('browser_crash', true, 2, 'exponential', 10, 60, 2.0,
+         'Browser/Playwright crashes'),
+        ('resource_unavailable', true, 2, 'linear', 5, 60, 1.0,
+         'Temporary resource unavailability'),
+        ('client_error', false, 0, 'fixed', 0, 0, 1.0,
+         'HTTP 4xx errors (non-retryable)'),
+        ('auth_error', false, 0, 'fixed', 0, 0, 1.0,
+         'Authentication failures'),
+        ('not_found', false, 0, 'fixed', 0, 0, 1.0,
+         'HTTP 404 Not Found'),
+        ('validation_error', false, 0, 'fixed', 0, 0, 1.0,
+         'Configuration validation errors'),
+        ('business_logic_error', false, 0, 'fixed', 0, 0, 1.0,
+         'Application business logic errors'),
+        ('unknown', false, 0, 'fixed', 0, 0, 1.0,
+         'Unclassified errors (fail immediately)')
+    ON CONFLICT (error_category) DO NOTHING;
+    """
+    await raw_conn.driver_connection.execute(seed_sql)  # type: ignore[union-attr]
+
+
 @pytest_asyncio.fixture(scope="session")
 async def test_db_schema() -> AsyncGenerator[None, None]:
     """Set up database schema once for all integration tests."""
@@ -267,6 +327,8 @@ async def test_db_schema() -> AsyncGenerator[None, None]:
     # Create fresh schema
     async with engine.begin() as conn:
         await create_schema(conn)
+        # Seed retry policies for tests
+        await seed_retry_policies(conn)
 
     yield
 

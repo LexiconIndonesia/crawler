@@ -34,6 +34,8 @@ tags:
     description: Website configuration and management
   - name: Jobs
     description: Crawl job creation and management
+  - name: Dead Letter Queue
+    description: Management of permanently failed jobs requiring manual intervention
   - name: Duplicates
     description: Duplicate content detection and management
   - name: Monitoring
@@ -1523,6 +1525,284 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ============================================================================
+  # Dead Letter Queue Endpoints
+  # ============================================================================
+
+  /api/v1/dlq/entries:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: List dead letter queue entries
+      description: |
+        List permanently failed jobs in the Dead Letter Queue with filtering and pagination.
+
+        The DLQ contains jobs that have:
+        - Exceeded maximum retry attempts
+        - Failed with non-retryable errors (404, 401, validation errors)
+
+        **Filtering options:**
+        - `error_category`: Filter by error type
+        - `website_id`: Filter by website
+        - `unresolved_only`: Show only unresolved entries
+
+        **Pagination:**
+        - Use `limit` and `offset` for pagination
+        - Default limit is 100, max is 500
+      operationId: listDLQEntries
+      parameters:
+        - name: error_category
+          in: query
+          required: false
+          description: Filter by error category
+          schema:
+            $ref: '#/components/schemas/ErrorCategoryEnum'
+        - name: website_id
+          in: query
+          required: false
+          description: Filter by website ID
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: unresolved_only
+          in: query
+          required: false
+          description: Show only unresolved entries (true) or only resolved (false), or all (omit)
+          schema:
+            type: boolean
+            example: true
+        - name: limit
+          in: query
+          required: false
+          description: Number of entries to return (max 500)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+            example: 100
+        - name: offset
+          in: query
+          required: false
+          description: Number of entries to skip for pagination
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: DLQ entries retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DLQEntriesResponse'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/dlq/entries/{dlq_id}:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: Get DLQ entry details
+      description: |
+        Retrieve detailed information about a specific Dead Letter Queue entry.
+
+        Includes:
+        - Job metadata (URL, website, type, priority)
+        - Error details (category, message, stack trace, HTTP status)
+        - Retry history (total attempts, timing)
+        - Resolution status
+      operationId: getDLQEntry
+      parameters:
+        - name: dlq_id
+          in: path
+          required: true
+          description: DLQ entry ID
+          schema:
+            type: integer
+            format: int64
+            example: 12345
+      responses:
+        '200':
+          description: DLQ entry retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DLQEntryResponse'
+        '404':
+          description: DLQ entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/dlq/entries/{dlq_id}/retry:
+    post:
+      tags:
+        - Dead Letter Queue
+      summary: Manually retry a DLQ entry
+      description: |
+        Attempt to manually retry a permanently failed job from the DLQ.
+
+        This endpoint:
+        1. Creates a new crawl job with the same configuration
+        2. Marks the DLQ entry as retry attempted
+        3. Returns the new job ID for tracking
+
+        **Note:** The original DLQ entry is kept for audit purposes.
+        The retry attempt status is tracked separately.
+      operationId: retryDLQEntry
+      parameters:
+        - name: dlq_id
+          in: path
+          required: true
+          description: DLQ entry ID to retry
+          schema:
+            type: integer
+            format: int64
+            example: 12345
+      requestBody:
+        description: No request body needed for retry operation
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              nullable: true
+            examples:
+              empty:
+                summary: No body required
+                value: null
+      responses:
+        '200':
+          description: Retry initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DLQRetryResponse'
+        '404':
+          description: DLQ entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Entry already resolved or retry in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/dlq/entries/{dlq_id}/resolve:
+    post:
+      tags:
+        - Dead Letter Queue
+      summary: Mark DLQ entry as resolved
+      description: |
+        Mark a DLQ entry as resolved without retrying.
+
+        Use this when:
+        - The issue has been fixed manually
+        - The failure is expected and should be ignored
+        - The job is no longer relevant
+
+        Resolution notes are optional but recommended for audit purposes.
+      operationId: resolveDLQEntry
+      parameters:
+        - name: dlq_id
+          in: path
+          required: true
+          description: DLQ entry ID to resolve
+          schema:
+            type: integer
+            format: int64
+            example: 12345
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveDLQRequest'
+            example:
+              resolution_notes: "Issue fixed manually - database inconsistency resolved"
+      responses:
+        '200':
+          description: DLQ entry resolved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DLQEntryResponse'
+        '404':
+          description: DLQ entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Entry already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/dlq/stats:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: Get DLQ statistics
+      description: |
+        Retrieve overall statistics about the Dead Letter Queue.
+
+        Includes:
+        - Total entries
+        - Unresolved entries
+        - Retry attempts and successes
+        - Statistics by error category
+      operationId: getDLQStats
+      responses:
+        '200':
+          description: Statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DLQStatsResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/duplicates/groups:
     get:
       tags:
@@ -1839,6 +2119,48 @@ components:
         - ERROR
         - CRITICAL
       description: Log level for crawl logs
+
+    ErrorCategoryEnum:
+      type: string
+      enum:
+        - network
+        - timeout
+        - rate_limit
+        - server_error
+        - browser_crash
+        - resource_unavailable
+        - client_error
+        - auth_error
+        - not_found
+        - validation_error
+        - business_logic_error
+        - unknown
+      description: |
+        Category of error for retry policy classification (values match DB canonical strings):
+        - network: Connection failures, DNS errors
+        - timeout: Request timeouts
+        - rate_limit: HTTP 429 or rate limiting
+        - server_error: HTTP 5xx errors
+        - browser_crash: Browser process crashed
+        - resource_unavailable: HTTP 503 Service Unavailable
+        - client_error: HTTP 4xx errors (except 401, 404, 429)
+        - auth_error: HTTP 401 Unauthorized
+        - not_found: HTTP 404 Not Found
+        - validation_error: Invalid configuration or parameters
+        - business_logic_error: Application-level errors
+        - unknown: Unclassified errors
+
+    JobTypeEnum:
+      type: string
+      enum:
+        - one_time
+        - scheduled
+        - recurring
+      description: |
+        Type of crawl job (values match DB canonical strings):
+        - one_time: Single execution job
+        - scheduled: Job triggered by a schedule
+        - recurring: Recurring job pattern
 
     PaginationTypeEnum:
       type: string
@@ -3230,6 +3552,244 @@ components:
           nullable: true
           description: When last duplicate was detected
           example: "2025-10-29T10:05:00Z"
+
+    # ============================================================================
+    # Dead Letter Queue Schemas
+    # ============================================================================
+
+    DLQEntry:
+      type: object
+      required:
+        - id
+        - job_id
+        - seed_url
+        - job_type
+        - priority
+        - error_category
+        - error_message
+        - total_attempts
+        - first_attempt_at
+        - last_attempt_at
+        - added_to_dlq_at
+        - retry_attempted
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: DLQ entry ID
+          example: 12345
+        job_id:
+          type: string
+          format: uuid
+          description: Failed job UUID
+          example: "770e8400-e29b-41d4-a716-446655440000"
+        seed_url:
+          type: string
+          format: uri
+          description: URL that was being crawled
+          example: "https://example.com/page"
+        website_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Website UUID (if job was part of website crawl)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        job_type:
+          $ref: '#/components/schemas/JobTypeEnum'
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Job priority (1=lowest, 10=highest)
+          example: 5
+        error_category:
+          $ref: '#/components/schemas/ErrorCategoryEnum'
+        error_message:
+          type: string
+          description: Error message
+          example: "HTTP 404: Page not found"
+        stack_trace:
+          type: string
+          nullable: true
+          description: Stack trace (if available)
+          example: "Traceback (most recent call last):\n  File..."
+        http_status:
+          type: integer
+          nullable: true
+          minimum: 100
+          maximum: 599
+          description: HTTP status code (if applicable)
+          example: 404
+        total_attempts:
+          type: integer
+          minimum: 1
+          description: Total number of retry attempts before failure
+          example: 3
+        first_attempt_at:
+          type: string
+          format: date-time
+          description: Timestamp of first attempt
+          example: "2025-10-29T10:00:00Z"
+        last_attempt_at:
+          type: string
+          format: date-time
+          description: Timestamp of last attempt
+          example: "2025-10-29T10:05:00Z"
+        added_to_dlq_at:
+          type: string
+          format: date-time
+          description: When job was added to DLQ
+          example: "2025-10-29T10:05:00Z"
+        retry_attempted:
+          type: boolean
+          description: Whether manual retry was attempted
+          example: false
+        retry_attempted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When manual retry was attempted
+          example: null
+        retry_success:
+          type: boolean
+          nullable: true
+          description: Whether manual retry succeeded
+          example: null
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When entry was marked as resolved
+          example: null
+        resolution_notes:
+          type: string
+          nullable: true
+          description: Notes about resolution
+          example: null
+
+    DLQEntryResponse:
+      type: object
+      required:
+        - entry
+      properties:
+        entry:
+          $ref: '#/components/schemas/DLQEntry'
+
+    DLQEntriesResponse:
+      type: object
+      required:
+        - entries
+        - total
+        - limit
+        - offset
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DLQEntry'
+          description: List of DLQ entries
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of entries matching filters
+          example: 42
+        limit:
+          type: integer
+          minimum: 1
+          description: Number of entries per page
+          example: 100
+        offset:
+          type: integer
+          minimum: 0
+          description: Number of entries skipped
+          example: 0
+
+    ResolveDLQRequest:
+      type: object
+      properties:
+        resolution_notes:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Notes explaining the resolution
+          example: "Fixed website configuration to handle this case"
+
+    DLQRetryResponse:
+      type: object
+      required:
+        - job_id
+        - dlq_entry_id
+        - message
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          description: New job UUID created for retry
+          example: "880e8400-e29b-41d4-a716-446655440000"
+        dlq_entry_id:
+          type: integer
+          format: int64
+          description: DLQ entry ID that was retried
+          example: 12345
+        message:
+          type: string
+          description: Status message
+          example: "Job retry initiated successfully"
+
+    DLQCategoryStats:
+      type: object
+      required:
+        - error_category
+        - total
+        - unresolved
+      properties:
+        error_category:
+          $ref: '#/components/schemas/ErrorCategoryEnum'
+        total:
+          type: integer
+          minimum: 0
+          description: Total entries in this category
+          example: 15
+        unresolved:
+          type: integer
+          minimum: 0
+          description: Unresolved entries in this category
+          example: 8
+
+    DLQStatsResponse:
+      type: object
+      required:
+        - total_entries
+        - unresolved_entries
+        - retry_attempts
+        - retry_successes
+        - by_category
+      properties:
+        total_entries:
+          type: integer
+          minimum: 0
+          description: Total DLQ entries
+          example: 42
+        unresolved_entries:
+          type: integer
+          minimum: 0
+          description: Entries not yet resolved
+          example: 25
+        retry_attempts:
+          type: integer
+          minimum: 0
+          description: Manual retry attempts
+          example: 10
+        retry_successes:
+          type: integer
+          minimum: 0
+          description: Successful manual retries
+          example: 7
+        by_category:
+          type: array
+          items:
+            $ref: '#/components/schemas/DLQCategoryStats'
+          description: Statistics grouped by error category
 
   securitySchemes:
     BearerAuth:

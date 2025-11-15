@@ -22,6 +22,7 @@ from crawler.core.logging import get_logger, setup_logging
 from crawler.db.generated.models import StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
 from crawler.db.session import get_db
+from crawler.services.job_retry_handler import create_retry_handler
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
 from crawler.services.step_orchestrator import StepOrchestrator
@@ -51,6 +52,7 @@ class CrawlJobWorker:
         cancellation_flag: JobCancellationFlag,
         dedup_cache: URLDeduplicationCache,
         settings: Settings,
+        retry_scheduler_cache: Any | None = None,
     ):
         """Initialize worker with injected dependencies.
 
@@ -59,11 +61,13 @@ class CrawlJobWorker:
             cancellation_flag: Job cancellation flag service
             dedup_cache: URL deduplication cache service
             settings: Application settings
+            retry_scheduler_cache: Optional retry scheduler cache for non-blocking delays
         """
         self.nats_queue = nats_queue
         self.cancellation_flag = cancellation_flag
         self.dedup_cache = dedup_cache
         self.settings = settings
+        self.retry_scheduler_cache = retry_scheduler_cache
         self.processing = False
 
     async def setup(self) -> None:
@@ -175,7 +179,8 @@ class CrawlJobWorker:
             conn: Database connection
 
         Returns:
-            True if job processed successfully, False if it should be requeued
+            True if message should be acked (job handled successfully or by JobRetryHandler),
+            False only for infrastructure-level failures requiring requeue via nak()
         """
         job_repo = CrawlJobRepository(conn)
 
@@ -289,46 +294,93 @@ class CrawlJobWorker:
                 logger.info("job_completed_successfully", job_id=job_id)
                 return True
             else:
-                # Some steps failed
+                # Some steps failed - check if we should retry
                 error_msg = f"Workflow failed. Failed steps: {', '.join(failed_steps)}"
-                await job_repo.update_status(
-                    job_id=job_id,
-                    status=StatusEnum.FAILED,
-                    started_at=None,
-                    completed_at=None,
-                    error_message=error_msg[:1000],  # Limit error message length
+
+                # Extract error details from step results
+                step_errors = [result for result in context.step_results.values() if result.error]
+
+                # Create retry handler
+                retry_handler = await create_retry_handler(
+                    conn, self.nats_queue, self.retry_scheduler_cache
                 )
-                logger.warning(
-                    "job_failed",
+
+                # Try to extract original exception from first error for classification
+                exc = None
+                if step_errors:
+                    step = step_errors[0]
+                    # Safely extract exception attribute (may not exist on all step result types)
+                    exc = getattr(step, "exception", None)
+                    if not exc:
+                        # Fall back to creating Exception from error attribute
+                        error_text = getattr(step, "error", None)
+                        if error_text:
+                            exc = Exception(error_text)
+                        else:
+                            # Last resort: stringify the step result
+                            exc = Exception(str(step))
+
+                # Handle failure with retry logic
+                will_retry = await retry_handler.handle_job_failure(
                     job_id=job_id,
-                    failed_steps=failed_steps,
+                    exc=exc,
+                    error_message=error_msg,
                 )
+
+                # If will_retry=True, JobRetryHandler has already scheduled a retry.
+                # If will_retry=False, JobRetryHandler has marked the job as permanently failed
+                # and (optionally) added it to the DLQ.
+                # In both cases the failure has been fully handled, so we should ack
+                # the current message and NOT rely on JetStream requeue.
+                if will_retry:
+                    logger.info("job_will_retry", job_id=job_id, failed_steps=failed_steps)
+                else:
+                    logger.warning(
+                        "job_permanently_failed", job_id=job_id, failed_steps=failed_steps
+                    )
+
                 return True
 
         except ValueError as e:
-            # Dependency validation or configuration error
+            # Dependency validation or configuration error - usually not retryable
             error_msg = f"Workflow configuration error: {e}"
-            await job_repo.update_status(
-                job_id=job_id,
-                status=StatusEnum.FAILED,
-                started_at=None,
-                completed_at=None,
-                error_message=error_msg[:1000],
+
+            retry_handler = await create_retry_handler(
+                conn, self.nats_queue, self.retry_scheduler_cache
             )
-            logger.error("workflow_validation_error", job_id=job_id, error=str(e))
+            will_retry = await retry_handler.handle_job_failure(
+                job_id=job_id,
+                exc=e,
+                error_message=error_msg,
+            )
+
+            logger.error(
+                "workflow_validation_error", job_id=job_id, error=str(e), will_retry=will_retry
+            )
+            # Failure already handled by JobRetryHandler; always ack.
             return True
 
         except Exception as e:
-            # Unexpected error
+            # Unexpected error - may be retryable (network, timeout, etc.)
             error_msg = f"Workflow execution error: {e}"
-            await job_repo.update_status(
-                job_id=job_id,
-                status=StatusEnum.FAILED,
-                started_at=None,
-                completed_at=None,
-                error_message=error_msg[:1000],
+
+            retry_handler = await create_retry_handler(
+                conn, self.nats_queue, self.retry_scheduler_cache
             )
-            logger.error("workflow_execution_error", job_id=job_id, error=str(e), exc_info=True)
+            will_retry = await retry_handler.handle_job_failure(
+                job_id=job_id,
+                exc=e,
+                error_message=error_msg,
+            )
+
+            logger.error(
+                "workflow_execution_error",
+                job_id=job_id,
+                error=str(e),
+                will_retry=will_retry,
+                exc_info=True,
+            )
+            # Failure already handled by JobRetryHandler; always ack.
             return True
 
     async def process_job(self, job_id: str, job_data: dict[str, Any], conn: Any = None) -> bool:
@@ -477,12 +529,18 @@ async def main() -> None:
     cancellation_flag = JobCancellationFlag(redis_client, settings)
     dedup_cache = URLDeduplicationCache(redis_client, settings)
 
+    # Create retry scheduler cache for non-blocking retry delays
+    from crawler.services.retry_scheduler_cache import RetrySchedulerCache
+
+    retry_scheduler_cache = RetrySchedulerCache(redis_client, settings)
+
     # Create and run worker with dependency injection
     worker = CrawlJobWorker(
         nats_queue=nats_queue,
         cancellation_flag=cancellation_flag,
         dedup_cache=dedup_cache,
         settings=settings,
+        retry_scheduler_cache=retry_scheduler_cache,
     )
 
     try:

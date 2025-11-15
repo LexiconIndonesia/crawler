@@ -27,6 +27,37 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 
 
 --
+-- Name: backoff_strategy_enum; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE backoff_strategy_enum AS ENUM (
+    'exponential',
+    'linear',
+    'fixed'
+);
+
+
+--
+-- Name: error_category_enum; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE error_category_enum AS ENUM (
+    'network',
+    'rate_limit',
+    'server_error',
+    'browser_crash',
+    'resource_unavailable',
+    'timeout',
+    'client_error',
+    'auth_error',
+    'not_found',
+    'validation_error',
+    'business_logic_error',
+    'unknown'
+);
+
+
+--
 -- Name: job_type_enum; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -386,6 +417,54 @@ COMMENT ON TABLE crawled_page IS 'Stores crawled page data and content';
 
 
 --
+-- Name: dead_letter_queue; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE dead_letter_queue (
+    id bigint NOT NULL,
+    job_id uuid NOT NULL,
+    seed_url text NOT NULL,
+    website_id uuid,
+    job_type job_type_enum NOT NULL,
+    priority integer NOT NULL,
+    error_category error_category_enum NOT NULL,
+    error_message text NOT NULL,
+    stack_trace text,
+    http_status integer,
+    total_attempts integer NOT NULL,
+    first_attempt_at timestamp with time zone NOT NULL,
+    last_attempt_at timestamp with time zone NOT NULL,
+    added_to_dlq_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    retry_attempted boolean DEFAULT false NOT NULL,
+    retry_attempted_at timestamp with time zone,
+    retry_success boolean,
+    resolved_at timestamp with time zone,
+    resolution_notes text,
+    CONSTRAINT ck_dlq_retry_logic CHECK ((((retry_attempted = false) AND (retry_attempted_at IS NULL)) OR ((retry_attempted = true) AND (retry_attempted_at IS NOT NULL)))),
+    CONSTRAINT ck_dlq_total_attempts CHECK ((total_attempts > 0))
+);
+
+
+--
+-- Name: dead_letter_queue_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE dead_letter_queue_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: dead_letter_queue_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE dead_letter_queue_id_seq OWNED BY dead_letter_queue.id;
+
+
+--
 -- Name: duplicate_group; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -435,6 +514,66 @@ CREATE SEQUENCE duplicate_relationship_id_seq
 --
 
 ALTER SEQUENCE duplicate_relationship_id_seq OWNED BY duplicate_relationship.id;
+
+
+--
+-- Name: retry_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE retry_history (
+    id bigint NOT NULL,
+    job_id uuid NOT NULL,
+    attempt_number integer NOT NULL,
+    error_category error_category_enum NOT NULL,
+    error_message text NOT NULL,
+    stack_trace text,
+    retry_delay_seconds integer NOT NULL,
+    attempted_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT ck_retry_history_attempt_number CHECK ((attempt_number > 0)),
+    CONSTRAINT ck_retry_history_retry_delay CHECK ((retry_delay_seconds >= 0))
+);
+
+
+--
+-- Name: retry_history_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE retry_history_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: retry_history_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE retry_history_id_seq OWNED BY retry_history.id;
+
+
+--
+-- Name: retry_policy; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE retry_policy (
+    id uuid DEFAULT uuidv7() NOT NULL,
+    error_category error_category_enum NOT NULL,
+    is_retryable boolean DEFAULT true NOT NULL,
+    max_attempts integer DEFAULT 3 NOT NULL,
+    backoff_strategy backoff_strategy_enum DEFAULT 'exponential'::backoff_strategy_enum NOT NULL,
+    initial_delay_seconds integer DEFAULT 1 NOT NULL,
+    max_delay_seconds integer DEFAULT 300 NOT NULL,
+    backoff_multiplier double precision DEFAULT 2.0 NOT NULL,
+    description text,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT ck_retry_policy_backoff_multiplier CHECK (((backoff_multiplier >= (1.0)::double precision) AND (backoff_multiplier <= (10.0)::double precision))),
+    CONSTRAINT ck_retry_policy_initial_delay CHECK (((initial_delay_seconds >= 0) AND (initial_delay_seconds <= 60))),
+    CONSTRAINT ck_retry_policy_max_attempts CHECK (((max_attempts >= 0) AND (max_attempts <= 10))),
+    CONSTRAINT ck_retry_policy_max_delay CHECK (((max_delay_seconds >= 0) AND (max_delay_seconds <= 3600)))
+);
 
 
 --
@@ -644,10 +783,24 @@ ALTER TABLE ONLY crawl_log ALTER COLUMN id SET DEFAULT nextval('crawl_log_id_seq
 
 
 --
+-- Name: dead_letter_queue id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY dead_letter_queue ALTER COLUMN id SET DEFAULT nextval('dead_letter_queue_id_seq'::regclass);
+
+
+--
 -- Name: duplicate_relationship id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY duplicate_relationship ALTER COLUMN id SET DEFAULT nextval('duplicate_relationship_id_seq'::regclass);
+
+
+--
+-- Name: retry_history id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY retry_history ALTER COLUMN id SET DEFAULT nextval('retry_history_id_seq'::regclass);
 
 
 --
@@ -747,6 +900,14 @@ ALTER TABLE ONLY crawled_page
 
 
 --
+-- Name: dead_letter_queue dead_letter_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY dead_letter_queue
+    ADD CONSTRAINT dead_letter_queue_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: duplicate_group duplicate_group_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -760,6 +921,30 @@ ALTER TABLE ONLY duplicate_group
 
 ALTER TABLE ONLY duplicate_relationship
     ADD CONSTRAINT duplicate_relationship_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: retry_history retry_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY retry_history
+    ADD CONSTRAINT retry_history_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: retry_policy retry_policy_error_category_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY retry_policy
+    ADD CONSTRAINT retry_policy_error_category_key UNIQUE (error_category);
+
+
+--
+-- Name: retry_policy retry_policy_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY retry_policy
+    ADD CONSTRAINT retry_policy_pkey PRIMARY KEY (id);
 
 
 --
@@ -1052,6 +1237,83 @@ CREATE INDEX crawl_log_2026_02_website_id_idx ON crawl_log_2026_02 USING btree (
 --
 
 CREATE INDEX idx_content_hash_simhash ON content_hash USING btree (simhash_fingerprint) WHERE (simhash_fingerprint IS NOT NULL);
+
+
+--
+-- Name: idx_dlq_added_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_added_at ON dead_letter_queue USING btree (added_to_dlq_at DESC);
+
+
+--
+-- Name: idx_dlq_error_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_error_category ON dead_letter_queue USING btree (error_category);
+
+
+--
+-- Name: idx_dlq_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_job_id ON dead_letter_queue USING btree (job_id);
+
+
+--
+-- Name: idx_dlq_retry_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_retry_pending ON dead_letter_queue USING btree (added_to_dlq_at) WHERE (retry_attempted = false);
+
+
+--
+-- Name: idx_dlq_unresolved; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_unresolved ON dead_letter_queue USING btree (added_to_dlq_at DESC) WHERE (resolved_at IS NULL);
+
+
+--
+-- Name: idx_dlq_website_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dlq_website_id ON dead_letter_queue USING btree (website_id);
+
+
+--
+-- Name: idx_retry_history_attempted_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_retry_history_attempted_at ON retry_history USING btree (attempted_at);
+
+
+--
+-- Name: idx_retry_history_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_retry_history_category ON retry_history USING btree (error_category);
+
+
+--
+-- Name: idx_retry_history_job_attempt; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_retry_history_job_attempt ON retry_history USING btree (job_id, attempt_number);
+
+
+--
+-- Name: idx_retry_history_job_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_retry_history_job_id ON retry_history USING btree (job_id);
+
+
+--
+-- Name: idx_retry_policy_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_retry_policy_category ON retry_policy USING btree (error_category);
 
 
 --
@@ -1396,6 +1658,22 @@ ALTER TABLE ONLY crawled_page
 
 
 --
+-- Name: dead_letter_queue dead_letter_queue_job_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY dead_letter_queue
+    ADD CONSTRAINT dead_letter_queue_job_id_fkey FOREIGN KEY (job_id) REFERENCES crawl_job(id) ON DELETE CASCADE;
+
+
+--
+-- Name: dead_letter_queue dead_letter_queue_website_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY dead_letter_queue
+    ADD CONSTRAINT dead_letter_queue_website_id_fkey FOREIGN KEY (website_id) REFERENCES website(id) ON DELETE SET NULL;
+
+
+--
 -- Name: duplicate_group duplicate_group_canonical_page_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1433,6 +1711,14 @@ ALTER TABLE crawl_log
 
 ALTER TABLE crawl_log
     ADD CONSTRAINT fk_crawl_log_website FOREIGN KEY (website_id) REFERENCES website(id) ON DELETE CASCADE;
+
+
+--
+-- Name: retry_history retry_history_job_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY retry_history
+    ADD CONSTRAINT retry_history_job_id_fkey FOREIGN KEY (job_id) REFERENCES crawl_job(id) ON DELETE CASCADE;
 
 
 --

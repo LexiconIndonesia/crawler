@@ -501,7 +501,6 @@ The project uses **Alembic** for database migrations. All schema changes must go
 **Important Notes**:
 - **Never edit `sql/schema/current_schema.sql` manually** - it's auto-generated
 - **All schema changes go through Alembic migrations** in `alembic/versions/`
-- **sql/migrations/*.sql are historical** - kept for reference, not used
 - **Use raw SQL in migrations** - Alembic `op.execute()` for full PostgreSQL features
 - **No SQLAlchemy ORM** - we use sqlc for type-safe queries instead
 

@@ -197,6 +197,14 @@ RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, s
 """
 
 
+UPDATE_RETRY_COUNT = """-- name: update_retry_count \\:one
+UPDATE crawl_job
+SET retry_count = :p1
+WHERE id = :p2
+RETURNING id, website_id, job_type, seed_url, inline_config, status, priority, scheduled_at, started_at, completed_at, cancelled_at, cancelled_by, cancellation_reason, error_message, retry_count, max_retries, metadata, variables, progress, created_at, updated_at
+"""
+
+
 class AsyncQuerier:
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection):
         self._conn = conn
@@ -626,6 +634,34 @@ class AsyncQuerier:
             "p4": error_message,
             "p5": id,
         })).first()
+        if row is None:
+            return None
+        return models.CrawlJob(
+            id=row[0],
+            website_id=row[1],
+            job_type=row[2],
+            seed_url=row[3],
+            inline_config=row[4],
+            status=row[5],
+            priority=row[6],
+            scheduled_at=row[7],
+            started_at=row[8],
+            completed_at=row[9],
+            cancelled_at=row[10],
+            cancelled_by=row[11],
+            cancellation_reason=row[12],
+            error_message=row[13],
+            retry_count=row[14],
+            max_retries=row[15],
+            metadata=row[16],
+            variables=row[17],
+            progress=row[18],
+            created_at=row[19],
+            updated_at=row[20],
+        )
+
+    async def update_retry_count(self, *, retry_count: int, id: uuid.UUID) -> Optional[models.CrawlJob]:
+        row = (await self._conn.execute(sqlalchemy.text(UPDATE_RETRY_COUNT), {"p1": retry_count, "p2": id})).first()
         if row is None:
             return None
         return models.CrawlJob(

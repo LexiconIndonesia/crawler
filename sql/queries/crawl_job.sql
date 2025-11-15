@@ -154,3 +154,11 @@ INSERT INTO crawl_job (
     sqlc.arg(metadata)
 )
 RETURNING *;
+
+
+-- name: UpdateRetryCount :one
+-- Set retry count to a specific value for a job
+UPDATE crawl_job
+SET retry_count = sqlc.arg(retry_count)
+WHERE id = sqlc.arg(id)
+RETURNING *;

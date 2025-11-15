@@ -1,5 +1,12 @@
 """API v1 handlers."""
 
+from .dlq import (
+    get_dlq_entry_handler,
+    get_dlq_stats_handler,
+    list_dlq_entries_handler,
+    resolve_dlq_entry_handler,
+    retry_dlq_entry_handler,
+)
 from .duplicates import (
     get_duplicate_group_details_handler,
     get_duplicate_group_stats_handler,
@@ -40,4 +47,9 @@ __all__ = [
     "list_duplicate_groups_handler",
     "get_duplicate_group_details_handler",
     "get_duplicate_group_stats_handler",
+    "list_dlq_entries_handler",
+    "get_dlq_entry_handler",
+    "retry_dlq_entry_handler",
+    "resolve_dlq_entry_handler",
+    "get_dlq_stats_handler",
 ]

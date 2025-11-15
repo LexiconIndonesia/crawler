@@ -142,7 +142,7 @@ Add this to your deployment script or Docker entrypoint.
 
 ## Baseline Migration
 
-The first migration (`21735a37e0d1_baseline`) is empty and represents the existing schema from `sql/migrations/`. All future migrations build on top of this baseline.
+The initial migrations represent the schema that was originally created with manual SQL files. All migrations are now managed exclusively through Alembic.
 
 ## Async SQLAlchemy
 
@@ -174,6 +174,5 @@ uv run alembic stamp head
 
 ## See Also
 
-- `sql/migrations/README.md` - Manual SQL migrations
 - `sql/schema/README.md` - Static schema documentation
 - [Alembic Documentation](https://alembic.sqlalchemy.org/)
