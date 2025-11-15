@@ -56,11 +56,14 @@ async def create_website_handler(
 
     # Validate cron schedule - use default if not provided (bi-weekly)
     cron_schedule = request.schedule.cron or "0 0 1,15 * *"
-    is_valid, result = validate_and_calculate_next_run(cron_schedule)
+    timezone = request.schedule.timezone or "UTC"  # Use default if not provided
+
+    is_valid, result = validate_and_calculate_next_run(cron_schedule, timezone=timezone)
     if not is_valid:
         logger.warning(
             "invalid_cron_expression",
             cron=request.schedule.cron,
+            timezone=timezone,
             error=result,
         )
         raise HTTPException(

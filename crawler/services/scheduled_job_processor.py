@@ -19,6 +19,7 @@ from crawler.core.logging import get_logger
 from crawler.core.metrics import scheduled_jobs_processed_total
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.utils.cron import calculate_next_run
+from crawler.utils.dst import get_dst_transition_type
 
 if TYPE_CHECKING:
     from crawler.db.repositories.crawl_job import CrawlJobRepository
@@ -121,9 +122,24 @@ async def handle_missed_schedules(
             delay = now - job.next_run_time
             should_catchup = delay < MAX_CATCHUP_DELAY
 
-            # Calculate next run time
+            # Calculate next run time in job's timezone
+            # Use timezone from job (defaults to UTC for backward compatibility)
+            job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
+
             try:
-                next_run_time = calculate_next_run(job.cron_schedule, now)
+                next_run_time = calculate_next_run(job.cron_schedule, now, timezone=job_timezone)
+
+                # Check for DST transition in the job's timezone
+                dst_transition = get_dst_transition_type(next_run_time, job_timezone)
+                if dst_transition:
+                    logger.info(
+                        "dst_transition_on_catchup",
+                        scheduled_job_id=str(job.id),
+                        next_run_time=next_run_time.isoformat(),
+                        timezone=job_timezone,
+                        transition_type=dst_transition,
+                        note="DST transition detected - next run time adjusted automatically",
+                    )
             except ValueError as e:
                 logger.error(
                     "cron_calculation_failed_for_missed_job",
@@ -359,14 +375,24 @@ async def process_scheduled_jobs(
                 )
                 continue
 
-            # Calculate next run time from cron expression
+            # Calculate next run time from cron expression in job's timezone
+            # Use timezone from job (defaults to UTC for backward compatibility)
+            job_timezone = (
+                scheduled_job.timezone
+                if hasattr(scheduled_job, "timezone") and scheduled_job.timezone
+                else "UTC"
+            )
+
             try:
-                next_run_time = calculate_next_run(scheduled_job.cron_schedule, now)
+                next_run_time = calculate_next_run(
+                    scheduled_job.cron_schedule, now, timezone=job_timezone
+                )
             except ValueError as e:
                 logger.error(
                     "cron_calculation_failed",
                     scheduled_job_id=str(scheduled_job.id),
                     cron_schedule=scheduled_job.cron_schedule,
+                    timezone=job_timezone,
                     error=str(e),
                     reason="Invalid cron expression - job will not be rescheduled",
                 )
@@ -375,6 +401,18 @@ async def process_scheduled_jobs(
                     job_id=str(scheduled_job.id), is_active=False
                 )
                 continue
+
+            # Check for DST transition in the job's timezone
+            dst_transition = get_dst_transition_type(next_run_time, job_timezone)
+            if dst_transition:
+                logger.info(
+                    "dst_transition_detected",
+                    scheduled_job_id=str(scheduled_job.id),
+                    next_run_time=next_run_time.isoformat(),
+                    transition_type=dst_transition,
+                    timezone=job_timezone,
+                    note="DST transition detected - next run time adjusted automatically",
+                )
 
             # Update scheduled job with next run time
             await scheduled_job_repo.update_next_run(

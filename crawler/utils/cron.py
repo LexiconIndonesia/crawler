@@ -1,6 +1,7 @@
-"""Cron utilities for scheduled job management."""
+"""Cron utilities for scheduled job management with timezone support."""
 
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
@@ -8,8 +9,16 @@ from croniter import croniter
 def calculate_next_run(
     cron_expression: str,
     base_time: datetime | None = None,
+    timezone: str = "UTC",
 ) -> datetime:
-    """Calculate the next run time for a cron expression.
+    """Calculate the next run time for a cron expression in the user's timezone.
+
+    This function calculates the next run time in the specified timezone (e.g., Jakarta time),
+    then converts it to UTC for storage. This ensures schedules honor the user's local timezone.
+
+    For example, "0 2 * * *" with timezone="Asia/Jakarta" means 2 AM Jakarta time every day,
+    which will be converted to UTC for storage (e.g., 7 PM UTC the previous day when
+    Jakarta is UTC+7).
 
     Supports both standard cron syntax and extended syntax (@daily, @weekly, etc.).
 
@@ -19,21 +28,24 @@ def calculate_next_run(
             - Extended: "@daily", "@weekly", "@hourly", etc.
         base_time: Base time to calculate from (defaults to current UTC time)
             Must be timezone-aware. If naive, assumes UTC.
+        timezone: IANA timezone name for schedule calculations
+            (e.g., "Asia/Jakarta", "America/New_York"). The cron expression will be
+            evaluated in this timezone, then converted to UTC.
 
     Returns:
-        Next scheduled execution time (always timezone-aware in UTC)
+        Next scheduled execution time in UTC (always timezone-aware)
 
     Raises:
-        ValueError: If the cron expression is invalid
+        ValueError: If the cron expression or timezone is invalid
 
     Example:
         >>> from datetime import datetime, UTC
-        >>> next_run = calculate_next_run("0 0 * * *")  # Next midnight
-        >>> next_run = calculate_next_run("0 0 1,15 * *")  # Next 1st or 15th
-        >>> next_run = calculate_next_run("@daily")  # Next midnight (extended syntax)
+        >>> # Calculate next 2 AM Jakarta time (returns UTC time)
+        >>> next_run = calculate_next_run("0 2 * * *", timezone="Asia/Jakarta")
+        >>> # For Jakarta (UTC+7), 2 AM local = 7 PM previous day UTC
+        >>> next_run = calculate_next_run("@daily", timezone="UTC")  # Standard UTC
     """
-    from datetime import UTC
-
+    # Guard: default to now in UTC if no base time provided
     if base_time is None:
         base_time = datetime.now(UTC)
     elif base_time.tzinfo is None:
@@ -41,14 +53,22 @@ def calculate_next_run(
         base_time = base_time.replace(tzinfo=UTC)
 
     try:
-        cron = croniter(cron_expression, base_time)
-        next_time = cron.get_next(datetime)
+        # Convert base time to the target timezone for cron calculation
+        tz = ZoneInfo(timezone)
+        base_time_local = base_time.astimezone(tz)
 
-        # Ensure timezone-aware datetime
-        if next_time.tzinfo is None:
-            next_time = next_time.replace(tzinfo=UTC)
+        # Calculate next run time in the target timezone
+        cron = croniter(cron_expression, base_time_local)
+        next_time_local = cron.get_next(datetime)
 
-        return next_time
+        # Ensure timezone-aware datetime in target timezone
+        if next_time_local.tzinfo is None:
+            next_time_local = next_time_local.replace(tzinfo=tz)
+
+        # Convert back to UTC for storage
+        next_time_utc = next_time_local.astimezone(UTC)
+
+        return next_time_utc
     except (ValueError, KeyError) as e:
         raise ValueError(f"Invalid cron expression '{cron_expression}': {str(e)}") from e
 

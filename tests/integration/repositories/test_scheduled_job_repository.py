@@ -33,6 +33,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=next_run,
+            timezone="UTC",
             is_active=True,
             job_config={"max_depth": 5},
         )
@@ -63,11 +64,13 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
         )
         await scheduled_job_repo.create(
             website_id=str(website.id),
             cron_schedule="0 12 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
         )
 
         jobs = await scheduled_job_repo.get_by_website_id(str(website.id))
@@ -89,6 +92,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=past_time,
+            timezone="UTC",
             is_active=True,
         )
 
@@ -98,6 +102,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=future_time,
+            timezone="UTC",
             is_active=True,
         )
 
@@ -120,6 +125,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
         )
 
         # Update job
@@ -147,6 +153,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
             is_active=True,
         )
 
@@ -173,6 +180,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
         )
 
         # Update next run time
@@ -232,6 +240,7 @@ class TestScheduledJobRepository:
             website_id=str(website.id),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
             job_config=complex_config,
         )
 

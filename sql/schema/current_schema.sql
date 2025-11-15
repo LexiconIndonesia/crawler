@@ -590,7 +590,9 @@ CREATE TABLE scheduled_job (
     job_config jsonb,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT ck_scheduled_job_valid_cron CHECK (((cron_schedule)::text ~ '^(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+|[A-Z]{3})\s+(\*|[0-9,\-/]+|[A-Z]{3})(\s+(\*|[0-9,\-/]+))?$'::text))
+    timezone character varying(64) DEFAULT 'UTC'::character varying NOT NULL,
+    CONSTRAINT ck_scheduled_job_valid_cron CHECK (((cron_schedule)::text ~ '^(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+)\s+(\*|[0-9,\-/]+|[A-Z]{3})\s+(\*|[0-9,\-/]+|[A-Z]{3})(\s+(\*|[0-9,\-/]+))?$'::text)),
+    CONSTRAINT ck_scheduled_job_valid_timezone CHECK (((timezone)::text ~ '^[A-Za-z]+(/[A-Za-z_]+)?$'::text))
 );
 
 
@@ -634,6 +636,13 @@ COMMENT ON COLUMN scheduled_job.is_active IS 'Flag to pause/resume schedule with
 --
 
 COMMENT ON COLUMN scheduled_job.job_config IS 'Job-specific configuration overrides';
+
+
+--
+-- Name: COLUMN scheduled_job.timezone; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN scheduled_job.timezone IS 'IANA timezone name (e.g., UTC, America/New_York, Asia/Jakarta) for schedule calculations';
 
 
 --

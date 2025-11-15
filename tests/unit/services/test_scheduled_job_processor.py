@@ -103,6 +103,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "0 * * * *"  # Every hour
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
         mock_website_repo.get_by_id.return_value = mock_website
@@ -149,6 +150,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "0 * * * *"  # Every hour
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
         mock_scheduled_job.last_run_time = missed_time - timedelta(hours=1)
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
@@ -191,6 +193,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "0 * * * *"
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
         mock_website_repo.get_by_id.return_value = mock_website
@@ -306,6 +309,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "invalid cron"  # Invalid cron
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
         mock_website_repo.get_by_id.return_value = mock_website
@@ -345,6 +349,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "0 * * * *"
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
         mock_website_repo.get_by_id.return_value = mock_website
@@ -385,6 +390,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job.next_run_time = missed_time
         mock_scheduled_job.cron_schedule = "0 * * * *"
         mock_scheduled_job.job_config = {}
+        mock_scheduled_job.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [mock_scheduled_job]
         mock_website_repo.get_by_id.return_value = mock_website
@@ -427,6 +433,7 @@ class TestHandleMissedSchedules:
         job1.next_run_time = now - timedelta(minutes=30)
         job1.cron_schedule = "0 * * * *"
         job1.job_config = {}
+        job1.timezone = "UTC"
 
         # Job 2: 2 hours late (should skip)
         job2 = MagicMock()
@@ -436,6 +443,7 @@ class TestHandleMissedSchedules:
         job2.cron_schedule = "0 * * * *"
         job2.job_config = {}
         job2.last_run_time = now - timedelta(hours=3)
+        job2.timezone = "UTC"
 
         mock_scheduled_job_repo.get_due_jobs.return_value = [job1, job2]
         mock_website_repo.get_by_id.return_value = mock_website

@@ -1,7 +1,7 @@
 """Validation utilities for API requests."""
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 
 from croniter import croniter
 
@@ -71,10 +71,12 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
 def calculate_next_run_time(
     cron_expression: str,
     base_time: datetime | None = None,
+    timezone: str = "UTC",
 ) -> datetime:
-    """Calculate the next run time for a cron expression.
+    """Calculate the next run time for a cron expression in user's timezone.
 
     Supports both standard cron syntax and extended syntax (@daily, @weekly, etc.).
+    Calculates next run time in the specified timezone, then converts to UTC for storage.
 
     Args:
         cron_expression: Valid cron expression or extended syntax
@@ -82,47 +84,40 @@ def calculate_next_run_time(
             - Extended: "@daily", "@weekly", "@hourly", etc.
         base_time: Base time to calculate from (defaults to now in UTC)
             Must be timezone-aware. If naive, assumes UTC.
+        timezone: IANA timezone name for schedule calculations
+            (e.g., "UTC", "America/New_York", "Asia/Jakarta")
 
     Returns:
-        Next scheduled run time (always timezone-aware in UTC)
+        Next scheduled run time in UTC (always timezone-aware)
 
     Raises:
-        ValueError: If cron expression is invalid
+        ValueError: If cron expression or timezone is invalid
 
     Examples:
-        >>> # Next occurrence of "0 0 1,15 * *" (midnight on 1st or 15th)
+        >>> # Next occurrence of "0 0 1,15 * *" (midnight on 1st or 15th) in UTC
         >>> next_run = calculate_next_run_time("0 0 1,15 * *")
         >>> isinstance(next_run, datetime)
         True
-        >>> # Using extended syntax
-        >>> next_run = calculate_next_run_time("@daily")
+        >>> # Next 2 AM Jakarta time (returns UTC time)
+        >>> next_run = calculate_next_run_time("0 2 * * *", timezone="Asia/Jakarta")
         >>> isinstance(next_run, datetime)
         True
     """
-    if base_time is None:
-        base_time = datetime.now(UTC)
-    elif base_time.tzinfo is None:
-        # If naive datetime provided, assume UTC
-        base_time = base_time.replace(tzinfo=UTC)
+    from crawler.utils.cron import calculate_next_run
 
-    try:
-        cron = croniter(cron_expression, base_time)
-        next_time = cron.get_next(datetime)
-        # Ensure timezone-aware datetime in UTC
-        if next_time.tzinfo is None:
-            next_time = next_time.replace(tzinfo=UTC)
-        return next_time
-    except (ValueError, KeyError) as e:
-        raise ValueError(f"Invalid cron expression '{cron_expression}': {str(e)}") from e
+    # Delegate to the cron utility which handles timezone conversion
+    return calculate_next_run(cron_expression, base_time, timezone)
 
 
 def validate_and_calculate_next_run(
     cron_expression: str,
     base_time: datetime | None = None,
+    timezone: str = "UTC",
 ) -> tuple[bool, str | datetime]:
-    """Validate cron expression and calculate next run time.
+    """Validate cron expression and calculate next run time in user's timezone.
 
     Supports both standard cron syntax and extended syntax (@daily, @weekly, etc.).
+    Calculates next run time in the specified timezone, then converts to UTC for storage.
 
     Args:
         cron_expression: Cron expression to validate
@@ -130,10 +125,12 @@ def validate_and_calculate_next_run(
             - Extended: "@daily", "@weekly", "@hourly", etc.
         base_time: Base time for calculation (defaults to now in UTC)
             Must be timezone-aware. If naive, assumes UTC.
+        timezone: IANA timezone name for schedule calculations
+            (e.g., "UTC", "America/New_York", "Asia/Jakarta")
 
     Returns:
         Tuple of (is_valid, error_message_or_next_run_time)
-        If is_valid is True, returns (True, next_run_datetime)
+        If is_valid is True, returns (True, next_run_datetime_utc)
         If is_valid is False, returns (False, error_message_string)
 
     Examples:
@@ -142,10 +139,9 @@ def validate_and_calculate_next_run(
         True
         >>> isinstance(result, datetime)
         True
-        >>> valid, result = validate_and_calculate_next_run("@daily")
+        >>> # Calculate next 2 AM Jakarta time (returns UTC)
+        >>> valid, result = validate_and_calculate_next_run("0 2 * * *", timezone="Asia/Jakarta")
         >>> valid
-        True
-        >>> isinstance(result, datetime)
         True
     """
     is_valid, error_message = validate_cron_expression(cron_expression)
@@ -153,7 +149,7 @@ def validate_and_calculate_next_run(
         return False, error_message  # type: ignore[return-value]
 
     try:
-        next_run = calculate_next_run_time(cron_expression, base_time)
+        next_run = calculate_next_run_time(cron_expression, base_time, timezone)
         return True, next_run
     except ValueError as e:
         return False, str(e)  # type: ignore[return-value]

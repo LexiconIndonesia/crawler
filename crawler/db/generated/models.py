@@ -294,6 +294,8 @@ class ScheduledJob(pydantic.BaseModel):
     job_config: Optional[Any]
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    # IANA timezone name (e.g., UTC, America/New_York, Asia/Jakarta) for schedule calculations
+    timezone: str
 
 
 class Website(pydantic.BaseModel):

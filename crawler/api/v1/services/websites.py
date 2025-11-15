@@ -126,10 +126,13 @@ class WebsiteService:
         if request.schedule.enabled:
             # Use default cron schedule if not provided (bi-weekly)
             cron_schedule = request.schedule.cron or "0 0 1,15 * *"
+            timezone = request.schedule.timezone or "UTC"  # Use default if not provided
+
             scheduled_job = await self.scheduled_job_repo.create(
                 website_id=website.id,
                 cron_schedule=cron_schedule,
                 next_run_time=next_run_time,
+                timezone=timezone,
                 is_active=True,
             )
 
@@ -426,8 +429,13 @@ class WebsiteService:
                 # Note: new_cron could be None if user cleared it
                 effective_cron = new_cron if new_cron else "0 0 1,15 * *"
 
-                # Calculate next run time
-                is_valid, next_run = validate_and_calculate_next_run(effective_cron)
+                # Get timezone from schedule config (use default if not provided)
+                timezone = request.schedule.timezone or "UTC"
+
+                # Calculate next run time in user's timezone
+                is_valid, next_run = validate_and_calculate_next_run(
+                    effective_cron, timezone=timezone
+                )
                 if isinstance(next_run, datetime):
                     next_run_time = next_run
 
@@ -436,27 +444,29 @@ class WebsiteService:
                     next_run_time = datetime.now(UTC)
 
                 if scheduled_jobs:
-                    # Update existing scheduled job with effective cron
+                    # Update existing scheduled job with effective cron and timezone
                     for job in scheduled_jobs:
                         await self.scheduled_job_repo.update(
                             job_id=job.id,
                             cron_schedule=effective_cron,
                             next_run_time=next_run_time,
+                            timezone=timezone,
                             is_active=True,
                         )
                         scheduled_job_id = job.id
-                        logger.info("scheduled_job_updated", job_id=job.id)
+                        logger.info("scheduled_job_updated", job_id=job.id, timezone=timezone)
                 else:
-                    # Create new scheduled job with effective cron
+                    # Create new scheduled job with effective cron and timezone
                     new_job = await self.scheduled_job_repo.create(
                         website_id=website_id,
                         cron_schedule=effective_cron,
                         next_run_time=next_run_time,
+                        timezone=timezone,
                         is_active=True,
                     )
                     if new_job:
                         scheduled_job_id = new_job.id
-                        logger.info("scheduled_job_created", job_id=new_job.id)
+                        logger.info("scheduled_job_created", job_id=new_job.id, timezone=timezone)
             else:
                 # Disable scheduled jobs
                 for job in scheduled_jobs:
@@ -1102,8 +1112,13 @@ class WebsiteService:
         last_run_time = None
 
         for job in scheduled_jobs:
-            # Calculate next run time from cron schedule
-            is_valid, result = validate_and_calculate_next_run(job.cron_schedule)
+            # Calculate next run time from cron schedule in job's timezone
+            # Use timezone from job (defaults to UTC if not set on old jobs)
+            job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
+
+            is_valid, result = validate_and_calculate_next_run(
+                job.cron_schedule, timezone=job_timezone
+            )
             if is_valid and isinstance(result, datetime):
                 next_run_time = result
             else:

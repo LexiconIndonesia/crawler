@@ -25,15 +25,17 @@ INSERT INTO scheduled_job (
     cron_schedule,
     next_run_time,
     is_active,
-    job_config
+    job_config,
+    timezone
 ) VALUES (
     :p1,
     :p2,
     :p3,
     COALESCE(:p4, true),
-    :p5
+    :p5,
+    :p6
 )
-RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at
+RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone
 """
 
 
@@ -44,7 +46,7 @@ WHERE id = :p1
 
 
 GET_JOBS_DUE_FOR_EXECUTION = """-- name: get_jobs_due_for_execution \\:many
-SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at FROM scheduled_job
+SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone FROM scheduled_job
 WHERE is_active = true
   AND next_run_time <= :p1
 ORDER BY next_run_time ASC
@@ -53,20 +55,20 @@ LIMIT :p2
 
 
 GET_SCHEDULED_JOB_BY_ID = """-- name: get_scheduled_job_by_id \\:one
-SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at FROM scheduled_job
+SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone FROM scheduled_job
 WHERE id = :p1
 """
 
 
 GET_SCHEDULED_JOBS_BY_WEBSITE_ID = """-- name: get_scheduled_jobs_by_website_id \\:many
-SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at FROM scheduled_job
+SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone FROM scheduled_job
 WHERE website_id = :p1
 ORDER BY created_at DESC
 """
 
 
 LIST_ACTIVE_SCHEDULED_JOBS = """-- name: list_active_scheduled_jobs \\:many
-SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at FROM scheduled_job
+SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone FROM scheduled_job
 WHERE is_active = true
 ORDER BY next_run_time ASC
 OFFSET :p1 LIMIT :p2
@@ -79,7 +81,7 @@ SET
     is_active = :p1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p2
-RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at
+RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone
 """
 
 
@@ -91,9 +93,10 @@ SET
     last_run_time = COALESCE(:p3, last_run_time),
     is_active = COALESCE(:p4, is_active),
     job_config = COALESCE(:p5, job_config),
+    timezone = COALESCE(:p6, timezone),
     updated_at = CURRENT_TIMESTAMP
-WHERE id = :p6
-RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at
+WHERE id = :p7
+RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone
 """
 
 
@@ -104,7 +107,7 @@ SET
     last_run_time = :p2,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = :p3
-RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at
+RETURNING id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone
 """
 
 
@@ -118,13 +121,14 @@ class AsyncQuerier:
             return None
         return row[0]
 
-    async def create_scheduled_job(self, *, website_id: uuid.UUID, cron_schedule: str, next_run_time: datetime.datetime, is_active: Optional[Any], job_config: Optional[Any]) -> Optional[models.ScheduledJob]:
+    async def create_scheduled_job(self, *, website_id: uuid.UUID, cron_schedule: str, next_run_time: datetime.datetime, is_active: Optional[Any], job_config: Optional[Any], timezone: str) -> Optional[models.ScheduledJob]:
         row = (await self._conn.execute(sqlalchemy.text(CREATE_SCHEDULED_JOB), {
             "p1": website_id,
             "p2": cron_schedule,
             "p3": next_run_time,
             "p4": is_active,
             "p5": job_config,
+            "p6": timezone,
         })).first()
         if row is None:
             return None
@@ -138,6 +142,7 @@ class AsyncQuerier:
             job_config=row[6],
             created_at=row[7],
             updated_at=row[8],
+            timezone=row[9],
         )
 
     async def delete_scheduled_job(self, *, id: uuid.UUID) -> None:
@@ -156,6 +161,7 @@ class AsyncQuerier:
                 job_config=row[6],
                 created_at=row[7],
                 updated_at=row[8],
+                timezone=row[9],
             )
 
     async def get_scheduled_job_by_id(self, *, id: uuid.UUID) -> Optional[models.ScheduledJob]:
@@ -172,6 +178,7 @@ class AsyncQuerier:
             job_config=row[6],
             created_at=row[7],
             updated_at=row[8],
+            timezone=row[9],
         )
 
     async def get_scheduled_jobs_by_website_id(self, *, website_id: uuid.UUID) -> AsyncIterator[models.ScheduledJob]:
@@ -187,6 +194,7 @@ class AsyncQuerier:
                 job_config=row[6],
                 created_at=row[7],
                 updated_at=row[8],
+                timezone=row[9],
             )
 
     async def list_active_scheduled_jobs(self, *, offset_count: int, limit_count: int) -> AsyncIterator[models.ScheduledJob]:
@@ -202,6 +210,7 @@ class AsyncQuerier:
                 job_config=row[6],
                 created_at=row[7],
                 updated_at=row[8],
+                timezone=row[9],
             )
 
     async def toggle_scheduled_job_status(self, *, is_active: bool, id: uuid.UUID) -> Optional[models.ScheduledJob]:
@@ -218,16 +227,18 @@ class AsyncQuerier:
             job_config=row[6],
             created_at=row[7],
             updated_at=row[8],
+            timezone=row[9],
         )
 
-    async def update_scheduled_job(self, *, cron_schedule: str, next_run_time: datetime.datetime, last_run_time: Optional[datetime.datetime], is_active: bool, job_config: Optional[Any], id: uuid.UUID) -> Optional[models.ScheduledJob]:
+    async def update_scheduled_job(self, *, cron_schedule: str, next_run_time: datetime.datetime, last_run_time: Optional[datetime.datetime], is_active: bool, job_config: Optional[Any], timezone: str, id: uuid.UUID) -> Optional[models.ScheduledJob]:
         row = (await self._conn.execute(sqlalchemy.text(UPDATE_SCHEDULED_JOB), {
             "p1": cron_schedule,
             "p2": next_run_time,
             "p3": last_run_time,
             "p4": is_active,
             "p5": job_config,
-            "p6": id,
+            "p6": timezone,
+            "p7": id,
         })).first()
         if row is None:
             return None
@@ -241,6 +252,7 @@ class AsyncQuerier:
             job_config=row[6],
             created_at=row[7],
             updated_at=row[8],
+            timezone=row[9],
         )
 
     async def update_scheduled_job_next_run(self, *, next_run_time: datetime.datetime, last_run_time: Optional[datetime.datetime], id: uuid.UUID) -> Optional[models.ScheduledJob]:
@@ -257,4 +269,5 @@ class AsyncQuerier:
             job_config=row[6],
             created_at=row[7],
             updated_at=row[8],
+            timezone=row[9],
         )

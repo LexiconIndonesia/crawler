@@ -54,6 +54,7 @@ class ScheduledJobRepository:
         website_id: str | UUID,
         cron_schedule: str,
         next_run_time: datetime,
+        timezone: str,
         is_active: bool | None = None,
         job_config: dict[str, Any] | None = None,
     ) -> models.ScheduledJob | None:
@@ -62,7 +63,8 @@ class ScheduledJobRepository:
         Args:
             website_id: Website ID
             cron_schedule: Cron expression for schedule
-            next_run_time: Next scheduled execution time
+            next_run_time: Next scheduled execution time (in UTC)
+            timezone: IANA timezone name for schedule calculations
             is_active: Optional active flag (uses true default if None)
             job_config: Optional job config dict (will be serialized to JSON)
 
@@ -75,6 +77,7 @@ class ScheduledJobRepository:
             next_run_time=next_run_time,
             is_active=is_active,
             job_config=json.dumps(job_config) if job_config else None,
+            timezone=timezone,
         )
 
     async def get_by_id(self, job_id: str | UUID) -> models.ScheduledJob | None:
@@ -133,6 +136,7 @@ class ScheduledJobRepository:
         last_run_time: datetime | None = None,
         is_active: bool | None = None,
         job_config: dict[str, Any] | None = None,
+        timezone: str | None = None,
     ) -> models.ScheduledJob | None:
         """Update scheduled job fields.
 
@@ -144,6 +148,7 @@ class ScheduledJobRepository:
             is_active: New active flag (optional, uses existing if None)
             job_config: New config dict (optional, uses existing if None,
                 will be serialized to JSON)
+            timezone: New timezone (optional, uses existing if None)
 
         Returns:
             Updated ScheduledJob model or None
@@ -159,6 +164,7 @@ class ScheduledJobRepository:
             last_run_time=last_run_time,
             is_active=is_active,  # type: ignore[arg-type]
             job_config=json.dumps(job_config) if job_config else None,
+            timezone=timezone,  # type: ignore[arg-type]
         )
 
     async def update_next_run(
