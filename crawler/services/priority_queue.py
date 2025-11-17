@@ -13,7 +13,7 @@ Score Calculation:
 - Lower score = processed first
 - This ensures high-priority jobs (priority=10) get lowest scores
 
-Example Scores:
+Example Scores (using 10^12 multiplier):
 - Priority 10, scheduled at 2024-01-01 00:00:00:
   Score = (10-10)*10^12 + 1704067200000 = 1704067200000
 - Priority 5, scheduled at 2024-01-01 00:00:00:
@@ -95,14 +95,14 @@ class PriorityQueueService:
 
         How it works:
         - Priority component: (PRIORITY_MAX - priority) inverts priority so 10→0, 5→5, 0→10
-        - PRIORITY_MULTIPLIER (1e15) ensures priority dominates over timestamp
+        - PRIORITY_MULTIPLIER (10^12) ensures priority dominates over timestamp
         - Timestamp component: milliseconds since epoch, used as tiebreaker
         - Result: Jobs sorted first by priority (10 > 5 > 0), then by time (earlier > later)
 
         Score ranges (approximate):
-        - Priority 10: 0 to 1e15 (highest priority jobs)
-        - Priority 5:  5e15 to 6e15 (medium priority jobs)
-        - Priority 0:  10e15 to 11e15 (lowest priority jobs)
+        - Priority 10: 0 to 1e12 (highest priority jobs)
+        - Priority 5:  5e12 to 6e12 (medium priority jobs)
+        - Priority 0:  10e12 to 11e12 (lowest priority jobs)
 
         Args:
             priority: Job priority (0-10, 10=highest)
@@ -114,15 +114,15 @@ class PriorityQueueService:
         Examples:
             >>> # Priority 10 (manual), scheduled at 2024-01-01 00:00:00
             >>> _calculate_score(10, datetime(2024, 1, 1, tzinfo=UTC))
-            1704067200000.0  # Lowest score = highest priority
+            1704067200000.0  # (10-10)*10^12 + 1704067200000 = 1704067200000
 
             >>> # Priority 5 (scheduled), same time
             >>> _calculate_score(5, datetime(2024, 1, 1, tzinfo=UTC))
-            5001704067200000.0  # Higher score = lower priority
+            5001704067200000.0  # (10-5)*10^12 + 1704067200000 = 5001704067200000
 
             >>> # Priority 0 (retry), same time
             >>> _calculate_score(0, datetime(2024, 1, 1, tzinfo=UTC))
-            10001704067200000.0  # Highest score = lowest priority
+            10001704067200000.0  # (10-0)*10^12 + 1704067200000 = 10001704067200000
 
             >>> # Same priority, earlier time wins (tiebreaker)
             >>> _calculate_score(5, datetime(2024, 1, 1, tzinfo=UTC))
@@ -306,9 +306,9 @@ class PriorityQueueService:
         try:
             async with self.redis.pipeline(transaction=True) as pipe:
                 # Remove from sorted set
-                await pipe.zrem(self.queue_key, job_id)
+                pipe.zrem(self.queue_key, job_id)
                 # Remove data
-                await pipe.delete(self._job_data_key(job_id))
+                pipe.delete(self._job_data_key(job_id))
                 results = await pipe.execute()
 
             removed = bool(results[0] == 1)  # ZREM returns number of elements removed
@@ -407,9 +407,9 @@ class PriorityQueueService:
             async with self.redis.pipeline(transaction=True) as pipe:
                 # Delete all data keys
                 for key in data_keys:
-                    await pipe.delete(key)
+                    pipe.delete(key)
                 # Delete queue
-                await pipe.delete(self.queue_key)
+                pipe.delete(self.queue_key)
                 await pipe.execute()
 
             count = len(job_ids)

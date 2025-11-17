@@ -1013,11 +1013,15 @@ class WebsiteService:
 
         # Guard: publish failed
         if not published:
+            # Mark job as cancelled since it won't be processed
+            await self.crawl_job_repo.update_status(
+                job_id=str(crawl_job.id), status=DbStatusEnum.CANCELLED
+            )
             logger.error(
                 "trigger_job_publish_failed",
                 job_id=str(crawl_job.id),
                 website_id=website_id,
-                reason="NATS queue publish returned False",
+                reason="NATS queue publish returned False - job marked as cancelled",
             )
             raise RuntimeError("Failed to publish job to queue")
 
@@ -1149,9 +1153,9 @@ class WebsiteService:
                 # Fallback to current time + 1 day if cron validation fails
                 next_run_time = datetime.now(UTC) + timedelta(days=1)
 
-            # Update job with is_active=True and new next_run_time
+            # Update job with is_active=True, new next_run_time, and persisted timezone
             updated_job = await self.scheduled_job_repo.update(
-                job_id=job.id, is_active=True, next_run_time=next_run_time
+                job_id=job.id, is_active=True, next_run_time=next_run_time, timezone=job_timezone
             )
 
             if updated_job:

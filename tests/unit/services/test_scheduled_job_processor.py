@@ -172,7 +172,7 @@ class TestHandleMissedSchedules:
         mock_scheduled_job_repo.update_next_run.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_catchup_exactly_at_threshold(
+    async def test_catchup_just_under_threshold(
         self,
         mock_scheduled_job_repo,
         mock_crawl_job_repo,
@@ -181,7 +181,7 @@ class TestHandleMissedSchedules:
         mock_website,
         mock_crawl_job,
     ) -> None:
-        """Test behavior when missed time is exactly at 1 hour threshold."""
+        """Test behavior when missed time is just under the 1 hour threshold."""
         # Arrange
         # Use fixed timestamp to avoid timing flakiness from datetime.now() drift
         fixed_now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)

@@ -154,6 +154,7 @@ async def handle_missed_schedules(
     catchup_threshold = now - MAX_CATCHUP_DELAY
     caught_up = 0
     skipped = 0
+    total_processed = 0
 
     logger.info(
         "checking_missed_schedules",
@@ -162,198 +163,224 @@ async def handle_missed_schedules(
         max_catchup_hours=MAX_CATCHUP_DELAY.total_seconds() / 3600,
     )
 
-    try:
-        # Get all active jobs with next_run_time in the past
-        # Use cutoff_time = now to get all overdue jobs
-        missed_jobs = await scheduled_job_repo.get_due_jobs(cutoff_time=now, limit=batch_size)
-    except Exception as e:
-        logger.error(
-            "missed_schedule_query_failed",
-            error=str(e),
-            reason="Failed to query missed schedules from database",
-        )
-        return (0, 0)
-
-    if not missed_jobs:
-        logger.info("no_missed_schedules")
-        return (0, 0)
-
-    logger.info("found_missed_schedules", count=len(missed_jobs))
-
-    for job in missed_jobs:
+    # Loop to drain all overdue jobs, not just one batch
+    # Critical: without this loop, jobs beyond batch_size would bypass the 1-hour skip rule
+    # and be executed as "normal" jobs on the next cycle
+    while True:
         try:
-            # Guard: website not found or deleted
-            website = await website_repo.get_by_id(str(job.website_id))
-            if not website or website.deleted_at is not None:
-                logger.warning(
-                    "website_not_found_for_missed_job",
-                    scheduled_job_id=str(job.id),
-                    website_id=str(job.website_id),
-                    reason="Website deleted or not found - deactivating scheduled job",
-                )
-                await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
-                continue
+            # Get next batch of active jobs with next_run_time in the past
+            # Use cutoff_time = now to get all overdue jobs
+            missed_jobs = await scheduled_job_repo.get_due_jobs(cutoff_time=now, limit=batch_size)
+        except Exception as e:
+            logger.error(
+                "missed_schedule_query_failed",
+                error=str(e),
+                reason="Failed to query missed schedules from database",
+            )
+            break  # Exit loop on query error
 
-            # Calculate next run time in job's timezone
-            # Use timezone from job (defaults to UTC for backward compatibility)
-            job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
+        if not missed_jobs:
+            # No more overdue jobs - we've drained the backlog
+            break
 
-            # Backfill: If timezone is missing or null, update it to UTC for future consistency
-            # This handles legacy jobs created before timezone column was added
-            if not hasattr(job, "timezone") or not job.timezone:
-                logger.info(
-                    "backfilling_timezone_on_legacy_job",
-                    scheduled_job_id=str(job.id),
-                    timezone="UTC",
-                    reason="Job has no timezone - backfilling with UTC default",
-                )
-                try:
-                    await scheduled_job_repo.update(
-                        job_id=str(job.id),
-                        timezone="UTC",
-                    )
-                except Exception as e:
+        batch_count = len(missed_jobs)
+        logger.info(
+            "processing_missed_schedules_batch",
+            batch_size=batch_count,
+            total_processed_so_far=total_processed,
+        )
+
+        for job in missed_jobs:
+            try:
+                # Guard: website not found or deleted
+                website = await website_repo.get_by_id(str(job.website_id))
+                if not website or website.deleted_at is not None:
                     logger.warning(
-                        "timezone_backfill_failed",
+                        "website_not_found_for_missed_job",
                         scheduled_job_id=str(job.id),
-                        error=str(e),
-                        reason="Could not backfill timezone - will use fallback",
+                        website_id=str(job.website_id),
+                        reason="Website deleted or not found - deactivating scheduled job",
                     )
+                    await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
+                    continue
 
-            # Guard: orphaned job with no next_run_time
-            # This can happen if job was manually updated or migration failed
-            # Calculate new next_run_time and update job (no catch-up execution)
-            if job.next_run_time is None:
-                logger.warning(
-                    "orphaned_job_no_next_run_time",
-                    scheduled_job_id=str(job.id),
-                    cron_schedule=job.cron_schedule,
-                    timezone=job_timezone,
-                    reason="Job has no next_run_time - calculating new schedule",
-                )
+                # Calculate next run time in job's timezone
+                # Use timezone from job (defaults to UTC for backward compatibility)
+                job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
+
+                # Backfill: If timezone is missing or null, update it to UTC for future consistency
+                # This handles legacy jobs created before timezone column was added
+                if not hasattr(job, "timezone") or not job.timezone:
+                    logger.info(
+                        "backfilling_timezone_on_legacy_job",
+                        scheduled_job_id=str(job.id),
+                        timezone="UTC",
+                        reason="Job has no timezone - backfilling with UTC default",
+                    )
+                    try:
+                        await scheduled_job_repo.update(
+                            job_id=str(job.id),
+                            timezone="UTC",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "timezone_backfill_failed",
+                            scheduled_job_id=str(job.id),
+                            error=str(e),
+                            reason="Could not backfill timezone - will use fallback",
+                        )
+
+                # Guard: orphaned job with no next_run_time
+                # This can happen if job was manually updated or migration failed
+                # Calculate new next_run_time and update job (no catch-up execution)
+                if job.next_run_time is None:
+                    logger.warning(
+                        "orphaned_job_no_next_run_time",
+                        scheduled_job_id=str(job.id),
+                        cron_schedule=job.cron_schedule,
+                        timezone=job_timezone,
+                        reason="Job has no next_run_time - calculating new schedule",
+                    )
+                    try:
+                        new_next_run_time = calculate_next_run(
+                            job.cron_schedule, now, timezone=job_timezone
+                        )
+                        await scheduled_job_repo.update_next_run(
+                            job_id=str(job.id),
+                            next_run_time=new_next_run_time,
+                            last_run_time=None,  # No execution, so don't set last_run_time
+                        )
+                        logger.info(
+                            "orphaned_job_rescheduled",
+                            scheduled_job_id=str(job.id),
+                            next_run_time=new_next_run_time.isoformat(),
+                            timezone=job_timezone,
+                        )
+                    except ValueError as e:
+                        logger.error(
+                            "orphaned_job_invalid_cron",
+                            scheduled_job_id=str(job.id),
+                            cron_schedule=job.cron_schedule,
+                            error=str(e),
+                            reason="Cannot calculate next_run_time - deactivating job",
+                        )
+                        await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
+                    continue
+
+                delay = now - job.next_run_time
+                should_catchup = delay < MAX_CATCHUP_DELAY
+
                 try:
-                    new_next_run_time = calculate_next_run(
+                    next_run_time = calculate_next_run(
                         job.cron_schedule, now, timezone=job_timezone
                     )
-                    await scheduled_job_repo.update_next_run(
-                        job_id=str(job.id),
-                        next_run_time=new_next_run_time,
-                        last_run_time=None,  # No execution, so don't set last_run_time
-                    )
-                    logger.info(
-                        "orphaned_job_rescheduled",
-                        scheduled_job_id=str(job.id),
-                        next_run_time=new_next_run_time.isoformat(),
-                        timezone=job_timezone,
-                    )
+
+                    # Check for DST transition in the job's timezone
+                    dst_transition = get_dst_transition_type(next_run_time, job_timezone)
+                    if dst_transition:
+                        logger.info(
+                            "dst_transition_on_catchup",
+                            scheduled_job_id=str(job.id),
+                            next_run_time=next_run_time.isoformat(),
+                            timezone=job_timezone,
+                            transition_type=dst_transition,
+                            note="DST transition detected - next run time adjusted automatically",
+                        )
                 except ValueError as e:
                     logger.error(
-                        "orphaned_job_invalid_cron",
+                        "cron_calculation_failed_for_missed_job",
                         scheduled_job_id=str(job.id),
                         cron_schedule=job.cron_schedule,
                         error=str(e),
-                        reason="Cannot calculate next_run_time - deactivating job",
+                        reason="Invalid cron - deactivating job",
                     )
                     await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
-                continue
-
-            delay = now - job.next_run_time
-            should_catchup = delay < MAX_CATCHUP_DELAY
-
-            try:
-                next_run_time = calculate_next_run(job.cron_schedule, now, timezone=job_timezone)
-
-                # Check for DST transition in the job's timezone
-                dst_transition = get_dst_transition_type(next_run_time, job_timezone)
-                if dst_transition:
-                    logger.info(
-                        "dst_transition_on_catchup",
-                        scheduled_job_id=str(job.id),
-                        next_run_time=next_run_time.isoformat(),
-                        timezone=job_timezone,
-                        transition_type=dst_transition,
-                        note="DST transition detected - next run time adjusted automatically",
-                    )
-            except ValueError as e:
-                logger.error(
-                    "cron_calculation_failed_for_missed_job",
-                    scheduled_job_id=str(job.id),
-                    cron_schedule=job.cron_schedule,
-                    error=str(e),
-                    reason="Invalid cron - deactivating job",
-                )
-                await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
-                continue
-
-            if should_catchup:
-                # Catch up: execute now + reschedule
-                logger.info(
-                    "catching_up_missed_schedule",
-                    scheduled_job_id=str(job.id),
-                    website_id=str(job.website_id),
-                    website_name=website.name,
-                    missed_time=job.next_run_time.isoformat(),
-                    delay_minutes=delay.total_seconds() / 60,
-                    next_run_time=next_run_time.isoformat(),
-                )
-
-                # Create and publish crawl job (same as regular processing)
-                crawl_job_id = await _create_and_publish_crawl_job(
-                    crawl_job_repo=crawl_job_repo,
-                    nats_queue=nats_queue,
-                    website_id=str(job.website_id),
-                    seed_url=website.base_url,
-                    job_config=job.job_config,
-                    scheduled_job_id=str(job.id),
-                    cron_schedule=job.cron_schedule,
-                    now=now,
-                    is_catchup=True,
-                    missed_time=job.next_run_time,
-                )
-
-                # Guard: job creation or publishing failed
-                if not crawl_job_id:
                     continue
 
-                caught_up += 1
-                scheduled_jobs_processed_total.labels(processing_type="catchup").inc()
+                if should_catchup:
+                    # Catch up: execute now + reschedule
+                    logger.info(
+                        "catching_up_missed_schedule",
+                        scheduled_job_id=str(job.id),
+                        website_id=str(job.website_id),
+                        website_name=website.name,
+                        missed_time=job.next_run_time.isoformat(),
+                        delay_minutes=delay.total_seconds() / 60,
+                        next_run_time=next_run_time.isoformat(),
+                    )
 
-            else:
-                # Skip: just reschedule without executing
-                delay_hours = delay.total_seconds() / 3600
-                logger.warning(
-                    "skipping_missed_schedule",
-                    scheduled_job_id=str(job.id),
-                    website_id=str(job.website_id),
-                    website_name=website.name,
-                    missed_time=job.next_run_time.isoformat(),
-                    delay_hours=delay_hours,
-                    next_run_time=next_run_time.isoformat(),
-                    reason=f"Missed by {delay_hours:.1f} hours (> 1 hour threshold)",
+                    # Create and publish crawl job (same as regular processing)
+                    crawl_job_id = await _create_and_publish_crawl_job(
+                        crawl_job_repo=crawl_job_repo,
+                        nats_queue=nats_queue,
+                        website_id=str(job.website_id),
+                        seed_url=website.base_url,
+                        job_config=job.job_config,
+                        scheduled_job_id=str(job.id),
+                        cron_schedule=job.cron_schedule,
+                        now=now,
+                        is_catchup=True,
+                        missed_time=job.next_run_time,
+                    )
+
+                    # Guard: job creation or publishing failed
+                    if not crawl_job_id:
+                        continue
+
+                    caught_up += 1
+                    scheduled_jobs_processed_total.labels(processing_type="catchup").inc()
+
+                else:
+                    # Skip: just reschedule without executing
+                    delay_hours = delay.total_seconds() / 3600
+                    logger.warning(
+                        "skipping_missed_schedule",
+                        scheduled_job_id=str(job.id),
+                        website_id=str(job.website_id),
+                        website_name=website.name,
+                        missed_time=job.next_run_time.isoformat(),
+                        delay_hours=delay_hours,
+                        next_run_time=next_run_time.isoformat(),
+                        reason=f"Missed by {delay_hours:.1f} hours (> 1 hour threshold)",
+                    )
+                    skipped += 1
+                    scheduled_jobs_skipped_total.labels(reason="missed_threshold").inc()
+
+                # Update next_run_time for both caught-up and skipped jobs
+                await scheduled_job_repo.update_next_run(
+                    job_id=str(job.id),
+                    next_run_time=next_run_time,
+                    last_run_time=now if should_catchup else job.last_run_time,
                 )
-                skipped += 1
-                scheduled_jobs_skipped_total.labels(reason="missed_threshold").inc()
 
-            # Update next_run_time for both caught-up and skipped jobs
-            await scheduled_job_repo.update_next_run(
-                job_id=str(job.id),
-                next_run_time=next_run_time,
-                last_run_time=now if should_catchup else job.last_run_time,
+            except Exception as e:
+                logger.error(
+                    "missed_schedule_processing_error",
+                    scheduled_job_id=str(job.id),
+                    error=str(e),
+                    exc_info=True,
+                    reason="Unexpected error processing missed schedule - continuing",
+                )
+                continue
+
+        # Track total processed in this batch
+        total_processed += batch_count
+
+        # If we got a full batch, there might be more overdue jobs - continue looping
+        # If we got fewer than batch_size, we've drained the backlog - exit loop
+        if batch_count < batch_size:
+            logger.info(
+                "missed_schedule_backlog_drained",
+                total_processed=total_processed,
+                caught_up=caught_up,
+                skipped=skipped,
             )
+            break
 
-        except Exception as e:
-            logger.error(
-                "missed_schedule_processing_error",
-                scheduled_job_id=str(job.id),
-                error=str(e),
-                exc_info=True,
-                reason="Unexpected error processing missed schedule - continuing",
-            )
-            continue
-
+    # Final summary after draining all overdue jobs
     logger.info(
         "missed_schedule_handling_complete",
-        total_missed=len(missed_jobs),
+        total_processed=total_processed,
         caught_up=caught_up,
         skipped=skipped,
     )
