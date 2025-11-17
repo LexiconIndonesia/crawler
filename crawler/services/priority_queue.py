@@ -87,18 +87,29 @@ class PriorityQueueService:
         return f"{self.key_prefix}:data:{job_id}"
 
     def _calculate_score(self, priority: int, scheduled_at: datetime | None = None) -> float:
-        """Calculate sort score for job.
+        """Calculate sort score for job in Redis sorted set.
 
-        Lower score = higher priority (processed first).
+        Lower score = higher priority (processed first by ZPOPMIN).
 
         Formula: score = (PRIORITY_MAX - priority) * PRIORITY_MULTIPLIER + scheduled_timestamp_ms
+
+        How it works:
+        - Priority component: (PRIORITY_MAX - priority) inverts priority so 10→0, 5→5, 0→10
+        - PRIORITY_MULTIPLIER (1e15) ensures priority dominates over timestamp
+        - Timestamp component: milliseconds since epoch, used as tiebreaker
+        - Result: Jobs sorted first by priority (10 > 5 > 0), then by time (earlier > later)
+
+        Score ranges (approximate):
+        - Priority 10: 0 to 1e15 (highest priority jobs)
+        - Priority 5:  5e15 to 6e15 (medium priority jobs)
+        - Priority 0:  10e15 to 11e15 (lowest priority jobs)
 
         Args:
             priority: Job priority (0-10, 10=highest)
             scheduled_at: Optional scheduled execution time (default: now)
 
         Returns:
-            Float score for Redis ZSET
+            Float score for Redis ZSET (ZPOPMIN returns lowest score first)
 
         Examples:
             >>> # Priority 10 (manual), scheduled at 2024-01-01 00:00:00
@@ -112,6 +123,12 @@ class PriorityQueueService:
             >>> # Priority 0 (retry), same time
             >>> _calculate_score(0, datetime(2024, 1, 1, tzinfo=UTC))
             10001704067200000.0  # Highest score = lowest priority
+
+            >>> # Same priority, earlier time wins (tiebreaker)
+            >>> _calculate_score(5, datetime(2024, 1, 1, tzinfo=UTC))
+            5001704067200000.0  # Earlier (lower score)
+            >>> _calculate_score(5, datetime(2024, 1, 2, tzinfo=UTC))
+            5001704153600000.0  # Later (higher score)
         """
         # Guard: validate priority range
         if not PRIORITY_MIN <= priority <= PRIORITY_MAX:
@@ -156,9 +173,11 @@ class PriorityQueueService:
             True if job was added, False if job already exists
 
         Note:
-            If job already exists in queue, it will NOT be updated.
-            Use remove() first if you need to re-enqueue with different priority.
-            Uses ZADD NX for atomic "already exists" check to avoid race conditions.
+            Uses ZADD NX for atomic duplicate detection. If job already exists:
+            - Queue position (score/priority) is NOT changed
+            - Metadata is refreshed (beneficial for keeping data current)
+            - TTL is extended (prevents data expiry for long-queued jobs)
+            Use remove() first if you need to change priority/scheduled_at.
         """
         try:
             score = self._calculate_score(priority, scheduled_at)
@@ -176,11 +195,11 @@ class PriorityQueueService:
             # ZADD with NX flag: only add if not exists (returns 0 if already exists)
             async with self.redis.pipeline(transaction=True) as pipe:
                 # Add job to sorted set (NX = only if not exists)
-                await pipe.zadd(self.queue_key, {job_id: score}, nx=True)
+                pipe.zadd(self.queue_key, {job_id: score}, nx=True)
                 # Store job metadata
-                await pipe.set(data_key, json.dumps(job_data_with_meta))
+                pipe.set(data_key, json.dumps(job_data_with_meta))
                 # Set TTL on data (7 days) to prevent memory leaks
-                await pipe.expire(data_key, 7 * 24 * 3600)
+                pipe.expire(data_key, 7 * 24 * 3600)
                 results = await pipe.execute()
 
             # Check if job was added (zadd with NX returns 0 if element already existed)
@@ -330,16 +349,29 @@ class PriorityQueueService:
             # Get top N jobs with scores (lowest scores first = highest priority)
             results = await self.redis.zrange(self.queue_key, 0, count - 1, withscores=True)
 
-            jobs = []
-            for job_id_bytes, score in results:
+            if not results:
+                return []
+
+            # Extract job IDs and build data keys
+            job_ids = []
+            for job_id_bytes, _score in results:
                 job_id = (
                     job_id_bytes.decode("utf-8")
                     if isinstance(job_id_bytes, bytes)
                     else job_id_bytes
                 )
-                data_key = self._job_data_key(job_id)
-                job_data_json = await self.redis.get(data_key)
+                job_ids.append(job_id)
 
+            # Batch fetch all metadata in a single pipeline for efficiency
+            async with self.redis.pipeline(transaction=False) as pipe:
+                for job_id in job_ids:
+                    data_key = self._job_data_key(job_id)
+                    pipe.get(data_key)  # Queue command (don't await individual ops)
+                metadata_results = await pipe.execute()  # Execute all queued commands
+
+            # Build result list, filtering out jobs with missing metadata
+            jobs = []
+            for job_id, job_data_json in zip(job_ids, metadata_results, strict=True):
                 if job_data_json:
                     job_data = json.loads(job_data_json)
                     jobs.append((job_id, job_data))

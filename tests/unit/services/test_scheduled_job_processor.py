@@ -1,7 +1,7 @@
 """Unit tests for scheduled job processor with missed schedule handling."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid7
 
 import pytest
@@ -183,9 +183,10 @@ class TestHandleMissedSchedules:
     ) -> None:
         """Test behavior when missed time is exactly at 1 hour threshold."""
         # Arrange
-        now = datetime.now(UTC)
+        # Use fixed timestamp to avoid timing flakiness from datetime.now() drift
+        fixed_now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         # Just under 1 hour (59 minutes 59 seconds)
-        missed_time = now - MAX_CATCHUP_DELAY + timedelta(seconds=1)
+        missed_time = fixed_now - MAX_CATCHUP_DELAY + timedelta(seconds=1)
 
         mock_scheduled_job = MagicMock()
         mock_scheduled_job.id = uuid7()
@@ -201,12 +202,17 @@ class TestHandleMissedSchedules:
         mock_nats_queue.publish_job.return_value = True
 
         # Act
-        caught_up, skipped = await handle_missed_schedules(
-            mock_scheduled_job_repo,
-            mock_crawl_job_repo,
-            mock_website_repo,
-            mock_nats_queue,
-        )
+        # Mock datetime.now() to return fixed time to avoid flakiness
+        with patch("crawler.services.scheduled_job_processor.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+
+            caught_up, skipped = await handle_missed_schedules(
+                mock_scheduled_job_repo,
+                mock_crawl_job_repo,
+                mock_website_repo,
+                mock_nats_queue,
+            )
 
         # Assert - should catch up (< 1 hour)
         assert caught_up == 1
@@ -370,7 +376,7 @@ class TestHandleMissedSchedules:
         mock_nats_queue.publish_job.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_publish_failure_marks_job_as_failed(
+    async def test_publish_failure_marks_job_as_cancelled(
         self,
         mock_scheduled_job_repo,
         mock_crawl_job_repo,
@@ -379,7 +385,7 @@ class TestHandleMissedSchedules:
         mock_website,
         mock_crawl_job,
     ) -> None:
-        """Test that publish failure marks the job as failed."""
+        """Test that publish failure marks the job as cancelled."""
         # Arrange
         now = datetime.now(UTC)
         missed_time = now - timedelta(minutes=30)
@@ -409,7 +415,7 @@ class TestHandleMissedSchedules:
         assert caught_up == 0
         assert skipped == 0
         mock_crawl_job_repo.update_status.assert_called_once_with(
-            job_id=str(mock_crawl_job.id), status=StatusEnum.FAILED
+            job_id=str(mock_crawl_job.id), status=StatusEnum.CANCELLED
         )
 
     @pytest.mark.asyncio

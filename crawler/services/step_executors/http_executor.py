@@ -77,10 +77,13 @@ class HTTPExecutor(BaseStepExecutor):
 
             # Check status
             if not 200 <= response.status_code < 300:
+                # Get descriptive status message (e.g., "404 Not Found")
+                status_name = response.reason_phrase or "Unknown"
                 return self._create_error_result(
-                    f"HTTP {response.status_code} error",
+                    f"HTTP {response.status_code} {status_name}",
                     url=url,
                     status_code=response.status_code,
+                    status_name=status_name,
                 )
 
             # Get content
@@ -91,10 +94,13 @@ class HTTPExecutor(BaseStepExecutor):
             if selectors:
                 extracted_data = self.selector_processor.process_selectors(content, selectors)
 
+            # Get descriptive status message for logging (e.g., "200 OK", "201 Created")
+            status_name = response.reason_phrase or "Unknown"
             logger.info(
                 "http_request_completed",
                 url=url,
                 status_code=response.status_code,
+                status_name=status_name,
                 content_length=len(content),
                 extracted_fields=len(extracted_data),
             )

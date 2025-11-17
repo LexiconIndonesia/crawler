@@ -29,6 +29,9 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
         >>> validate_cron_expression("invalid")
         (False, "Invalid cron expression format...")
     """
+    # Normalize input to avoid issues with leading/trailing whitespace
+    cron_expression = cron_expression.strip()
+
     # Check for extended syntax first (@yearly, @annually, @daily, etc.)
     extended_syntax = [
         "@yearly",

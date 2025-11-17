@@ -143,7 +143,9 @@ class WebsiteService:
                     "scheduled_job_created",
                     website_id=str(website.id),
                     scheduled_job_id=str(scheduled_job.id),
+                    cron_schedule=cron_schedule,
                     next_run_time=next_run_time.isoformat(),
+                    timezone=timezone,
                 )
 
         logger.info(
@@ -458,7 +460,13 @@ class WebsiteService:
                             is_active=True,
                         )
                         scheduled_job_id = job.id
-                        logger.info("scheduled_job_updated", job_id=job.id, timezone=timezone)
+                        logger.info(
+                            "scheduled_job_updated",
+                            job_id=job.id,
+                            cron_schedule=effective_cron,
+                            next_run_time=next_run_time.isoformat(),
+                            timezone=timezone,
+                        )
                 else:
                     # Create new scheduled job with effective cron and timezone
                     new_job = await self.scheduled_job_repo.create(
@@ -470,7 +478,13 @@ class WebsiteService:
                     )
                     if new_job:
                         scheduled_job_id = new_job.id
-                        logger.info("scheduled_job_created", job_id=new_job.id, timezone=timezone)
+                        logger.info(
+                            "scheduled_job_created",
+                            job_id=new_job.id,
+                            cron_schedule=effective_cron,
+                            next_run_time=next_run_time.isoformat(),
+                            timezone=timezone,
+                        )
             else:
                 # Disable scheduled jobs
                 for job in scheduled_jobs:
@@ -849,7 +863,8 @@ class WebsiteService:
                 "scheduled_jobs_updated_after_rollback",
                 website_id=website_id,
                 cron_schedule=target_cron,
-                next_run_time=next_run_time,
+                next_run_time=next_run_time.isoformat() if next_run_time else None,
+                timezone=job_timezone,
             )
         elif scheduled_jobs:
             # No target_cron, just get existing job info

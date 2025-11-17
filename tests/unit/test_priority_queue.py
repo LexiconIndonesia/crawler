@@ -29,6 +29,39 @@ def mock_redis():
 
 
 @pytest.fixture
+def setup_pipeline_mock():
+    """Create a helper to set up Redis pipeline mocks consistently.
+
+    Returns:
+        Function that takes (mock_redis, execute_return_value) and sets up pipeline mock.
+
+    Usage:
+        setup_pipeline_mock(mock_redis, [1, True, True])  # ZADD added 1, SET ok, EXPIRE ok
+        setup_pipeline_mock(mock_redis, [0, True, True])  # ZADD returned 0 (duplicate)
+    """
+
+    def _setup(mock_redis, execute_return_value):
+        """Set up pipeline mock with standard async context manager behavior.
+
+        Args:
+            mock_redis: The mock Redis client
+            execute_return_value: Return value for pipeline.execute() call
+        """
+        pipeline_mock = AsyncMock()
+        pipeline_mock.zadd = AsyncMock()
+        pipeline_mock.set = AsyncMock()
+        pipeline_mock.expire = AsyncMock()
+        pipeline_mock.get = AsyncMock()
+        pipeline_mock.execute = AsyncMock(return_value=execute_return_value)
+        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
+        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
+        mock_redis.pipeline.return_value = pipeline_mock
+        return pipeline_mock
+
+    return _setup
+
+
+@pytest.fixture
 def priority_queue(mock_redis):
     """Create priority queue service with mock Redis."""
     return PriorityQueueService(redis_client=mock_redis, key_prefix="test_queue")
@@ -162,22 +195,10 @@ class TestEnqueue:
     """Test job enqueuing functionality."""
 
     @pytest.mark.asyncio
-    async def test_enqueue_success(self, priority_queue, mock_redis):
+    async def test_enqueue_success(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test successfully enqueuing a job."""
-        # Mock zscore to indicate job doesn't exist
-        mock_redis.zscore.return_value = None
-
-        # Setup mock pipeline
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zadd = AsyncMock()
-        pipeline_mock.set = AsyncMock()
-        pipeline_mock.expire = AsyncMock()
-        pipeline_mock.execute = AsyncMock(
-            return_value=[1, True, True]
-        )  # ZADD added 1, SET ok, EXPIRE ok
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Setup mock pipeline (ZADD added 1, SET ok, EXPIRE ok)
+        pipeline_mock = setup_pipeline_mock(mock_redis, [1, True, True])
 
         job_id = "test-job-123"
         job_data = {"website_id": "site-1", "seed_url": "https://example.com"}
@@ -194,18 +215,10 @@ class TestEnqueue:
         pipeline_mock.set.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_enqueue_duplicate_job(self, priority_queue, mock_redis):
+    async def test_enqueue_duplicate_job(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test enqueuing a job that already exists."""
-        # Mock pipeline to simulate ZADD NX returning 0 (element already existed)
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zadd = AsyncMock()
-        pipeline_mock.set = AsyncMock()
-        pipeline_mock.expire = AsyncMock()
-        # ZADD with NX returns 0 when element already exists
-        pipeline_mock.execute = AsyncMock(return_value=[0, True, True])
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Setup mock pipeline (ZADD with NX returns 0 when element already exists)
+        pipeline_mock = setup_pipeline_mock(mock_redis, [0, True, True])
 
         job_id = "duplicate-job"
         job_data = {"test": "data"}
@@ -219,19 +232,10 @@ class TestEnqueue:
         assert call_args.kwargs.get("nx") is True
 
     @pytest.mark.asyncio
-    async def test_enqueue_stores_metadata(self, priority_queue, mock_redis):
+    async def test_enqueue_stores_metadata(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test that enqueue stores priority and scheduling metadata."""
-        # Mock zscore to indicate job doesn't exist
-        mock_redis.zscore.return_value = None
-
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zadd = AsyncMock()
-        pipeline_mock.set = AsyncMock()
-        pipeline_mock.expire = AsyncMock()
-        pipeline_mock.execute = AsyncMock(return_value=[1, True, True])
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Setup mock pipeline
+        pipeline_mock = setup_pipeline_mock(mock_redis, [1, True, True])
 
         job_id = "meta-job"
         job_data = {"url": "https://example.com"}
@@ -362,14 +366,16 @@ class TestPeek:
     """Test queue peeking functionality."""
 
     @pytest.mark.asyncio
-    async def test_peek_single_job(self, priority_queue, mock_redis):
+    async def test_peek_single_job(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test peeking at top job without removing it."""
         job_id = "peek-job"
         job_data = {"priority": 10}
         score = 123.0
 
         mock_redis.zrange.return_value = [(job_id.encode(), score)]
-        mock_redis.get.return_value = json.dumps(job_data).encode()
+
+        # Setup pipeline mock to return job data
+        setup_pipeline_mock(mock_redis, [json.dumps(job_data).encode()])
 
         jobs = await priority_queue.peek(count=1)
 
@@ -378,7 +384,7 @@ class TestPeek:
         assert jobs[0][1] == job_data
 
     @pytest.mark.asyncio
-    async def test_peek_multiple_jobs(self, priority_queue, mock_redis):
+    async def test_peek_multiple_jobs(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test peeking at multiple jobs."""
         jobs_data = [
             (b"job-1", 100.0, {"priority": 10}),
@@ -388,14 +394,9 @@ class TestPeek:
 
         mock_redis.zrange.return_value = [(jid, score) for jid, score, _ in jobs_data]
 
-        # Mock GET to return job data in sequence
-        async def mock_get(key):
-            for jid, _, data in jobs_data:
-                if key.endswith(jid.decode()):
-                    return json.dumps(data).encode()
-            return None
-
-        mock_redis.get.side_effect = mock_get
+        # Setup pipeline mock to return job data for all 3 jobs
+        pipeline_results = [json.dumps(data).encode() for _, _, data in jobs_data]
+        setup_pipeline_mock(mock_redis, pipeline_results)
 
         jobs = await priority_queue.peek(count=3)
 
