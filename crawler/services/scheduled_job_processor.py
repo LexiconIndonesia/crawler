@@ -35,6 +35,103 @@ _processor_task: asyncio.Task | None = None
 # Maximum delay for catch-up (1 hour)
 MAX_CATCHUP_DELAY = timedelta(hours=1)
 
+# Default priority for scheduled jobs created by the processor
+SCHEDULED_JOB_PRIORITY = 5
+
+
+async def _prepare_scheduled_job(
+    scheduled_job: Any,
+    scheduled_job_repo: ScheduledJobRepository,
+    now: datetime,
+) -> tuple[str, bool]:
+    """Prepare a scheduled job by handling timezone backfill and orphaned state.
+
+    This helper extracts common logic for:
+    - Deriving job timezone with UTC fallback
+    - Backfilling missing timezone on legacy jobs
+    - Handling orphaned jobs with next_run_time=None
+
+    Args:
+        scheduled_job: Scheduled job to prepare
+        scheduled_job_repo: Repository for scheduled job operations
+        now: Current timestamp for calculating next run time
+
+    Returns:
+        Tuple of (job_timezone, should_continue) where:
+        - job_timezone: The timezone to use (fallback to "UTC" if missing)
+        - should_continue: False if job is invalid and should be skipped, True otherwise
+
+    Raises:
+        None - errors are logged and handled via return value
+    """
+    # Extract timezone with backward compatibility fallback
+    job_timezone = (
+        scheduled_job.timezone
+        if hasattr(scheduled_job, "timezone") and scheduled_job.timezone
+        else "UTC"
+    )
+
+    # Backfill: If timezone is missing or null, update it to UTC for future consistency
+    # This handles legacy jobs created before timezone column was added
+    if not hasattr(scheduled_job, "timezone") or not scheduled_job.timezone:
+        logger.info(
+            "backfilling_timezone_on_legacy_job",
+            scheduled_job_id=str(scheduled_job.id),
+            timezone="UTC",
+            reason="Job has no timezone - backfilling with UTC default",
+        )
+        try:
+            await scheduled_job_repo.update(
+                job_id=str(scheduled_job.id),
+                timezone="UTC",
+            )
+        except Exception as e:
+            logger.warning(
+                "timezone_backfill_failed",
+                scheduled_job_id=str(scheduled_job.id),
+                error=str(e),
+                reason="Could not backfill timezone - will use fallback",
+            )
+
+    # Guard: orphaned job with no next_run_time
+    # This can happen if job was manually updated or migration failed
+    # Calculate new next_run_time and update job (no catch-up execution)
+    if scheduled_job.next_run_time is None:
+        logger.warning(
+            "orphaned_job_no_next_run_time",
+            scheduled_job_id=str(scheduled_job.id),
+            cron_schedule=scheduled_job.cron_schedule,
+            timezone=job_timezone,
+            reason="Job has no next_run_time - calculating new schedule",
+        )
+        try:
+            new_next_run_time = calculate_next_run(
+                scheduled_job.cron_schedule, now, timezone=job_timezone
+            )
+            await scheduled_job_repo.update_next_run(
+                job_id=str(scheduled_job.id),
+                next_run_time=new_next_run_time,
+                last_run_time=None,  # No execution, so don't set last_run_time
+            )
+            logger.info(
+                "orphaned_job_rescheduled",
+                scheduled_job_id=str(scheduled_job.id),
+                next_run_time=new_next_run_time.isoformat(),
+                timezone=job_timezone,
+            )
+        except ValueError as e:
+            logger.error(
+                "orphaned_job_invalid_cron",
+                scheduled_job_id=str(scheduled_job.id),
+                cron_schedule=scheduled_job.cron_schedule,
+                error=str(e),
+                reason="Cannot calculate next_run_time - deactivating job",
+            )
+            await scheduled_job_repo.toggle_status(job_id=str(scheduled_job.id), is_active=False)
+            return (job_timezone, False)  # Signal to skip this job
+
+    return (job_timezone, True)  # Job is valid, continue processing
+
 
 async def _create_and_publish_crawl_job(
     crawl_job_repo: CrawlJobRepository,
@@ -81,7 +178,7 @@ async def _create_and_publish_crawl_job(
         seed_url=seed_url,
         variables=job_config or {},
         job_type=JobTypeEnum.SCHEDULED,
-        priority=5,  # Normal scheduled job priority
+        priority=SCHEDULED_JOB_PRIORITY,  # Normal scheduled job priority
         scheduled_at=now,
         max_retries=3,
         metadata=metadata,
@@ -204,67 +301,11 @@ async def handle_missed_schedules(
                     await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
                     continue
 
-                # Calculate next run time in job's timezone
-                # Use timezone from job (defaults to UTC for backward compatibility)
-                job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
-
-                # Backfill: If timezone is missing or null, update it to UTC for future consistency
-                # This handles legacy jobs created before timezone column was added
-                if not hasattr(job, "timezone") or not job.timezone:
-                    logger.info(
-                        "backfilling_timezone_on_legacy_job",
-                        scheduled_job_id=str(job.id),
-                        timezone="UTC",
-                        reason="Job has no timezone - backfilling with UTC default",
-                    )
-                    try:
-                        await scheduled_job_repo.update(
-                            job_id=str(job.id),
-                            timezone="UTC",
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            "timezone_backfill_failed",
-                            scheduled_job_id=str(job.id),
-                            error=str(e),
-                            reason="Could not backfill timezone - will use fallback",
-                        )
-
-                # Guard: orphaned job with no next_run_time
-                # This can happen if job was manually updated or migration failed
-                # Calculate new next_run_time and update job (no catch-up execution)
-                if job.next_run_time is None:
-                    logger.warning(
-                        "orphaned_job_no_next_run_time",
-                        scheduled_job_id=str(job.id),
-                        cron_schedule=job.cron_schedule,
-                        timezone=job_timezone,
-                        reason="Job has no next_run_time - calculating new schedule",
-                    )
-                    try:
-                        new_next_run_time = calculate_next_run(
-                            job.cron_schedule, now, timezone=job_timezone
-                        )
-                        await scheduled_job_repo.update_next_run(
-                            job_id=str(job.id),
-                            next_run_time=new_next_run_time,
-                            last_run_time=None,  # No execution, so don't set last_run_time
-                        )
-                        logger.info(
-                            "orphaned_job_rescheduled",
-                            scheduled_job_id=str(job.id),
-                            next_run_time=new_next_run_time.isoformat(),
-                            timezone=job_timezone,
-                        )
-                    except ValueError as e:
-                        logger.error(
-                            "orphaned_job_invalid_cron",
-                            scheduled_job_id=str(job.id),
-                            cron_schedule=job.cron_schedule,
-                            error=str(e),
-                            reason="Cannot calculate next_run_time - deactivating job",
-                        )
-                        await scheduled_job_repo.toggle_status(job_id=str(job.id), is_active=False)
+                # Prepare job: handle timezone backfill and orphaned state
+                job_timezone, should_continue = await _prepare_scheduled_job(
+                    job, scheduled_job_repo, now
+                )
+                if not should_continue:
                     continue
 
                 delay = now - job.next_run_time
@@ -462,72 +503,11 @@ async def process_scheduled_jobs(
                 )
                 continue
 
-            # Extract timezone with backward compatibility fallback
-            job_timezone = (
-                scheduled_job.timezone
-                if hasattr(scheduled_job, "timezone") and scheduled_job.timezone
-                else "UTC"
+            # Prepare job: handle timezone backfill and orphaned state
+            job_timezone, should_continue = await _prepare_scheduled_job(
+                scheduled_job, scheduled_job_repo, now
             )
-
-            # Backfill: If timezone is missing or null, update it to UTC for future consistency
-            # This handles legacy jobs created before timezone column was added
-            if not hasattr(scheduled_job, "timezone") or not scheduled_job.timezone:
-                logger.info(
-                    "backfilling_timezone_on_legacy_job",
-                    scheduled_job_id=str(scheduled_job.id),
-                    timezone="UTC",
-                    reason="Job has no timezone - backfilling with UTC default",
-                )
-                try:
-                    await scheduled_job_repo.update(
-                        job_id=str(scheduled_job.id),
-                        timezone="UTC",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "timezone_backfill_failed",
-                        scheduled_job_id=str(scheduled_job.id),
-                        error=str(e),
-                        reason="Could not backfill timezone - will use fallback",
-                    )
-
-            # Guard: orphaned job with no next_run_time
-            # This shouldn't normally happen in regular processing (get_due_jobs filters on
-            # next_run_time <= cutoff), but handle defensively. Calculate new next_run_time.
-            if scheduled_job.next_run_time is None:
-                logger.warning(
-                    "orphaned_job_in_regular_processing",
-                    scheduled_job_id=str(scheduled_job.id),
-                    cron_schedule=scheduled_job.cron_schedule,
-                    timezone=job_timezone,
-                    reason="Job has no next_run_time - calculating new schedule",
-                )
-                try:
-                    new_next_run_time = calculate_next_run(
-                        scheduled_job.cron_schedule, now, timezone=job_timezone
-                    )
-                    await scheduled_job_repo.update_next_run(
-                        job_id=str(scheduled_job.id),
-                        next_run_time=new_next_run_time,
-                        last_run_time=None,
-                    )
-                    logger.info(
-                        "orphaned_job_rescheduled",
-                        scheduled_job_id=str(scheduled_job.id),
-                        next_run_time=new_next_run_time.isoformat(),
-                        timezone=job_timezone,
-                    )
-                except ValueError as e:
-                    logger.error(
-                        "orphaned_job_invalid_cron",
-                        scheduled_job_id=str(scheduled_job.id),
-                        cron_schedule=scheduled_job.cron_schedule,
-                        error=str(e),
-                        reason="Cannot calculate next_run_time - deactivating job",
-                    )
-                    await scheduled_job_repo.toggle_status(
-                        job_id=str(scheduled_job.id), is_active=False
-                    )
+            if not should_continue:
                 continue
 
             # Create and publish crawl job using helper function

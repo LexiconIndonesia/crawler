@@ -965,8 +965,16 @@ class WebsiteService:
                 retry_config = global_config.get("retry", {})
                 if isinstance(retry_config, dict):
                     max_attempts = retry_config.get("max_attempts")
-                    if max_attempts is not None:
+                    if isinstance(max_attempts, int) and max_attempts > 0:
                         max_retries = max_attempts
+                    elif max_attempts is not None:
+                        logger.warning(
+                            "invalid_max_attempts_in_config",
+                            website_id=website_id,
+                            max_attempts=max_attempts,
+                            max_attempts_type=type(max_attempts).__name__,
+                            reason="Expected positive int; falling back to default",
+                        )
 
         # Create high-priority crawl job
         # Priority 10 = PRIORITY_MANUAL_TRIGGER (highest priority)
@@ -1151,6 +1159,15 @@ class WebsiteService:
                 next_run_time = result
             else:
                 # Fallback to current time + 1 day if cron validation fails
+                logger.warning(
+                    "resume_schedule_next_run_fallback",
+                    job_id=str(job.id),
+                    website_id=website_id,
+                    cron_schedule=job.cron_schedule,
+                    timezone=job_timezone,
+                    error=result if not is_valid else "Invalid result type",
+                    reason="Falling back to now+1d for next_run_time",
+                )
                 next_run_time = datetime.now(UTC) + timedelta(days=1)
 
             # Update job with is_active=True, new next_run_time, and persisted timezone

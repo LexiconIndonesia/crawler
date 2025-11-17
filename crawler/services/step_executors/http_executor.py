@@ -16,6 +16,36 @@ from crawler.services.step_executors.base import BaseStepExecutor, ExecutionResu
 logger = get_logger(__name__)
 
 
+def classify_http_error(status_code: int) -> str:
+    """Classify HTTP error for retry logic.
+
+    Args:
+        status_code: HTTP status code
+
+    Returns:
+        Error type: "retryable", "permanent", or "unknown"
+
+    Classification:
+        - retryable: 429 (Too Many Requests), 5xx (Server errors)
+        - permanent: 4xx (Client errors, except 429)
+        - unknown: 1xx (Informational), 3xx (Redirects), or unrecognized codes
+    """
+    # Guard: 429 is retryable (rate limiting)
+    if status_code == 429:
+        return "retryable"
+
+    # 5xx: Server errors - retryable (temporary server issues)
+    if 500 <= status_code < 600:
+        return "retryable"
+
+    # 4xx: Client errors - permanent (bad request, not found, etc.)
+    if 400 <= status_code < 500:
+        return "permanent"
+
+    # 1xx, 3xx, or unknown codes
+    return "unknown"
+
+
 class HTTPExecutor(BaseStepExecutor):
     """Executor for HTTP method steps using httpx client."""
 
@@ -80,11 +110,24 @@ class HTTPExecutor(BaseStepExecutor):
 
             # Check status
             if not 200 <= response.status_code < 300:
+                # Classify error for retry logic
+                error_type = classify_http_error(response.status_code)
+
+                # Log error with classification
+                logger.warning(
+                    "http_request_failed",
+                    url=url,
+                    status_code=response.status_code,
+                    status_name=status_name,
+                    error_type=error_type,
+                )
+
                 return self._create_error_result(
                     f"HTTP {response.status_code} {status_name}",
                     url=url,
                     status_code=response.status_code,
                     status_name=status_name,
+                    error_type=error_type,
                 )
 
             # Get content
@@ -114,20 +157,51 @@ class HTTPExecutor(BaseStepExecutor):
             )
 
         except httpx.TimeoutException as e:
+            # Timeouts are retryable - server may be temporarily slow
+            error_type = "retryable"
+            logger.warning(
+                "http_request_timeout",
+                url=url,
+                timeout=timeout,
+                exception="TimeoutException",
+                error_type=error_type,
+            )
             return self._create_error_result(
                 f"Request timeout: {e}",
                 url=url,
                 timeout=timeout,
+                error_type=error_type,
             )
         except httpx.RequestError as e:
+            # Network errors are typically retryable (connection issues, DNS failures, etc.)
+            error_type = "retryable"
+            logger.warning(
+                "http_request_error",
+                url=url,
+                exception="RequestError",
+                error_type=error_type,
+                error_message=str(e),
+            )
             return self._create_error_result(
                 f"Request error: {e}",
                 url=url,
+                error_type=error_type,
             )
         except Exception as e:
+            # Unknown exceptions classified as unknown
+            error_type = "unknown"
+            logger.error(
+                "http_unexpected_error",
+                url=url,
+                exception=type(e).__name__,
+                error_type=error_type,
+                error_message=str(e),
+                exc_info=True,
+            )
             return self._create_error_result(
                 f"Unexpected error: {e}",
                 url=url,
+                error_type=error_type,
             )
 
     async def _get_client(self) -> httpx.AsyncClient:

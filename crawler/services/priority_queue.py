@@ -59,7 +59,7 @@ class PriorityQueueService:
 
     The queue uses two Redis keys:
     - {prefix}:jobs - Sorted set of job IDs with priority scores
-    - {prefix}:data:{job_id} - Hash storing job metadata
+    - {prefix}:data:{job_id} - String value storing JSON-encoded job metadata
 
     Thread-safety: All operations use atomic Redis commands.
     """
@@ -82,7 +82,7 @@ class PriorityQueueService:
             job_id: Job ID
 
         Returns:
-            Redis key for job data hash
+            Redis key for job data (JSON-encoded string)
         """
         return f"{self.key_prefix}:data:{job_id}"
 
