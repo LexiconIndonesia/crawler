@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+import urllib.parse
 
 from crawler.api.generated import CrawlStep, MethodEnum, PaginationConfig, StepConfig
 from crawler.services import CrawlOutcome, SeedURLCrawler, SeedURLCrawlerConfig
@@ -654,7 +655,8 @@ async def test_relative_url_resolution(
     # All URLs should be absolute and normalized
     for extracted_url in result.extracted_urls:
         assert extracted_url.url.startswith("https://")
-        assert "example.com" in extracted_url.url
+        parsed = urllib.parse.urlparse(extracted_url.url)
+        assert parsed.hostname == "example.com"
 
 
 # =============================================================================
