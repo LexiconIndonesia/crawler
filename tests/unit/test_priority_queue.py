@@ -196,8 +196,16 @@ class TestEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_duplicate_job(self, priority_queue, mock_redis):
         """Test enqueuing a job that already exists."""
-        # Mock zscore to indicate job already exists
-        mock_redis.zscore.return_value = 1234567.0  # Job exists with some score
+        # Mock pipeline to simulate ZADD NX returning 0 (element already existed)
+        pipeline_mock = AsyncMock()
+        pipeline_mock.zadd = AsyncMock()
+        pipeline_mock.set = AsyncMock()
+        pipeline_mock.expire = AsyncMock()
+        # ZADD with NX returns 0 when element already exists
+        pipeline_mock.execute = AsyncMock(return_value=[0, True, True])
+        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
+        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
+        mock_redis.pipeline.return_value = pipeline_mock
 
         job_id = "duplicate-job"
         job_data = {"test": "data"}
@@ -205,8 +213,10 @@ class TestEnqueue:
         result = await priority_queue.enqueue(job_id=job_id, job_data=job_data, priority=5)
 
         assert result is False  # Should return False for duplicate
-        # Verify zscore was called to check existence
-        mock_redis.zscore.assert_called_once()
+        # Verify zadd was called with nx=True
+        pipeline_mock.zadd.assert_called_once()
+        call_args = pipeline_mock.zadd.call_args
+        assert call_args.kwargs.get("nx") is True
 
     @pytest.mark.asyncio
     async def test_enqueue_stores_metadata(self, priority_queue, mock_redis):

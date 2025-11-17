@@ -41,6 +41,10 @@ class TestHTTPStatusClassification:
         """429 should be classified as RATE_LIMIT."""
         assert classify_http_status(429) == ErrorCategoryEnum.RATE_LIMIT
 
+    def test_classify_408_as_timeout(self):
+        """408 Request Timeout should be classified as TIMEOUT (not CLIENT_ERROR)."""
+        assert classify_http_status(408) == ErrorCategoryEnum.TIMEOUT
+
     @pytest.mark.parametrize("status_code", [400, 405, 410, 422, 451])
     def test_classify_other_4xx_as_client_error(self, status_code):
         """Other 4xx codes should be classified as CLIENT_ERROR."""
@@ -718,3 +722,53 @@ class TestCustomClassificationRules:
                 category=ErrorCategoryEnum.NETWORK,
                 reason="",
             )
+
+    def test_browser_crash_and_httpx_errors_fallback_to_builtin_classifiers(self):
+        """Test browser/httpx errors use built-in classification when custom rules don't match."""
+
+        # Create custom rule that won't match these errors
+        def matches_nothing(exc, status_code):
+            return False
+
+        rule = ErrorClassificationRule(
+            name="never_matches",
+            predicate=matches_nothing,
+            category=ErrorCategoryEnum.RATE_LIMIT,
+            reason="This rule never matches",
+        )
+
+        # Test browser crash error falls back to BROWSER_CRASH
+        class BrowserCrashError(Exception):
+            """Mock browser crash exception."""
+
+        browser_exc = BrowserCrashError("Browser process crashed")
+        category, is_retryable = classify_with_custom_rules(
+            exc=browser_exc, custom_rules=[rule], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.BROWSER_CRASH
+        assert is_retryable is None  # No custom override, using standard classification
+
+        # Test httpx network error falls back to NETWORK
+        class ConnectError(Exception):
+            """Mock httpx ConnectError."""
+
+        # Create mock exception with httpx module
+        httpx_exc = ConnectError("Connection failed")
+        httpx_exc.__class__.__module__ = "httpx"  # Make it look like it's from httpx
+
+        category, is_retryable = classify_with_custom_rules(
+            exc=httpx_exc, custom_rules=[rule], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.NETWORK
+        assert is_retryable is None  # No custom override, using standard classification
+
+        # Test Playwright timeout error falls back to TIMEOUT
+        class PlaywrightTimeoutError(Exception):
+            """Mock Playwright timeout exception."""
+
+        timeout_exc = PlaywrightTimeoutError("Page load timeout")
+        category, is_retryable = classify_with_custom_rules(
+            exc=timeout_exc, custom_rules=[rule], log_decision=False
+        )
+        assert category == ErrorCategoryEnum.TIMEOUT
+        assert is_retryable is None  # No custom override, using standard classification

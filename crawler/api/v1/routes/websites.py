@@ -655,8 +655,8 @@ async def rollback_config(
 )
 async def trigger_website_crawl(
     id: Annotated[str, Path(description="Website ID")],
-    request: TriggerCrawlRequest,
     website_service: WebsiteServiceDep,
+    request: TriggerCrawlRequest = TriggerCrawlRequest(),
 ) -> TriggerCrawlResponse:
     """Trigger immediate high-priority crawl for a website.
 

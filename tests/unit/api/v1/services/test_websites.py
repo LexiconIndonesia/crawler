@@ -15,6 +15,7 @@ from crawler.api.generated import (
 )
 from crawler.api.v1.services import WebsiteService
 from crawler.db.generated.models import Website
+from crawler.services.nats_queue import NATSQueueService
 
 
 class TestWebsiteService:
@@ -42,8 +43,8 @@ class TestWebsiteService:
 
     @pytest.fixture
     def mock_nats_queue(self):
-        """Create a mock NATS queue service."""
-        return AsyncMock()
+        """Create a mock NATS queue service with spec for type safety."""
+        return AsyncMock(spec=NATSQueueService)
 
     @pytest.fixture
     def website_service(
@@ -817,6 +818,8 @@ class TestWebsiteService:
 
         website_service.website_repo.get_by_id.assert_called_once_with(website_id)
         website_service.scheduled_job_repo.get_by_website_id.assert_called_once()
+        # Guard: toggle_status should not be called when no scheduled job exists
+        website_service.scheduled_job_repo.toggle_status.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_resume_schedule_success(self, website_service) -> None:
@@ -841,6 +844,7 @@ class TestWebsiteService:
         mock_scheduled_job = MagicMock()
         mock_scheduled_job.id = scheduled_job_id
         mock_scheduled_job.cron_schedule = "0 0 1,15 * *"
+        mock_scheduled_job.timezone = "UTC"  # Explicit timezone to avoid MagicMock truthiness
         mock_scheduled_job.last_run_time = datetime.now(UTC)
 
         mock_updated_job = MagicMock()

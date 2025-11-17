@@ -125,9 +125,9 @@ class TestHandleMissedSchedules:
         mock_nats_queue.publish_job.assert_called_once()
         mock_scheduled_job_repo.update_next_run.assert_called_once()
 
-        # Verify job metadata includes catchup flag
+        # Verify job metadata includes catchup flag (boolean True, not string)
         call_kwargs = mock_crawl_job_repo.create_template_based_job.call_args.kwargs
-        assert call_kwargs["metadata"]["catchup"] == "true"
+        assert call_kwargs["metadata"]["catchup"] is True
         assert call_kwargs["metadata"]["missed_time"] == missed_time.isoformat()
 
     @pytest.mark.asyncio

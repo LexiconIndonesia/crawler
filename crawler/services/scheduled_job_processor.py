@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from crawler.core.logging import get_logger
-from crawler.core.metrics import scheduled_jobs_processed_total
+from crawler.core.metrics import scheduled_jobs_processed_total, scheduled_jobs_skipped_total
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.utils.cron import calculate_next_run
 from crawler.utils.dst import get_dst_transition_type
@@ -65,13 +65,13 @@ async def _create_and_publish_crawl_job(
     Returns:
         Crawl job ID on success, None on failure
     """
-    # Build metadata
-    metadata: dict[str, str] = {
+    # Build metadata (mix of str and bool values)
+    metadata: dict[str, str | bool] = {
         "scheduled_job_id": scheduled_job_id,
         "cron_schedule": cron_schedule,
     }
     if is_catchup:
-        metadata["catchup"] = "true"  # Store as string for consistency
+        metadata["catchup"] = True  # Store as boolean for type safety
         if missed_time:
             metadata["missed_time"] = missed_time.isoformat()
 
@@ -264,7 +264,7 @@ async def handle_missed_schedules(
                     continue
 
                 caught_up += 1
-                scheduled_jobs_processed_total.inc()
+                scheduled_jobs_processed_total.labels(processing_type="catchup").inc()
 
             else:
                 # Skip: just reschedule without executing
@@ -280,6 +280,7 @@ async def handle_missed_schedules(
                     reason=f"Missed by {delay_hours:.1f} hours (> 1 hour threshold)",
                 )
                 skipped += 1
+                scheduled_jobs_skipped_total.labels(reason="missed_threshold").inc()
 
             # Update next_run_time for both caught-up and skipped jobs
             await scheduled_job_repo.update_next_run(
@@ -457,7 +458,7 @@ async def process_scheduled_jobs(
             )
 
             processed_count += 1
-            scheduled_jobs_processed_total.inc()
+            scheduled_jobs_processed_total.labels(processing_type="normal").inc()
 
         except Exception as e:
             logger.error(

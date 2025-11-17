@@ -82,6 +82,22 @@ def classify_http_status(status_code: int, *, log_decision: bool = True) -> Erro
             )
         return category
 
+    # Guard: handle request timeout (408)
+    # Note: 408 is treated as a timeout-style retryable error (similar to network/server timeouts)
+    # rather than a permanent client error, since it typically indicates transient conditions
+    if status_code == 408:
+        category = ErrorCategoryEnum.TIMEOUT
+        if log_decision:
+            logger.info(
+                "error_classified",
+                classification_type="http_status",
+                status_code=status_code,
+                error_category=category.value,
+                is_retryable=True,
+                reason="HTTP 408 Request Timeout is transient and retryable",
+            )
+        return category
+
     # Guard: handle client errors (4xx except handled above)
     if 400 <= status_code < 500:
         category = ErrorCategoryEnum.CLIENT_ERROR
@@ -229,6 +245,9 @@ def classify_exception(exc: Exception, *, log_decision: bool = True) -> ErrorCat
         return category
 
     # Timeout errors (asyncio, page load, selector wait)
+    # Note: This heuristic catches common timeout exceptions by name substring matching
+    # (e.g., asyncio.TimeoutError, PlaywrightTimeoutError, etc.)
+    # If this catches unrelated exceptions, add explicit checks above or use custom rules
     if "timeout" in exc_type_name.lower() or "TimeoutException" in exc_type_name:
         category = ErrorCategoryEnum.TIMEOUT
         if log_decision:
@@ -292,6 +311,11 @@ def classify_exception(exc: Exception, *, log_decision: bool = True) -> ErrorCat
         return category
 
     # Unknown error type
+    # Note: We conservatively mark UNKNOWN exceptions as non-retryable (is_retryable=False)
+    # to avoid infinite retry loops on unexpected errors. If your retry policy is managed
+    # via database policies or custom rules, those can override this classification.
+    # To make specific unknown exceptions retryable, add them to the explicit checks above
+    # or use ErrorClassificationRule with custom predicates.
     category = ErrorCategoryEnum.UNKNOWN
     if log_decision:
         logger.warning(
@@ -352,7 +376,8 @@ class ErrorClassificationRule:
             predicate: Function that takes (exc, status_code) and returns bool
             category: ErrorCategoryEnum to return when rule matches
             reason: Explanation of why this rule matches (for logging)
-            is_retryable: Optional override for retryability (if None, uses category default)
+            is_retryable: Optional override for retryability. If None, no override is applied
+                and the caller (e.g., DB policy or higher-level logic) uses its own defaults
 
         Raises:
             ValueError: If name is empty, predicate is None/not callable, or reason is empty
@@ -388,6 +413,11 @@ def classify_with_custom_rules(
     """Classify error with optional custom rules.
 
     Custom rules are evaluated first, then falls back to standard classification.
+
+    Precedence when both exc and http_status are provided:
+        1. Custom rules (evaluated first, can match on either/both)
+        2. HTTP status classification (if no custom rule matches)
+        3. Exception classification (if no http_status provided)
 
     Args:
         exc: Optional exception to classify
@@ -439,9 +469,10 @@ def classify_with_custom_rules(
                     return (rule.category, rule.is_retryable)
             except Exception as e:
                 # Guard: if custom rule raises exception, log and skip it
+                # Use getattr for defensive access in case non-ErrorClassificationRule object passed
                 logger.error(
                     "custom_rule_error",
-                    rule_name=rule.name,
+                    rule_name=getattr(rule, "name", "<unknown>"),
                     error=str(e),
                     reason="Custom classification rule raised exception - skipping",
                 )

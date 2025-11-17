@@ -37,7 +37,9 @@ def is_dst_transition(dt: datetime, timezone_name: str = "UTC") -> bool:
     """Check if a datetime is during a DST transition.
 
     Args:
-        dt: Datetime to check (timezone-aware or naive UTC)
+        dt: Datetime to check (timezone-aware or naive)
+            - If timezone-aware: used as-is, then converted to target timezone
+            - If naive: treated as UTC, then converted to target timezone
         timezone_name: IANA timezone name (e.g., "America/New_York", "Europe/London")
             Defaults to "UTC" which never has DST transitions.
 
@@ -49,15 +51,25 @@ def is_dst_transition(dt: datetime, timezone_name: str = "UTC") -> bool:
         UTC never has DST transitions, so this always returns False for UTC.
         This is why the system is DST-safe by default.
 
+        Naive datetimes are interpreted as UTC timestamps, NOT local time.
+        For example, datetime(2025, 3, 9, 2, 30) is treated as 2:30 AM UTC,
+        which converts to 9:30 PM EST (previous day) or 10:30 PM EDT depending
+        on DST, NOT as 2:30 AM local New York time.
+
     Example:
-        >>> from datetime import datetime
-        >>> # Spring forward in US Eastern (2 AM doesn't exist)
-        >>> dt = datetime(2025, 3, 9, 2, 30)
+        >>> from datetime import datetime, UTC
+        >>> # Spring forward in US Eastern (2 AM doesn't exist locally)
+        >>> # Using UTC-aware datetime: 7 AM UTC = 2 AM EST on transition day
+        >>> dt = datetime(2025, 3, 9, 7, 0, tzinfo=UTC)
         >>> is_dst_transition(dt, "America/New_York")
         True
-        >>> # Same time in UTC (no DST)
+        >>> # Same check with UTC timezone (no DST)
         >>> is_dst_transition(dt, "UTC")
         False
+        >>> # Naive datetime is interpreted as UTC, not local time
+        >>> dt_naive = datetime(2025, 3, 9, 7, 0)  # Treated as 7 AM UTC
+        >>> is_dst_transition(dt_naive, "America/New_York")
+        True
     """
     # Guard: UTC never has DST
     if timezone_name == "UTC":
@@ -89,7 +101,9 @@ def get_dst_transition_type(dt: datetime, timezone_name: str = "UTC") -> str | N
     """Get the type of DST transition at a datetime.
 
     Args:
-        dt: Datetime to check (timezone-aware or naive UTC)
+        dt: Datetime to check (timezone-aware or naive)
+            - If timezone-aware: used as-is, then converted to target timezone
+            - If naive: treated as UTC, then converted to target timezone
         timezone_name: IANA timezone name
 
     Returns:
@@ -97,14 +111,20 @@ def get_dst_transition_type(dt: datetime, timezone_name: str = "UTC") -> str | N
         "fall_back" if clocks fell back (time repeat)
         None if not a DST transition or UTC
 
+    Note:
+        Naive datetimes are interpreted as UTC timestamps, NOT local time.
+        See is_dst_transition() docstring for detailed explanation.
+
     Example:
-        >>> from datetime import datetime
+        >>> from datetime import datetime, UTC
         >>> # Spring forward: 2 AM -> 3 AM (skip hour)
-        >>> dt = datetime(2025, 3, 9, 2, 30)
+        >>> # 7 AM UTC = 2 AM EST on transition day
+        >>> dt = datetime(2025, 3, 9, 7, 0, tzinfo=UTC)
         >>> get_dst_transition_type(dt, "America/New_York")
         'spring_forward'
         >>> # Fall back: 2 AM -> 1 AM (repeat hour)
-        >>> dt = datetime(2025, 11, 2, 1, 30)
+        >>> # 6 AM UTC = 1 AM EST/EDT on transition day
+        >>> dt = datetime(2025, 11, 2, 6, 0, tzinfo=UTC)
         >>> get_dst_transition_type(dt, "America/New_York")
         'fall_back'
     """

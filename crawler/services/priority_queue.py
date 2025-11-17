@@ -158,19 +158,9 @@ class PriorityQueueService:
         Note:
             If job already exists in queue, it will NOT be updated.
             Use remove() first if you need to re-enqueue with different priority.
+            Uses ZADD NX for atomic "already exists" check to avoid race conditions.
         """
         try:
-            # Check if job already exists
-            exists = await self.redis.zscore(self.queue_key, job_id) is not None
-            if exists:
-                logger.warning(
-                    "job_already_in_queue",
-                    job_id=job_id,
-                    priority=priority,
-                    reason="Job already exists in queue - not updating",
-                )
-                return False
-
             score = self._calculate_score(priority, scheduled_at)
 
             # Store job data as JSON in a hash
@@ -183,14 +173,26 @@ class PriorityQueueService:
             }
 
             # Use pipeline for atomicity
+            # ZADD with NX flag: only add if not exists (returns 0 if already exists)
             async with self.redis.pipeline(transaction=True) as pipe:
-                # Add job to sorted set
-                await pipe.zadd(self.queue_key, {job_id: score})
+                # Add job to sorted set (NX = only if not exists)
+                await pipe.zadd(self.queue_key, {job_id: score}, nx=True)
                 # Store job metadata
                 await pipe.set(data_key, json.dumps(job_data_with_meta))
                 # Set TTL on data (7 days) to prevent memory leaks
                 await pipe.expire(data_key, 7 * 24 * 3600)
-                await pipe.execute()
+                results = await pipe.execute()
+
+            # Check if job was added (zadd with NX returns 0 if element already existed)
+            added_count = results[0]
+            if added_count == 0:
+                logger.warning(
+                    "job_already_in_queue",
+                    job_id=job_id,
+                    priority=priority,
+                    reason="Job already exists in queue - not updating (atomic check)",
+                )
+                return False
 
             logger.info(
                 "job_enqueued",

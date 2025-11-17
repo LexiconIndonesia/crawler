@@ -280,3 +280,98 @@ class TestScheduledJobRepository:
         matching_job = next(j for j in active_jobs if j.id == job.id)
         assert isinstance(matching_job.job_config, dict)
         assert matching_job.job_config == complex_config
+
+    async def test_timezone_persistence_and_retrieval(self, db_session: AsyncSession) -> None:
+        """Test that timezone is correctly persisted and retrieved across all repository methods."""
+        conn = await db_session.connection()
+        website_repo = WebsiteRepository(conn)
+        scheduled_job_repo = ScheduledJobRepository(conn)
+
+        # Create website
+        website = await website_repo.create(
+            name="timezone-test-site", base_url="https://test.com", config={}
+        )
+
+        # Test different timezones
+        test_timezones = [
+            "America/New_York",
+            "Europe/London",
+            "Asia/Tokyo",
+            "UTC",
+        ]
+
+        created_jobs = []
+        for tz in test_timezones:
+            job = await scheduled_job_repo.create(
+                website_id=str(website.id),
+                cron_schedule="0 0 * * *",
+                next_run_time=datetime.now(UTC),
+                timezone=tz,
+                is_active=True,
+            )
+            created_jobs.append(job)
+            # Verify timezone is set on creation
+            assert job.timezone == tz, f"Created job should have timezone {tz}"
+
+        # Test 1: get_by_id preserves timezone
+        for job in created_jobs:
+            fetched = await scheduled_job_repo.get_by_id(str(job.id))
+            assert fetched is not None
+            assert fetched.timezone == job.timezone, (
+                f"get_by_id should preserve timezone {job.timezone}"
+            )
+
+        # Test 2: get_by_website_id preserves timezone for all jobs
+        all_jobs = await scheduled_job_repo.get_by_website_id(str(website.id))
+        assert len(all_jobs) == len(test_timezones)
+        for job in all_jobs:
+            assert job.timezone in test_timezones, (
+                f"get_by_website_id should preserve timezone, got {job.timezone}"
+            )
+
+        # Test 3: get_due_jobs preserves timezone
+        due_jobs = await scheduled_job_repo.get_due_jobs(
+            cutoff_time=datetime.now(UTC) + timedelta(hours=1), limit=100
+        )
+        matching_jobs = [j for j in due_jobs if j.website_id == website.id]
+        assert len(matching_jobs) == len(test_timezones)
+        for job in matching_jobs:
+            assert job.timezone in test_timezones, (
+                f"get_due_jobs should preserve timezone, got {job.timezone}"
+            )
+
+        # Test 4: list_active preserves timezone
+        active_jobs = await scheduled_job_repo.list_active(limit=100)
+        matching_jobs = [j for j in active_jobs if j.website_id == website.id]
+        assert len(matching_jobs) == len(test_timezones)
+        for job in matching_jobs:
+            assert job.timezone in test_timezones, (
+                f"list_active should preserve timezone, got {job.timezone}"
+            )
+
+        # Test 5: update preserves timezone (update with same timezone)
+        job_to_update = created_jobs[0]
+        await scheduled_job_repo.update(
+            job_id=str(job_to_update.id),
+            cron_schedule="0 12 * * *",  # Change schedule
+            next_run_time=datetime.now(UTC) + timedelta(days=1),
+            is_active=True,
+            timezone=job_to_update.timezone,  # Keep same timezone
+        )
+        updated = await scheduled_job_repo.get_by_id(str(job_to_update.id))
+        assert updated is not None
+        assert updated.timezone == job_to_update.timezone, "update should preserve timezone"
+        assert updated.cron_schedule == "0 12 * * *", "cron should be updated"
+
+        # Test 6: update can change timezone
+        new_timezone = "Australia/Sydney"
+        await scheduled_job_repo.update(
+            job_id=str(job_to_update.id),
+            cron_schedule="0 12 * * *",
+            next_run_time=datetime.now(UTC) + timedelta(days=1),
+            is_active=True,
+            timezone=new_timezone,
+        )
+        updated = await scheduled_job_repo.get_by_id(str(job_to_update.id))
+        assert updated is not None
+        assert updated.timezone == new_timezone, f"update should change timezone to {new_timezone}"

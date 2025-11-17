@@ -437,12 +437,15 @@ class WebsiteService:
                 is_valid, next_run = validate_and_calculate_next_run(
                     effective_cron, timezone=timezone
                 )
-                if isinstance(next_run, datetime):
-                    next_run_time = next_run
-
-                # Guard: next_run_time must be set
-                if not next_run_time:
-                    next_run_time = datetime.now(UTC)
+                if not is_valid or not isinstance(next_run, datetime):
+                    logger.warning(
+                        "invalid_cron_or_timezone",
+                        cron=effective_cron,
+                        timezone=timezone,
+                        error=next_run,
+                    )
+                    raise ValueError(f"Invalid cron expression or timezone: {next_run}")
+                next_run_time = next_run
 
                 if scheduled_jobs:
                     # Update existing scheduled job with effective cron and timezone
@@ -816,8 +819,14 @@ class WebsiteService:
         next_run_time = None
 
         if scheduled_jobs and target_cron:
-            # Calculate next run time from restored cron schedule
-            is_valid, result = validate_and_calculate_next_run(target_cron)
+            # Determine timezone (prefer restored config, then existing job, then UTC)
+            target_timezone = None
+            if isinstance(target_schedule, dict):
+                target_timezone = target_schedule.get("timezone")
+            job_timezone = target_timezone or getattr(scheduled_jobs[0], "timezone", None) or "UTC"
+
+            # Calculate next run time from restored cron schedule in the correct timezone
+            is_valid, result = validate_and_calculate_next_run(target_cron, timezone=job_timezone)
             if is_valid and isinstance(result, datetime):
                 next_run_time = result
             else:
@@ -831,6 +840,7 @@ class WebsiteService:
                     cron_schedule=target_cron,
                     next_run_time=next_run_time,
                     is_active=job.is_active,  # Preserve active status
+                    timezone=job_timezone,
                 )
                 if job.is_active:
                     scheduled_job_id = job.id
