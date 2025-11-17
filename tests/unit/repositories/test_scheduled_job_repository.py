@@ -39,6 +39,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config=job_config_str,  # String JSON
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -65,6 +66,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config=job_config_dict,  # Already a dict
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -98,6 +100,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config="invalid{json",  # Invalid JSON
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -121,6 +124,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config={"max_depth": 5},
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -131,6 +135,7 @@ class TestScheduledJobRepository:
             website_id=uuid7(),
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
             job_config=job_config,
         )
 
@@ -152,6 +157,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config=None,
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -162,6 +168,7 @@ class TestScheduledJobRepository:
             website_id=website_id_str,
             cron_schedule="0 0 * * *",
             next_run_time=datetime.now(UTC),
+            timezone="UTC",
         )
 
         # Verify string was converted to UUID
@@ -185,6 +192,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config=job_config_str,
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -212,6 +220,7 @@ class TestScheduledJobRepository:
                 last_run_time=None,
                 is_active=True,
                 job_config=json.dumps({"max_depth": i}),
+                timezone="UTC",
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )
@@ -247,6 +256,7 @@ class TestScheduledJobRepository:
                 last_run_time=None,
                 is_active=True,
                 job_config=json.dumps({"priority": i}),
+                timezone="UTC",
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )
@@ -280,6 +290,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config={"updated": True},
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -307,6 +318,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=True,
             job_config=None,
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -355,6 +367,7 @@ class TestScheduledJobRepository:
             last_run_time=None,
             is_active=False,  # Toggled to False
             job_config=None,
+            timezone="UTC",
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -383,6 +396,7 @@ class TestScheduledJobRepository:
                 last_run_time=None,
                 is_active=True,
                 job_config=json.dumps({"index": i}),
+                timezone="UTC",
                 created_at=datetime.now(UTC),
                 updated_at=datetime.now(UTC),
             )

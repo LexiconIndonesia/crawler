@@ -117,3 +117,16 @@ dlq_resolutions_total = Counter("dlq_resolutions_total", "Total DLQ entries manu
 dlq_oldest_unresolved_age_seconds = Gauge(
     "dlq_oldest_unresolved_age_seconds", "Age of oldest unresolved DLQ entry in seconds"
 )
+
+# Scheduled Job Processor Metrics
+scheduled_jobs_processed_total = Counter(
+    "scheduled_jobs_processed_total",
+    "Total scheduled jobs successfully processed and enqueued",
+    ["processing_type"],  # normal, catchup
+)
+
+scheduled_jobs_skipped_total = Counter(
+    "scheduled_jobs_skipped_total",
+    "Total scheduled jobs skipped (outside catch-up threshold)",
+    ["reason"],  # missed_threshold, etc.
+)

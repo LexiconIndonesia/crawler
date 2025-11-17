@@ -13,6 +13,9 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    ScheduleStatusResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -26,7 +29,10 @@ from crawler.api.v1.handlers import (
     get_config_version_handler,
     get_website_by_id_handler,
     list_websites_handler,
+    pause_schedule_handler,
+    resume_schedule_handler,
     rollback_config_handler,
+    trigger_crawl_handler,
     update_website_handler,
 )
 
@@ -601,3 +607,176 @@ async def rollback_config(
         HTTPException: If website or version not found, or rollback fails
     """
     return await rollback_config_handler(id, request, website_service)
+
+
+@router.post(
+    "/{id}/trigger",
+    response_model=TriggerCrawlResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Manually trigger immediate crawl job execution",
+    operation_id="triggerWebsiteCrawl",
+    description="""
+    Create a high-priority crawl job for immediate execution.
+
+    This endpoint:
+    1. Validates the website exists and is active
+    2. Creates a one-time crawl job with **priority 10** (highest)
+    3. Uses the website's base_url as the seed URL
+    4. Pushes the job to the front of the queue
+    5. Returns the job ID for tracking
+
+    **Use Cases:**
+    - Emergency content updates
+    - Testing website configuration
+    - Manual refresh after site changes
+    - On-demand crawling outside scheduled runs
+
+    **Priority Handling:**
+    - Manual triggers get **priority 10** (highest)
+    - Will be processed before scheduled jobs (priority 4-6)
+    - Will be processed before retry jobs (priority 0)
+
+    **Note:** This creates a new job independent of scheduled jobs.
+    """,
+    responses={
+        201: {
+            "description": "Crawl job triggered successfully",
+            "model": TriggerCrawlResponse,
+        },
+        400: {
+            "description": "Website inactive or invalid request",
+            "model": ErrorResponse,
+        },
+        404: {
+            "description": "Website not found",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def trigger_website_crawl(
+    id: Annotated[str, Path(description="Website ID")],
+    website_service: WebsiteServiceDep,
+    request: TriggerCrawlRequest = TriggerCrawlRequest(),
+) -> TriggerCrawlResponse:
+    """Trigger immediate high-priority crawl for a website.
+
+    Args:
+        id: Website ID
+        request: Trigger request with optional reason and variables
+        website_service: Injected website service
+
+    Returns:
+        Trigger response with job ID and details
+
+    Raises:
+        HTTPException: If website not found, inactive, or job creation fails
+    """
+    return await trigger_crawl_handler(id, request, website_service)
+
+
+@router.post(
+    "/{id}/pause",
+    response_model=ScheduleStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Pause scheduled crawls for a website",
+    operation_id="pauseWebsiteSchedule",
+    description="""
+    Pause all scheduled crawls for the specified website.
+
+    This endpoint:
+    1. Validates the website exists
+    2. Sets the is_active flag to false on all scheduled jobs for this website
+    3. Prevents the scheduler from triggering future crawls
+    4. Does not affect currently running jobs
+    5. Returns updated website status with schedule info
+
+    **Use Cases:**
+    - Temporarily stop scheduled crawls for maintenance
+    - Pause crawls while investigating issues
+    - Disable scheduling without deleting configuration
+
+    **Note:** Already running jobs will continue to completion.
+    To cancel running jobs, use the job cancellation endpoint.
+    """,
+    responses={
+        200: {
+            "description": "Website schedule paused successfully",
+            "model": ScheduleStatusResponse,
+        },
+        404: {
+            "description": "Website or scheduled job not found",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def pause_website_schedule(
+    id: Annotated[str, Path(description="Website ID")],
+    website_service: WebsiteServiceDep,
+) -> ScheduleStatusResponse:
+    """Pause scheduled crawls for a website.
+
+    Args:
+        id: Website ID
+        website_service: Injected website service
+
+    Returns:
+        Schedule status response with updated status
+
+    Raises:
+        HTTPException: If website or scheduled job not found, or pause fails
+    """
+    return await pause_schedule_handler(id, website_service)
+
+
+@router.post(
+    "/{id}/resume",
+    response_model=ScheduleStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Resume scheduled crawls for a website",
+    operation_id="resumeWebsiteSchedule",
+    description="""
+    Resume scheduled crawls for the specified website.
+
+    This endpoint:
+    1. Validates the website exists
+    2. Sets the is_active flag to true on all scheduled jobs for this website
+    3. Recalculates the next_run_time based on the cron schedule
+    4. Allows the scheduler to trigger future crawls
+    5. Returns updated website status with schedule info
+
+    **Use Cases:**
+    - Resume crawls after maintenance
+    - Re-enable scheduling after fixing issues
+    - Restart scheduled crawls after a pause
+
+    **Note:** The next_run_time is recalculated from the current time
+    using the existing cron schedule.
+    """,
+    responses={
+        200: {
+            "description": "Website schedule resumed successfully",
+            "model": ScheduleStatusResponse,
+        },
+        404: {
+            "description": "Website or scheduled job not found",
+            "model": ErrorResponse,
+        },
+    },
+)
+async def resume_website_schedule(
+    id: Annotated[str, Path(description="Website ID")],
+    website_service: WebsiteServiceDep,
+) -> ScheduleStatusResponse:
+    """Resume scheduled crawls for a website.
+
+    Args:
+        id: Website ID
+        website_service: Injected website service
+
+    Returns:
+        Schedule status response with updated status and next run time
+
+    Raises:
+        HTTPException: If website or scheduled job not found, or resume fails
+    """
+    return await resume_schedule_handler(id, website_service)

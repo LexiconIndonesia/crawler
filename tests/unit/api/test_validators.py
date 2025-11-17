@@ -220,3 +220,145 @@ class TestValidateAndCalculateNextRun:
         assert isinstance(result, datetime)
         # Result should be either 1st or 15th of current or next month
         assert result.day in [1, 15]
+
+
+class TestExtendedCronSyntax:
+    """Tests for extended cron syntax support (@daily, @weekly, etc.)."""
+
+    def test_validate_extended_syntax_daily(self) -> None:
+        """Test validation with @daily extended syntax."""
+        is_valid, error = validate_cron_expression("@daily")
+        assert is_valid
+        assert error is None
+
+    def test_validate_extended_syntax_weekly(self) -> None:
+        """Test validation with @weekly extended syntax."""
+        is_valid, error = validate_cron_expression("@weekly")
+        assert is_valid
+        assert error is None
+
+    def test_validate_extended_syntax_monthly(self) -> None:
+        """Test validation with @monthly extended syntax."""
+        is_valid, error = validate_cron_expression("@monthly")
+        assert is_valid
+        assert error is None
+
+    def test_validate_extended_syntax_yearly(self) -> None:
+        """Test validation with @yearly extended syntax."""
+        is_valid, error = validate_cron_expression("@yearly")
+        assert is_valid
+        assert error is None
+
+    def test_validate_extended_syntax_hourly(self) -> None:
+        """Test validation with @hourly extended syntax."""
+        is_valid, error = validate_cron_expression("@hourly")
+        assert is_valid
+        assert error is None
+
+    def test_validate_extended_syntax_midnight(self) -> None:
+        """Test validation with @midnight extended syntax."""
+        is_valid, error = validate_cron_expression("@midnight")
+        assert is_valid
+        assert error is None
+
+    def test_validate_invalid_extended_syntax(self) -> None:
+        """Test validation with invalid extended syntax."""
+        is_valid, error = validate_cron_expression("@invalid")
+        assert not is_valid
+        assert error is not None
+
+    def test_calculate_next_run_with_daily_extended(self) -> None:
+        """Test calculating next run with @daily extended syntax."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+        next_run = calculate_next_run_time("@daily", base_time)
+
+        # Should be next midnight
+        assert next_run.day == 2
+        assert next_run.hour == 0
+        assert next_run.minute == 0
+        assert next_run.tzinfo is not None
+
+    def test_calculate_next_run_with_weekly_extended(self) -> None:
+        """Test calculating next run with @weekly extended syntax."""
+        # Start on Thursday (2025-01-02 is a Thursday)
+        base_time = datetime(2025, 1, 2, 10, 0, 0, tzinfo=UTC)
+        next_run = calculate_next_run_time("@weekly", base_time)
+
+        # Should be next Sunday at midnight (2025-01-05)
+        assert next_run.weekday() == 6  # Sunday
+        assert next_run.hour == 0
+        assert next_run.minute == 0
+
+    def test_calculate_next_run_with_hourly_extended(self) -> None:
+        """Test calculating next run with @hourly extended syntax."""
+        base_time = datetime(2025, 1, 1, 10, 30, 0, tzinfo=UTC)
+        next_run = calculate_next_run_time("@hourly", base_time)
+
+        # Should be top of next hour
+        assert next_run.hour == 11
+        assert next_run.minute == 0
+
+    def test_validate_and_calculate_with_daily_extended(self) -> None:
+        """Test validate_and_calculate_next_run with @daily."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+        is_valid, result = validate_and_calculate_next_run("@daily", base_time)
+
+        assert is_valid
+        assert isinstance(result, datetime)
+        assert result > base_time
+        assert result.hour == 0
+        assert result.minute == 0
+
+    def test_validate_and_calculate_with_monthly_extended(self) -> None:
+        """Test validate_and_calculate_next_run with @monthly."""
+        base_time = datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC)
+        is_valid, result = validate_and_calculate_next_run("@monthly", base_time)
+
+        assert is_valid
+        assert isinstance(result, datetime)
+        # Should be 1st of next month
+        assert result.day == 1
+        assert result.month == 2
+        assert result.hour == 0
+
+
+class TestTimezoneHandling:
+    """Tests for timezone handling in cron calculations."""
+
+    def test_calculate_next_run_with_naive_datetime(self) -> None:
+        """Test that naive datetime is assumed to be UTC."""
+        # Naive datetime (no timezone info)
+        base_time = datetime(2025, 1, 1, 10, 0, 0)
+        next_run = calculate_next_run_time("0 12 * * *", base_time)
+
+        # Should return timezone-aware result in UTC
+        assert next_run.tzinfo is not None
+        assert next_run.tzinfo == UTC
+        assert next_run.hour == 12
+        assert next_run.day == 1
+
+    def test_calculate_next_run_preserves_utc(self) -> None:
+        """Test that UTC timezone is preserved."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+        next_run = calculate_next_run_time("0 12 * * *", base_time)
+
+        assert next_run.tzinfo == UTC
+
+    def test_all_results_are_timezone_aware(self) -> None:
+        """Test that all cron calculations return timezone-aware datetimes."""
+        test_crons = ["0 0 * * *", "@daily", "@weekly", "*/15 * * * *", "0 0 1,15 * *"]
+
+        for cron in test_crons:
+            next_run = calculate_next_run_time(cron)
+            assert next_run.tzinfo is not None, f"Expected {cron} to return timezone-aware datetime"
+            assert next_run.tzinfo == UTC, f"Expected {cron} to return UTC datetime"
+
+    def test_validate_and_calculate_with_naive_datetime(self) -> None:
+        """Test validate_and_calculate_next_run handles naive datetime."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0)  # Naive
+        is_valid, result = validate_and_calculate_next_run("0 0 * * *", base_time)
+
+        assert is_valid
+        assert isinstance(result, datetime)
+        assert result.tzinfo is not None
+        assert result.tzinfo == UTC

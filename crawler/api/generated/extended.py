@@ -4,6 +4,7 @@ This module extends the auto-generated models with custom business logic validat
 """
 
 from typing import TypeVar
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -30,9 +31,6 @@ from .models import (
     GlobalConfig as _GlobalConfig,
 )
 from .models import (
-    UpdateWebsiteRequest as _UpdateWebsiteRequest,
-)
-from .models import (
     RetryConfig as _RetryConfig,
 )
 from .models import (
@@ -40,6 +38,9 @@ from .models import (
 )
 from .models import (
     StepConfig as _StepConfig,
+)
+from .models import (
+    UpdateWebsiteRequest as _UpdateWebsiteRequest,
 )
 
 # Type variable for mixin self-reference
@@ -122,10 +123,34 @@ class CreateSeedJobRequest(_CreateSeedJobRequest):
 
 
 class ScheduleConfig(_ScheduleConfig):
-    """Extended ScheduleConfig with proper enum defaults and validation."""
+    """Extended ScheduleConfig with proper enum defaults and timezone validation."""
 
     # Override to use enum instead of string
     type: ScheduleTypeEnum = ScheduleTypeEnum.recurring
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        """Validate timezone is a valid IANA timezone name.
+
+        Args:
+            v: Timezone string to validate
+
+        Returns:
+            The validated timezone string
+
+        Raises:
+            ValueError: If the timezone is not recognized
+        """
+        try:
+            # Attempt to create ZoneInfo to validate the timezone
+            ZoneInfo(v)
+        except ZoneInfoNotFoundError as e:
+            raise ValueError(
+                f"Invalid timezone '{v}'. Must be a valid IANA timezone "
+                f"(e.g., UTC, America/New_York, Asia/Jakarta)."
+            ) from e
+        return v
 
     @model_validator(mode="after")
     def ensure_type_is_enum(self) -> "ScheduleConfig":

@@ -1,6 +1,6 @@
 """Website service with business logic."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from pydantic import AnyUrl
@@ -8,11 +8,15 @@ from pydantic import AnyUrl
 from crawler.api.generated import (
     ConfigHistoryListResponse,
     ConfigHistoryResponse,
+    CrawlJobStatus,
     CreateWebsiteRequest,
     DeleteWebsiteResponse,
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    ScheduleStatusResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -33,6 +37,8 @@ from crawler.db.repositories import (
     WebsiteConfigHistoryRepository,
     WebsiteRepository,
 )
+from crawler.services.nats_queue import NATSQueueService
+from crawler.services.priority_queue import PRIORITY_MANUAL_TRIGGER
 
 logger = get_logger(__name__)
 
@@ -46,6 +52,7 @@ class WebsiteService:
         scheduled_job_repo: ScheduledJobRepository,
         config_history_repo: WebsiteConfigHistoryRepository,
         crawl_job_repo: CrawlJobRepository,
+        nats_queue: NATSQueueService,
     ):
         """Initialize service with dependencies.
 
@@ -54,11 +61,13 @@ class WebsiteService:
             scheduled_job_repo: Scheduled job repository for database access
             config_history_repo: Website config history repository for versioning
             crawl_job_repo: Crawl job repository for triggering re-crawls
+            nats_queue: NATS queue service for job queueing
         """
         self.website_repo = website_repo
         self.scheduled_job_repo = scheduled_job_repo
         self.config_history_repo = config_history_repo
         self.crawl_job_repo = crawl_job_repo
+        self.nats_queue = nats_queue
 
     async def create_website(
         self,
@@ -118,10 +127,13 @@ class WebsiteService:
         if request.schedule.enabled:
             # Use default cron schedule if not provided (bi-weekly)
             cron_schedule = request.schedule.cron or "0 0 1,15 * *"
+            timezone = request.schedule.timezone or "UTC"  # Use default if not provided
+
             scheduled_job = await self.scheduled_job_repo.create(
                 website_id=website.id,
                 cron_schedule=cron_schedule,
                 next_run_time=next_run_time,
+                timezone=timezone,
                 is_active=True,
             )
 
@@ -131,7 +143,9 @@ class WebsiteService:
                     "scheduled_job_created",
                     website_id=str(website.id),
                     scheduled_job_id=str(scheduled_job.id),
+                    cron_schedule=cron_schedule,
                     next_run_time=next_run_time.isoformat(),
+                    timezone=timezone,
                 )
 
         logger.info(
@@ -418,37 +432,59 @@ class WebsiteService:
                 # Note: new_cron could be None if user cleared it
                 effective_cron = new_cron if new_cron else "0 0 1,15 * *"
 
-                # Calculate next run time
-                is_valid, next_run = validate_and_calculate_next_run(effective_cron)
-                if isinstance(next_run, datetime):
-                    next_run_time = next_run
+                # Get timezone from schedule config (use default if not provided)
+                timezone = request.schedule.timezone or "UTC"
 
-                # Guard: next_run_time must be set
-                if not next_run_time:
-                    next_run_time = datetime.now(UTC)
+                # Calculate next run time in user's timezone
+                is_valid, next_run = validate_and_calculate_next_run(
+                    effective_cron, timezone=timezone
+                )
+                if not is_valid or not isinstance(next_run, datetime):
+                    logger.warning(
+                        "invalid_cron_or_timezone",
+                        cron=effective_cron,
+                        timezone=timezone,
+                        error=next_run,
+                    )
+                    raise ValueError(f"Invalid cron expression or timezone: {next_run}")
+                next_run_time = next_run
 
                 if scheduled_jobs:
-                    # Update existing scheduled job with effective cron
+                    # Update existing scheduled job with effective cron and timezone
                     for job in scheduled_jobs:
                         await self.scheduled_job_repo.update(
                             job_id=job.id,
                             cron_schedule=effective_cron,
                             next_run_time=next_run_time,
+                            timezone=timezone,
                             is_active=True,
                         )
                         scheduled_job_id = job.id
-                        logger.info("scheduled_job_updated", job_id=job.id)
+                        logger.info(
+                            "scheduled_job_updated",
+                            job_id=job.id,
+                            cron_schedule=effective_cron,
+                            next_run_time=next_run_time.isoformat(),
+                            timezone=timezone,
+                        )
                 else:
-                    # Create new scheduled job with effective cron
+                    # Create new scheduled job with effective cron and timezone
                     new_job = await self.scheduled_job_repo.create(
                         website_id=website_id,
                         cron_schedule=effective_cron,
                         next_run_time=next_run_time,
+                        timezone=timezone,
                         is_active=True,
                     )
                     if new_job:
                         scheduled_job_id = new_job.id
-                        logger.info("scheduled_job_created", job_id=new_job.id)
+                        logger.info(
+                            "scheduled_job_created",
+                            job_id=new_job.id,
+                            cron_schedule=effective_cron,
+                            next_run_time=next_run_time.isoformat(),
+                            timezone=timezone,
+                        )
             else:
                 # Disable scheduled jobs
                 for job in scheduled_jobs:
@@ -797,8 +833,14 @@ class WebsiteService:
         next_run_time = None
 
         if scheduled_jobs and target_cron:
-            # Calculate next run time from restored cron schedule
-            is_valid, result = validate_and_calculate_next_run(target_cron)
+            # Determine timezone (prefer restored config, then existing job, then UTC)
+            target_timezone = None
+            if isinstance(target_schedule, dict):
+                target_timezone = target_schedule.get("timezone")
+            job_timezone = target_timezone or getattr(scheduled_jobs[0], "timezone", None) or "UTC"
+
+            # Calculate next run time from restored cron schedule in the correct timezone
+            is_valid, result = validate_and_calculate_next_run(target_cron, timezone=job_timezone)
             if is_valid and isinstance(result, datetime):
                 next_run_time = result
             else:
@@ -812,6 +854,7 @@ class WebsiteService:
                     cron_schedule=target_cron,
                     next_run_time=next_run_time,
                     is_active=job.is_active,  # Preserve active status
+                    timezone=job_timezone,
                 )
                 if job.is_active:
                     scheduled_job_id = job.id
@@ -820,7 +863,8 @@ class WebsiteService:
                 "scheduled_jobs_updated_after_rollback",
                 website_id=website_id,
                 cron_schedule=target_cron,
-                next_run_time=next_run_time,
+                next_run_time=next_run_time.isoformat() if next_run_time else None,
+                timezone=job_timezone,
             )
         elif scheduled_jobs:
             # No target_cron, just get existing job info
@@ -866,4 +910,295 @@ class WebsiteService:
             rolled_back_from_version=current_version,
             rolled_back_to_version=target_version,
             recrawl_job_id=recrawl_job_id,
+        )
+
+    async def trigger_crawl(
+        self, website_id: str, request: TriggerCrawlRequest
+    ) -> TriggerCrawlResponse:
+        """Trigger an immediate high-priority crawl job.
+
+        This method:
+        1. Validates the website exists and is active
+        2. Creates a one-time crawl job with **priority 10** (highest)
+        3. Uses the website's base_url as the seed URL
+        4. Publishes the job to the queue (front of queue due to high priority)
+        5. Returns the job ID and details for tracking
+
+        Args:
+            website_id: Website ID to crawl
+            request: Trigger request with optional reason and variables
+
+        Returns:
+            Trigger response with job details
+
+        Raises:
+            ValueError: If website not found or inactive
+            RuntimeError: If job creation or publishing fails
+        """
+        logger.info(
+            "triggering_manual_crawl",
+            website_id=website_id,
+            reason=request.reason,
+            has_variables=request.variables is not None,
+        )
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_trigger", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Guard: validate website is active
+        if website.status != DbStatusEnum.ACTIVE:
+            logger.warning(
+                "website_inactive_for_trigger",
+                website_id=website_id,
+                status=website.status.value,
+            )
+            raise ValueError(f"Website is {website.status.value} and cannot be crawled")
+
+        # Extract max_retries from website config if available
+        max_retries = 3  # Default
+        if isinstance(website.config, dict):
+            global_config = website.config.get("global_config", {})
+            if isinstance(global_config, dict):
+                retry_config = global_config.get("retry", {})
+                if isinstance(retry_config, dict):
+                    max_attempts = retry_config.get("max_attempts")
+                    if isinstance(max_attempts, int) and max_attempts > 0:
+                        max_retries = max_attempts
+                    elif max_attempts is not None:
+                        logger.warning(
+                            "invalid_max_attempts_in_config",
+                            website_id=website_id,
+                            max_attempts=max_attempts,
+                            max_attempts_type=type(max_attempts).__name__,
+                            reason="Expected positive int; falling back to default",
+                        )
+
+        # Create high-priority crawl job
+        # Priority 10 = PRIORITY_MANUAL_TRIGGER (highest priority)
+        triggered_at = datetime.now(UTC)
+        metadata = {"trigger_reason": request.reason} if request.reason else None
+
+        crawl_job = await self.crawl_job_repo.create_template_based_job(
+            website_id=website_id,
+            seed_url=website.base_url,
+            variables=request.variables or {},
+            job_type=JobTypeEnum.ONE_TIME,
+            priority=PRIORITY_MANUAL_TRIGGER,  # Priority 10 - highest
+            scheduled_at=None,  # Immediate execution
+            max_retries=max_retries,
+            metadata=metadata,
+        )
+
+        # Guard: job creation failed
+        if not crawl_job:
+            logger.error(
+                "trigger_job_creation_failed",
+                website_id=website_id,
+                reason="create_template_based_job returned None",
+            )
+            raise RuntimeError("Failed to create crawl job")
+
+        logger.info(
+            "trigger_job_created",
+            job_id=str(crawl_job.id),
+            website_id=website_id,
+            priority=crawl_job.priority,
+            seed_url=website.base_url,
+        )
+
+        # Publish job to NATS queue
+        job_data = {
+            "website_id": str(crawl_job.website_id),
+            "seed_url": crawl_job.seed_url,
+            "job_type": crawl_job.job_type.value,
+            "priority": crawl_job.priority,
+            "manual_trigger": True,
+        }
+        published = await self.nats_queue.publish_job(str(crawl_job.id), job_data)
+
+        # Guard: publish failed
+        if not published:
+            # Mark job as cancelled since it won't be processed
+            await self.crawl_job_repo.update_status(
+                job_id=str(crawl_job.id), status=DbStatusEnum.CANCELLED
+            )
+            logger.error(
+                "trigger_job_publish_failed",
+                job_id=str(crawl_job.id),
+                website_id=website_id,
+                reason="NATS queue publish returned False - job marked as cancelled",
+            )
+            raise RuntimeError("Failed to publish job to queue")
+
+        logger.info(
+            "trigger_job_published",
+            job_id=str(crawl_job.id),
+            website_id=website_id,
+            priority=crawl_job.priority,
+        )
+
+        # Build response
+        return TriggerCrawlResponse(
+            job_id=crawl_job.id,
+            website_id=UUID(website_id),
+            seed_url=AnyUrl(website.base_url),
+            priority=crawl_job.priority,
+            status=CrawlJobStatus.pending,  # Job always starts as pending
+            triggered_at=triggered_at,
+            message="High-priority crawl job created and queued",
+        )
+
+    async def pause_schedule(self, website_id: str) -> ScheduleStatusResponse:
+        """Pause scheduled crawls for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Schedule status response
+
+        Raises:
+            ValueError: If website not found or no scheduled job exists
+            RuntimeError: If pause operation fails
+        """
+        logger.info("pausing_schedule", website_id=website_id)
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_pause", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get scheduled jobs
+        scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
+
+        # Guard: verify scheduled job exists
+        if not scheduled_jobs:
+            logger.warning("no_scheduled_job_for_pause", website_id=website_id)
+            raise ValueError("No scheduled job found for website")
+
+        # Pause all scheduled jobs (set is_active=False)
+        scheduled_job_id = None
+        cron_schedule = None
+        last_run_time = None
+
+        for job in scheduled_jobs:
+            updated_job = await self.scheduled_job_repo.toggle_status(
+                job_id=job.id, is_active=False
+            )
+            if updated_job:
+                scheduled_job_id = updated_job.id
+                cron_schedule = updated_job.cron_schedule
+                last_run_time = updated_job.last_run_time
+                logger.info("scheduled_job_paused", job_id=updated_job.id)
+
+        logger.info(
+            "schedule_paused",
+            website_id=website_id,
+            scheduled_job_id=str(scheduled_job_id) if scheduled_job_id else None,
+        )
+
+        return ScheduleStatusResponse(
+            id=UUID(website_id),
+            name=website.name,
+            scheduled_job_id=scheduled_job_id,
+            is_active=False,
+            cron_schedule=cron_schedule,
+            next_run_time=None,  # No next run when paused
+            last_run_time=last_run_time,
+            message=f"Scheduled crawls paused for website '{website.name}'",
+        )
+
+    async def resume_schedule(self, website_id: str) -> ScheduleStatusResponse:
+        """Resume scheduled crawls for a website.
+
+        Args:
+            website_id: Website ID
+
+        Returns:
+            Schedule status response
+
+        Raises:
+            ValueError: If website not found or no scheduled job exists
+            RuntimeError: If resume operation fails
+        """
+        logger.info("resuming_schedule", website_id=website_id)
+
+        # Guard: validate website exists
+        website = await self.website_repo.get_by_id(website_id)
+        if not website:
+            logger.warning("website_not_found_for_resume", website_id=website_id)
+            raise ValueError(f"Website with ID '{website_id}' not found")
+
+        # Get scheduled jobs
+        scheduled_jobs = await self.scheduled_job_repo.get_by_website_id(website_id)
+
+        # Guard: verify scheduled job exists
+        if not scheduled_jobs:
+            logger.warning("no_scheduled_job_for_resume", website_id=website_id)
+            raise ValueError("No scheduled job found for website")
+
+        # Resume all scheduled jobs (set is_active=True and recalculate next_run_time)
+        scheduled_job_id = None
+        cron_schedule = None
+        next_run_time = None
+        last_run_time = None
+
+        for job in scheduled_jobs:
+            # Calculate next run time from cron schedule in job's timezone
+            # Use timezone from job (defaults to UTC if not set on old jobs)
+            job_timezone = job.timezone if hasattr(job, "timezone") and job.timezone else "UTC"
+
+            is_valid, result = validate_and_calculate_next_run(
+                job.cron_schedule, timezone=job_timezone
+            )
+            if is_valid and isinstance(result, datetime):
+                next_run_time = result
+            else:
+                # Fallback to current time + 1 day if cron validation fails
+                logger.warning(
+                    "resume_schedule_next_run_fallback",
+                    job_id=str(job.id),
+                    website_id=website_id,
+                    cron_schedule=job.cron_schedule,
+                    timezone=job_timezone,
+                    error=result if not is_valid else "Invalid result type",
+                    reason="Falling back to now+1d for next_run_time",
+                )
+                next_run_time = datetime.now(UTC) + timedelta(days=1)
+
+            # Update job with is_active=True, new next_run_time, and persisted timezone
+            updated_job = await self.scheduled_job_repo.update(
+                job_id=job.id, is_active=True, next_run_time=next_run_time, timezone=job_timezone
+            )
+
+            if updated_job:
+                scheduled_job_id = updated_job.id
+                cron_schedule = updated_job.cron_schedule
+                last_run_time = updated_job.last_run_time
+                logger.info(
+                    "scheduled_job_resumed",
+                    job_id=updated_job.id,
+                    next_run_time=next_run_time.isoformat() if next_run_time else None,
+                )
+
+        logger.info(
+            "schedule_resumed",
+            website_id=website_id,
+            scheduled_job_id=str(scheduled_job_id) if scheduled_job_id else None,
+            next_run_time=next_run_time.isoformat() if next_run_time else None,
+        )
+
+        return ScheduleStatusResponse(
+            id=UUID(website_id),
+            name=website.name,
+            scheduled_job_id=scheduled_job_id,
+            is_active=True,
+            cron_schedule=cron_schedule,
+            next_run_time=next_run_time,
+            last_run_time=last_run_time,
+            message=f"Scheduled crawls resumed for website '{website.name}'",
         )

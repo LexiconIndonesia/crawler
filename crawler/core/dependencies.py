@@ -23,6 +23,7 @@ from crawler.services.log_publisher import LogPublisher
 from crawler.services.memory_monitor import MemoryMonitor
 from crawler.services.memory_pressure_handler import MemoryPressureHandler
 from crawler.services.nats_queue import NATSQueueService
+from crawler.services.priority_queue import PriorityQueueService
 
 if TYPE_CHECKING:
     from crawler.services.retry_scheduler_cache import RetrySchedulerCache
@@ -234,6 +235,20 @@ async def get_job_progress_cache(
     return JobProgressCache(redis_client=redis_client, settings=settings)
 
 
+async def get_priority_queue(
+    redis_client: RedisDep,
+) -> PriorityQueueService:
+    """Get priority queue service with injected dependencies.
+
+    Args:
+        redis_client: Redis client from dependency
+
+    Returns:
+        PriorityQueueService instance
+    """
+    return PriorityQueueService(redis_client=redis_client)
+
+
 async def get_websocket_token_service(
     redis_client: RedisDep,
     settings: SettingsDep,
@@ -287,6 +302,9 @@ _retry_scheduler_cache: RetrySchedulerCache | None = None
 
 # Global Redis client for retry scheduler (singleton pattern)
 _retry_scheduler_redis: redis.Redis | None = None
+
+# Global database session for scheduled job processor (singleton pattern)
+_scheduled_job_processor_db: AsyncSession | None = None
 
 
 async def get_browser_pool(
@@ -508,6 +526,74 @@ async def stop_retry_scheduler_service() -> None:
         _retry_scheduler_redis = None
 
 
+async def start_scheduled_job_processor_service(
+    interval_seconds: int = 60,
+    batch_size: int = 100,
+) -> None:
+    """Start scheduled job processor service at application startup.
+
+    Should be called in FastAPI lifespan startup.
+
+    Args:
+        interval_seconds: Polling interval in seconds (default: 60)
+        batch_size: Maximum jobs to process per iteration (default: 100)
+    """
+    from crawler.db.repositories.crawl_job import CrawlJobRepository
+    from crawler.db.repositories.scheduled_job import ScheduledJobRepository
+    from crawler.db.repositories.website import WebsiteRepository
+    from crawler.services import start_scheduled_job_processor
+
+    global _scheduled_job_processor_db
+
+    settings = get_settings()
+
+    # Create dedicated database session for scheduled job processor
+    # Using a dedicated session avoids conflicts with request-scoped sessions
+    from crawler.db.session import async_session_maker
+
+    _scheduled_job_processor_db = async_session_maker()
+
+    # Create repositories with dedicated session
+    scheduled_job_conn = await _scheduled_job_processor_db.connection()
+    crawl_job_conn = await _scheduled_job_processor_db.connection()
+    website_conn = await _scheduled_job_processor_db.connection()
+
+    scheduled_job_repo = ScheduledJobRepository(scheduled_job_conn)
+    crawl_job_repo = CrawlJobRepository(crawl_job_conn)
+    website_repo = WebsiteRepository(website_conn)
+
+    # Get NATS queue service
+    nats_queue = await get_nats_queue_service(settings)
+
+    # Start processor background task
+    await start_scheduled_job_processor(
+        scheduled_job_repo=scheduled_job_repo,
+        crawl_job_repo=crawl_job_repo,
+        website_repo=website_repo,
+        nats_queue=nats_queue,
+        interval_seconds=interval_seconds,
+        batch_size=batch_size,
+    )
+
+
+async def stop_scheduled_job_processor_service() -> None:
+    """Stop scheduled job processor service at application shutdown.
+
+    Should be called in FastAPI lifespan shutdown.
+    """
+    from crawler.services import stop_scheduled_job_processor
+
+    global _scheduled_job_processor_db
+
+    # Stop processor task
+    await stop_scheduled_job_processor()
+
+    # Close database session
+    if _scheduled_job_processor_db is not None:
+        await _scheduled_job_processor_db.close()
+        _scheduled_job_processor_db = None
+
+
 async def get_memory_monitor(
     settings: SettingsDep,
 ) -> MemoryMonitor:
@@ -644,3 +730,4 @@ BrowserPoolStatusDep = Annotated[BrowserPoolStatus, Depends(get_browser_pool_sta
 JobProgressCacheDep = Annotated[JobProgressCache, Depends(get_job_progress_cache)]
 WebSocketTokenServiceDep = Annotated[WebSocketTokenService, Depends(get_websocket_token_service)]
 LogBufferDep = Annotated[LogBuffer, Depends(get_log_buffer)]
+PriorityQueueDep = Annotated[PriorityQueueService, Depends(get_priority_queue)]

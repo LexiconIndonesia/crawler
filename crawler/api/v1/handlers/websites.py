@@ -16,6 +16,9 @@ from crawler.api.generated import (
     ListWebsitesResponse,
     RollbackConfigRequest,
     RollbackConfigResponse,
+    ScheduleStatusResponse,
+    TriggerCrawlRequest,
+    TriggerCrawlResponse,
     UpdateWebsiteRequest,
     UpdateWebsiteResponse,
     WebsiteResponse,
@@ -53,11 +56,14 @@ async def create_website_handler(
 
     # Validate cron schedule - use default if not provided (bi-weekly)
     cron_schedule = request.schedule.cron or "0 0 1,15 * *"
-    is_valid, result = validate_and_calculate_next_run(cron_schedule)
+    timezone = request.schedule.timezone or "UTC"  # Use default if not provided
+
+    is_valid, result = validate_and_calculate_next_run(cron_schedule, timezone=timezone)
     if not is_valid:
         logger.warning(
             "invalid_cron_expression",
             cron=request.schedule.cron,
+            timezone=timezone,
             error=result,
         )
         raise HTTPException(
@@ -300,3 +306,94 @@ async def rollback_config_handler(
     # Delegate to service layer (error handling done by decorator)
     # ValueError -> 400, RuntimeError -> 500
     return await website_service.rollback_config(website_id, request.version, request)
+
+
+@handle_service_errors(operation="triggering crawl")
+async def trigger_crawl_handler(
+    website_id: str,
+    request: TriggerCrawlRequest,
+    website_service: WebsiteService,
+) -> TriggerCrawlResponse:
+    """Handle manual trigger of high-priority crawl job.
+
+    This handler creates an immediate, high-priority crawl job for the specified website.
+    The job is created with priority 10 (highest) and pushed to the front of the queue.
+
+    Args:
+        website_id: Website ID to crawl
+        request: Trigger request with optional reason and variables
+        website_service: Injected website service
+
+    Returns:
+        Trigger response with job details and confirmation
+
+    Raises:
+        HTTPException: If website not found, inactive, or job creation/publish fails
+    """
+    logger.info(
+        "trigger_crawl_request",
+        website_id=website_id,
+        reason=request.reason,
+        has_variables=request.variables is not None,
+    )
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400 (website not found or inactive)
+    # RuntimeError -> 500 (job creation or publish failure)
+    return await website_service.trigger_crawl(website_id, request)
+
+
+@handle_service_errors(operation="pausing website schedule")
+async def pause_schedule_handler(
+    website_id: str,
+    website_service: WebsiteService,
+) -> ScheduleStatusResponse:
+    """Handle pausing scheduled crawls for a website.
+
+    This handler pauses all scheduled jobs for the specified website by setting
+    the is_active flag to false. Currently running jobs are not affected.
+
+    Args:
+        website_id: Website ID
+        website_service: Injected website service
+
+    Returns:
+        Schedule status response with updated status
+
+    Raises:
+        HTTPException: If website or scheduled job not found, or pause fails
+    """
+    logger.info("pause_schedule_request", website_id=website_id)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400 (website not found or no scheduled job)
+    # RuntimeError -> 500 (pause operation failure)
+    return await website_service.pause_schedule(website_id)
+
+
+@handle_service_errors(operation="resuming website schedule")
+async def resume_schedule_handler(
+    website_id: str,
+    website_service: WebsiteService,
+) -> ScheduleStatusResponse:
+    """Handle resuming scheduled crawls for a website.
+
+    This handler resumes all scheduled jobs for the specified website by setting
+    the is_active flag to true and recalculating the next_run_time.
+
+    Args:
+        website_id: Website ID
+        website_service: Injected website service
+
+    Returns:
+        Schedule status response with updated status and next run time
+
+    Raises:
+        HTTPException: If website or scheduled job not found, or resume fails
+    """
+    logger.info("resume_schedule_request", website_id=website_id)
+
+    # Delegate to service layer (error handling done by decorator)
+    # ValueError -> 400 (website not found or no scheduled job)
+    # RuntimeError -> 500 (resume operation failure)
+    return await website_service.resume_schedule(website_id)

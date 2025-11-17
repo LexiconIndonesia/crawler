@@ -4,13 +4,15 @@ INSERT INTO scheduled_job (
     cron_schedule,
     next_run_time,
     is_active,
-    job_config
+    job_config,
+    timezone
 ) VALUES (
     sqlc.arg(website_id),
     sqlc.arg(cron_schedule),
     sqlc.arg(next_run_time),
     COALESCE(sqlc.arg(is_active), true),
-    sqlc.arg(job_config)
+    sqlc.arg(job_config),
+    sqlc.arg(timezone)
 )
 RETURNING *;
 
@@ -44,6 +46,7 @@ SET
     last_run_time = COALESCE(sqlc.arg(last_run_time), last_run_time),
     is_active = COALESCE(sqlc.arg(is_active), is_active),
     job_config = COALESCE(sqlc.arg(job_config), job_config),
+    timezone = COALESCE(sqlc.arg(timezone), timezone),
     updated_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id)
 RETURNING *;

@@ -103,5 +103,81 @@ class TestCalculateNextRun:
 
     def test_calculate_next_run_invalid_cron(self) -> None:
         """Test calculate_next_run with invalid cron expression."""
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Invalid cron expression"):
             calculate_next_run("invalid cron")
+
+    def test_calculate_next_run_with_daily_extended(self) -> None:
+        """Test calculating next run with @daily extended syntax."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0, tzinfo=UTC)
+        next_run = calculate_next_run("@daily", base_time)
+
+        # Should be next midnight
+        assert next_run.day == 2
+        assert next_run.hour == 0
+        assert next_run.minute == 0
+
+    def test_calculate_next_run_with_weekly_extended(self) -> None:
+        """Test calculating next run with @weekly extended syntax."""
+        # Start on Thursday (2025-01-02 is a Thursday)
+        base_time = datetime(2025, 1, 2, 10, 0, 0, tzinfo=UTC)
+        next_run = calculate_next_run("@weekly", base_time)
+
+        # Should be next Sunday at midnight
+        assert next_run.weekday() == 6  # Sunday
+        assert next_run.hour == 0
+
+    def test_calculate_next_run_with_hourly_extended(self) -> None:
+        """Test calculating next run with @hourly extended syntax."""
+        base_time = datetime(2025, 1, 1, 10, 30, 0, tzinfo=UTC)
+        next_run = calculate_next_run("@hourly", base_time)
+
+        # Should be top of next hour
+        assert next_run.hour == 11
+        assert next_run.minute == 0
+
+    def test_calculate_next_run_timezone_aware(self) -> None:
+        """Test that results are always timezone-aware."""
+        next_run = calculate_next_run("0 0 * * *")
+        assert next_run.tzinfo is not None
+        assert next_run.tzinfo == UTC
+
+    def test_calculate_next_run_handles_naive_datetime(self) -> None:
+        """Test that naive datetime is converted to UTC."""
+        base_time = datetime(2025, 1, 1, 10, 0, 0)  # Naive
+        next_run = calculate_next_run("0 12 * * *", base_time)
+
+        assert next_run.tzinfo is not None
+        assert next_run.tzinfo == UTC
+
+
+class TestExtendedCronSyntax:
+    """Tests for extended cron syntax validation."""
+
+    def test_is_valid_cron_with_daily(self) -> None:
+        """Test is_valid_cron with @daily extended syntax."""
+        assert is_valid_cron("@daily")
+
+    def test_is_valid_cron_with_weekly(self) -> None:
+        """Test is_valid_cron with @weekly extended syntax."""
+        assert is_valid_cron("@weekly")
+
+    def test_is_valid_cron_with_monthly(self) -> None:
+        """Test is_valid_cron with @monthly extended syntax."""
+        assert is_valid_cron("@monthly")
+
+    def test_is_valid_cron_with_yearly(self) -> None:
+        """Test is_valid_cron with @yearly extended syntax."""
+        assert is_valid_cron("@yearly")
+
+    def test_is_valid_cron_with_hourly(self) -> None:
+        """Test is_valid_cron with @hourly extended syntax."""
+        assert is_valid_cron("@hourly")
+
+    def test_is_valid_cron_with_midnight(self) -> None:
+        """Test is_valid_cron with @midnight extended syntax."""
+        assert is_valid_cron("@midnight")
+
+    def test_is_valid_cron_with_invalid_extended(self) -> None:
+        """Test is_valid_cron with invalid extended syntax."""
+        assert not is_valid_cron("@invalid")
+        assert not is_valid_cron("@badcron")

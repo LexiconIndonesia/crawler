@@ -7,6 +7,7 @@ from .memory_monitor import MemoryLevel, MemoryMonitor, MemoryStatus
 from .memory_pressure_handler import MemoryPressureHandler, PressureAction, PressureState
 from .nats_queue import NATSQueueService
 from .pagination import PaginationService
+from .priority_queue import PriorityQueueService
 from .redis_cache import (
     BrowserPoolStatus,
     JobCancellationFlag,
@@ -22,6 +23,7 @@ from .resource_cleanup import (
 )
 from .retry_scheduler import start_retry_scheduler, stop_retry_scheduler
 from .retry_scheduler_cache import RetrySchedulerCache
+from .scheduled_job_processor import start_scheduled_job_processor, stop_scheduled_job_processor
 from .seed_url_crawler import CrawlOutcome, CrawlResult, SeedURLCrawler, SeedURLCrawlerConfig
 from .url_extractor import ExtractedURL, URLExtractorService
 
@@ -37,6 +39,7 @@ __all__ = [
     "PressureState",
     "NATSQueueService",
     "PaginationService",
+    "PriorityQueueService",
     "URLDeduplicationCache",
     "URLExtractorService",
     "ExtractedURL",
@@ -55,4 +58,6 @@ __all__ = [
     "RetrySchedulerCache",
     "start_retry_scheduler",
     "stop_retry_scheduler",
+    "start_scheduled_job_processor",
+    "stop_scheduled_job_processor",
 ]

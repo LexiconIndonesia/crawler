@@ -158,6 +158,7 @@ class TestScheduledJobRepository:
             website_id=website_id,
             cron_schedule="0 0 * * *",
             next_run_time=next_run,
+            timezone="UTC",
             job_config=job_config,
         )
 
@@ -178,6 +179,7 @@ class TestScheduledJobRepository:
             website_id=website_id,
             cron_schedule="0 0 * * *",
             next_run_time=next_run,
+            timezone="UTC",
             job_config=None,
         )
 
