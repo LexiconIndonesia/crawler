@@ -2780,9 +2780,8 @@ components:
           example: ".article-title"
         attribute:
           type: string
-          description: Attribute to extract (text, html, href, src, etc.)
-          default: "text"
-          example: "text"
+          description: HTML attribute to extract (href, src, alt, etc.). If omitted or null, extracts text content.
+          example: "href"
           nullable: true
         type:
           $ref: '#/components/schemas/SelectorTypeEnum'

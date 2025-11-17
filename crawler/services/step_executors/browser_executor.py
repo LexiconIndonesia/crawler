@@ -81,7 +81,7 @@ class BrowserExecutor(BaseStepExecutor):
         try:
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_for", "load")  # load, domcontentloaded, networkidle
+            wait_for = step_config.get("wait_until", "load")  # load, domcontentloaded, networkidle
             selector_wait = step_config.get("selector_wait")
 
             logger.info(
@@ -196,7 +196,7 @@ class BrowserExecutor(BaseStepExecutor):
 
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_for", "load")  # load, domcontentloaded, networkidle
+            wait_for = step_config.get("wait_until", "load")  # load, domcontentloaded, networkidle
             selector_wait = step_config.get("selector_wait")
             browser_type = step_config.get("browser_type", "chromium")
 
@@ -215,16 +215,27 @@ class BrowserExecutor(BaseStepExecutor):
                 page = None
 
                 try:
+                    # Launch args for stealth
+                    args = ["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+
                     # Select browser type
                     if browser_type == "firefox":
-                        browser = await p.firefox.launch()
+                        browser = await p.firefox.launch(args=args)
                     elif browser_type == "webkit":
-                        browser = await p.webkit.launch()
+                        browser = await p.webkit.launch(args=args)
                     else:
-                        browser = await p.chromium.launch()
+                        browser = await p.chromium.launch(
+                            args=args, ignore_default_args=["--enable-automation"]
+                        )
 
-                    # Create context and page
-                    context = await browser.new_context()
+                    # Create context with stealth and page
+                    ua = (
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
+                    context = await browser.new_context(
+                        user_agent=ua, viewport={"width": 1920, "height": 1080}
+                    )
                     page = await context.new_page()
 
                     # Navigate to URL

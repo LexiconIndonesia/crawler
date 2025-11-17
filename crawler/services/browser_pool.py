@@ -239,12 +239,21 @@ class BrowserPool:
             raise RuntimeError("Playwright not initialized")
 
         try:
+            # Launch args for stealth
+            args = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ]
+
             if browser_type == "firefox":
-                browser = await self._playwright.firefox.launch()
+                browser = await self._playwright.firefox.launch(args=args)
             elif browser_type == "webkit":
-                browser = await self._playwright.webkit.launch()
+                browser = await self._playwright.webkit.launch(args=args)
             else:
-                browser = await self._playwright.chromium.launch()
+                browser = await self._playwright.chromium.launch(
+                    args=args,
+                    ignore_default_args=["--enable-automation"],
+                )
 
             return browser
         except Exception as e:
@@ -540,9 +549,16 @@ class BrowserPool:
             if browser_instance is None:
                 raise RuntimeError("No healthy browser instances available")
 
-            # Create context - handle potential browser crash during creation
+            # Create context with stealth - handle potential browser crash during creation
             try:
-                context = await browser_instance.browser.new_context()
+                ua = (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                context = await browser_instance.browser.new_context(
+                    user_agent=ua,
+                    viewport={"width": 1920, "height": 1080},
+                )
             except Exception as e:
                 # Check if this is a browser crash
                 # First check browser connection status (most reliable)
