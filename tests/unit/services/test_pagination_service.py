@@ -1,7 +1,7 @@
 """Integration tests for PaginationService."""
 
 import pytest
-
+from urllib.parse import urlparse
 from crawler.api.generated import PaginationConfig
 from crawler.services.pagination import PaginationService
 
@@ -498,5 +498,5 @@ class TestPaginationServiceEdgeCases:
 
         # Should use template, not detected pattern
         assert len(urls) == 3
-        assert all("custom.com" in url for url in urls)
+        assert all(urlparse(url).hostname == "custom.com" for url in urls)
         assert all("/p/" in url for url in urls)
