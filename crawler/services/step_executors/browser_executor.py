@@ -81,7 +81,8 @@ class BrowserExecutor(BaseStepExecutor):
         try:
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_until", "load")  # load, domcontentloaded, networkidle
+            # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
+            wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
 
             logger.info(
@@ -196,7 +197,8 @@ class BrowserExecutor(BaseStepExecutor):
 
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_until", "load")  # load, domcontentloaded, networkidle
+            # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
+            wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
             browser_type = step_config.get("browser_type", "chromium")
 
@@ -215,15 +217,21 @@ class BrowserExecutor(BaseStepExecutor):
                 page = None
 
                 try:
-                    # Launch args for stealth
-                    args = ["--disable-blink-features=AutomationControlled", "--no-sandbox"]
-
-                    # Select browser type
+                    # Select browser type and configure launch args
                     if browser_type == "firefox":
-                        browser = await p.firefox.launch(args=args)
+                        # Firefox-specific args (minimal, Firefox doesn't support most Chrome flags)
+                        browser = await p.firefox.launch()
                     elif browser_type == "webkit":
-                        browser = await p.webkit.launch(args=args)
+                        # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
+                        browser = await p.webkit.launch()
                     else:
+                        # Chromium-specific stealth args
+                        # --disable-blink-features=AutomationControlled: Hide automation
+                        # --no-sandbox: Allow running as root (SECURITY TRADEOFF: needed
+                        #               for Docker containers but reduces process isolation.
+                        #               Only use in trusted environments like containerized
+                        #               crawlers, not production web apps)
+                        args = ["--disable-blink-features=AutomationControlled", "--no-sandbox"]
                         browser = await p.chromium.launch(
                             args=args, ignore_default_args=["--enable-automation"]
                         )

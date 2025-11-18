@@ -109,22 +109,20 @@ class TestNATSRealConnection:
         published = await nats_service.publish_job(job_id, job_data)
         assert published is True
 
-        # Verify message was published to stream
-        # Note: We don't check pending count because a background worker may have
-        # already consumed the message. Instead, verify the consumer info exists.
+        # Verify message entered the consumer pipeline
+        # The message is either pending (not yet delivered) or was delivered (processed by worker)
+        # This handles the race condition with background workers
         consumer_info = await nats_service.get_consumer_info()
         assert consumer_info is not None
-        assert "num_pending" in consumer_info
-        assert "num_ack_pending" in consumer_info
 
-        # Verify either the message is pending OR it was delivered (consumed by worker)
-        # This handles the race condition with background workers
+        # Count messages in the pipeline: pending + already delivered + being processed
         total_messages = (
             consumer_info["num_pending"]
-            + consumer_info.get("num_delivered", 0)
-            + consumer_info.get("num_ack_pending", 0)
+            + consumer_info["num_delivered"]
+            + consumer_info["num_ack_pending"]
         )
-        assert total_messages >= 0  # Message was either pending or processed
+        # At least 1 message should have entered the consumer pipeline
+        assert total_messages >= 1
 
     async def test_delete_job_from_real_queue(self, nats_service: NATSQueueService) -> None:
         """Test removing a job from real NATS queue."""

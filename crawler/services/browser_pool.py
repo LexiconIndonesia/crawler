@@ -239,17 +239,24 @@ class BrowserPool:
             raise RuntimeError("Playwright not initialized")
 
         try:
-            # Launch args for stealth
-            args = [
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-            ]
-
+            # Configure browser-specific launch args
             if browser_type == "firefox":
-                browser = await self._playwright.firefox.launch(args=args)
+                # Firefox-specific args (minimal, Firefox doesn't support most Chrome flags)
+                browser = await self._playwright.firefox.launch()
             elif browser_type == "webkit":
-                browser = await self._playwright.webkit.launch(args=args)
+                # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
+                browser = await self._playwright.webkit.launch()
             else:
+                # Chromium-specific stealth args
+                # --disable-blink-features=AutomationControlled: Hide automation
+                # --no-sandbox: Allow running as root (SECURITY TRADEOFF: needed
+                #               for Docker containers but reduces process isolation.
+                #               Only use in trusted environments like containerized
+                #               crawlers, not production web apps)
+                args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                ]
                 browser = await self._playwright.chromium.launch(
                     args=args,
                     ignore_default_args=["--enable-automation"],

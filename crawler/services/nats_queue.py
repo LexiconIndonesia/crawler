@@ -303,6 +303,7 @@ class NATSQueueService:
                 "num_redelivered": consumer_info.num_redelivered,
                 "num_waiting": consumer_info.num_waiting,
                 "num_ack_pending": consumer_info.num_ack_pending,
+                "num_delivered": consumer_info.delivered.consumer_seq,
             }
         except Exception as e:
             logger.error("failed_to_get_consumer_info", error=str(e))

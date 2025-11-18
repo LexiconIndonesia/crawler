@@ -1,8 +1,8 @@
 services:
-  # Main Application
-  crawler:
+  # API Server
+  api:
     build: .
-    container_name: lexicon-crawler
+    container_name: lexicon-api
     ports:
       - "8000:8000"
     environment:
@@ -20,6 +20,28 @@ services:
     restart: unless-stopped
     networks:
       - crawler-network
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # Worker (Job Processor)
+  worker:
+    build: .
+    container_name: lexicon-worker
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://crawler:crawler@postgres:5432/crawler
+      - REDIS_URL=redis://redis:6379/0
+      - NATS_URL=nats://nats:4222
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+      - nats
+    restart: unless-stopped
+    networks:
+      - crawler-network
+    command: ["python", "-m", "crawler.worker"]
 
   # PostgreSQL Database
   postgres:

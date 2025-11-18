@@ -60,6 +60,19 @@ dev: db-up ## Start development server with auto-reload
 	@echo "$(YELLOW)📊 API Docs: http://localhost:8000/docs$(NC)"
 	$(UVICORN) main:app --reload --host 0.0.0.0 --port 8000
 
+dev-all: db-up ## Start development server + worker together
+	@echo "$(BLUE)🚀 Starting API server and worker...$(NC)"
+	@echo "$(YELLOW)📊 API Docs: http://localhost:8000/docs$(NC)"
+	@echo "$(YELLOW)⚙️  Press Ctrl+C to stop all processes$(NC)"
+	@trap 'kill 0' INT TERM; \
+	$(UVICORN) main:app --reload --host 0.0.0.0 --port 8000 & \
+	$(PYTHON) -m crawler.worker & \
+	wait
+
+dev-worker: db-up ## Start worker only (for queue processing)
+	@echo "$(BLUE)⚙️  Starting worker...$(NC)"
+	$(PYTHON) -m crawler.worker
+
 run: ## Run production server
 	@echo "$(BLUE)🚀 Starting production server...$(NC)"
 	$(UVICORN) main:app --host 0.0.0.0 --port 8000
