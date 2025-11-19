@@ -1,3 +1,17 @@
+# Common environment variables for API and Worker
+x-common-env: &common-env
+  - DATABASE_URL=postgresql+asyncpg://crawler:crawler@postgres:5432/crawler
+  - REDIS_URL=redis://redis:6379/0
+  - NATS_URL=nats://nats:4222
+  - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+  - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
+
+# Common dependencies for API and Worker
+x-common-depends-on: &common-depends-on
+  - postgres
+  - redis
+  - nats
+
 services:
   # API Server
   api:
@@ -5,18 +19,10 @@ services:
     container_name: lexicon-api
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://crawler:crawler@postgres:5432/crawler
-      - REDIS_URL=redis://redis:6379/0
-      - NATS_URL=nats://nats:4222
-      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
-      - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
+    environment: *common-env
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      - postgres
-      - redis
-      - nats
+    depends_on: *common-depends-on
     restart: unless-stopped
     networks:
       - crawler-network
@@ -26,18 +32,10 @@ services:
   worker:
     build: .
     container_name: lexicon-worker
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://crawler:crawler@postgres:5432/crawler
-      - REDIS_URL=redis://redis:6379/0
-      - NATS_URL=nats://nats:4222
-      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
-      - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
+    environment: *common-env
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      - postgres
-      - redis
-      - nats
+    depends_on: *common-depends-on
     restart: unless-stopped
     networks:
       - crawler-network

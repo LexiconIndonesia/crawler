@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from crawler.core.browser_config import (
+    CHROMIUM_IGNORE_DEFAULT_ARGS,
+    CHROMIUM_STEALTH_ARGS,
+    STEALTH_USER_AGENT,
+    STEALTH_VIEWPORT,
+)
 from crawler.core.logging import get_logger
 from crawler.services.browser_pool import BrowserPool
 from crawler.services.selector_processor import SelectorProcessor
@@ -225,24 +231,16 @@ class BrowserExecutor(BaseStepExecutor):
                         # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
                         browser = await p.webkit.launch()
                     else:
-                        # Chromium-specific stealth args
-                        # --disable-blink-features=AutomationControlled: Hide automation
-                        # --no-sandbox: Allow running as root (SECURITY TRADEOFF: needed
-                        #               for Docker containers but reduces process isolation.
-                        #               Only use in trusted environments like containerized
-                        #               crawlers, not production web apps)
-                        args = ["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+                        # Chromium with centralized stealth configuration
                         browser = await p.chromium.launch(
-                            args=args, ignore_default_args=["--enable-automation"]
+                            args=CHROMIUM_STEALTH_ARGS,
+                            ignore_default_args=CHROMIUM_IGNORE_DEFAULT_ARGS,
                         )
 
                     # Create context with stealth and page
-                    ua = (
-                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    )
                     context = await browser.new_context(
-                        user_agent=ua, viewport={"width": 1920, "height": 1080}
+                        user_agent=STEALTH_USER_AGENT,
+                        viewport=STEALTH_VIEWPORT,
                     )
                     page = await context.new_page()
 

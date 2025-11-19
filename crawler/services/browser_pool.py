@@ -16,6 +16,12 @@ from typing import Any, Literal
 from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
 
 from config import Settings
+from crawler.core.browser_config import (
+    CHROMIUM_IGNORE_DEFAULT_ARGS,
+    CHROMIUM_STEALTH_ARGS,
+    STEALTH_USER_AGENT,
+    STEALTH_VIEWPORT,
+)
 from crawler.core.logging import get_logger
 from crawler.core.metrics import (
     browser_crash_recoveries_total,
@@ -247,19 +253,10 @@ class BrowserPool:
                 # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
                 browser = await self._playwright.webkit.launch()
             else:
-                # Chromium-specific stealth args
-                # --disable-blink-features=AutomationControlled: Hide automation
-                # --no-sandbox: Allow running as root (SECURITY TRADEOFF: needed
-                #               for Docker containers but reduces process isolation.
-                #               Only use in trusted environments like containerized
-                #               crawlers, not production web apps)
-                args = [
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                ]
+                # Chromium with centralized stealth configuration
                 browser = await self._playwright.chromium.launch(
-                    args=args,
-                    ignore_default_args=["--enable-automation"],
+                    args=CHROMIUM_STEALTH_ARGS,
+                    ignore_default_args=CHROMIUM_IGNORE_DEFAULT_ARGS,
                 )
 
             return browser
@@ -558,13 +555,9 @@ class BrowserPool:
 
             # Create context with stealth - handle potential browser crash during creation
             try:
-                ua = (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
                 context = await browser_instance.browser.new_context(
-                    user_agent=ua,
-                    viewport={"width": 1920, "height": 1080},
+                    user_agent=STEALTH_USER_AGENT,
+                    viewport=STEALTH_VIEWPORT,
                 )
             except Exception as e:
                 # Check if this is a browser crash

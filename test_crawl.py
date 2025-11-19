@@ -2,6 +2,7 @@
 """Quick script to create and publish a crawl job."""
 
 import asyncio
+import sys
 
 from config import get_settings
 from crawler.db.generated.models import JobTypeEnum
@@ -11,8 +12,12 @@ from crawler.db.session import async_session_maker
 from crawler.services.nats_queue import NATSQueueService
 
 
-async def main() -> None:
-    """Create job in DB and publish to NATS."""
+async def main(website_id: str) -> None:
+    """Create job in DB and publish to NATS.
+
+    Args:
+        website_id: UUID of the website to crawl
+    """
     settings = get_settings()
 
     # Create session for database operations
@@ -23,7 +28,6 @@ async def main() -> None:
             website_repo = WebsiteRepository(conn)
 
             # Get the website
-            website_id = "019a95fe-054d-77e0-a5a6-284a9e21a9e1"
             website = await website_repo.get_by_id(website_id)
             if not website:
                 print(f"❌ Website {website_id} not found")
@@ -77,4 +81,11 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Check command-line arguments
+    if len(sys.argv) < 2:
+        print("Usage: python test_crawl.py <website_id>")
+        print("Example: python test_crawl.py 019a95fe-054d-77e0-a5a6-284a9e21a9e1")
+        sys.exit(1)
+
+    website_id = sys.argv[1]
+    asyncio.run(main(website_id))
