@@ -1,8 +1,11 @@
+# Development compose file with sensible defaults.
+# Production: Override environment variables via CI/CD or orchestration tools.
+
 # Common environment variables for API and Worker
 x-common-env: &common-env
-  - DATABASE_URL=postgresql+asyncpg://crawler:crawler@postgres:5432/crawler
-  - REDIS_URL=redis://redis:6379/0
-  - NATS_URL=nats://nats:4222
+  - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://crawler:crawler@postgres:5432/crawler}
+  - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+  - NATS_URL=${NATS_URL:-nats://nats:4222}
   - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
   - GOOGLE_APPLICATION_CREDENTIALS_BASE64=${GOOGLE_APPLICATION_CREDENTIALS_BASE64}
 
