@@ -25,7 +25,7 @@ CHROMIUM_IGNORE_DEFAULT_ARGS = ["--enable-automation"]
 # NOTE: Update periodically to match current Chrome versions
 STEALTH_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 )
 
 # Viewport size for stealth mode
