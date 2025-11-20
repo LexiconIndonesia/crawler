@@ -179,6 +179,7 @@ class TestNATSQueueService:
         mock_consumer_info.num_redelivered = 2
         mock_consumer_info.num_waiting = 0
         mock_consumer_info.num_ack_pending = 3
+        mock_consumer_info.delivered.consumer_seq = 15
         mock_js.consumer_info.return_value = mock_consumer_info
         nats_service.js = mock_js
 
@@ -190,6 +191,7 @@ class TestNATSQueueService:
         assert info["num_redelivered"] == 2
         assert info["num_waiting"] == 0
         assert info["num_ack_pending"] == 3
+        assert info["num_delivered"] == 15
 
     async def test_get_consumer_info_not_connected(self, nats_service: NATSQueueService) -> None:
         """Test get consumer info when not connected."""

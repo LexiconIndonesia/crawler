@@ -1,0 +1,240 @@
+"""Result persistence service for saving crawl results to database.
+
+This service handles persisting crawled pages and extracted data to the database
+after successful workflow execution.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+from crawler.core.logging import get_logger
+from crawler.db.repositories import CrawledPageRepository
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncConnection
+
+    from crawler.services.step_execution_context import StepExecutionContext
+
+logger = get_logger(__name__)
+
+
+class ResultPersistenceService:
+    """Service for persisting crawl results to database."""
+
+    def __init__(self, conn: AsyncConnection):
+        """Initialize result persistence service.
+
+        Args:
+            conn: Database connection
+        """
+        self.conn = conn
+        self.page_repo = CrawledPageRepository(conn)
+
+    async def persist_workflow_results(
+        self,
+        job_id: str,
+        website_id: str,
+        context: StepExecutionContext,
+    ) -> dict[str, int]:
+        """Persist all workflow results to database.
+
+        Args:
+            job_id: Job ID
+            website_id: Website ID
+            context: Execution context with step results
+
+        Returns:
+            Dictionary with persistence statistics (pages_saved, pages_failed)
+        """
+        pages_saved = 0
+        pages_failed = 0
+
+        logger.info(
+            "persist_workflow_results_starting",
+            job_id=job_id,
+            total_steps=len(context.step_results),
+        )
+
+        # Process each step result
+        for step_name, step_result in context.step_results.items():
+            # Guard: skip failed steps
+            if step_result.error:
+                logger.debug("persist_skipping_failed_step", step_name=step_name)
+                continue
+
+            # Extract pages from step result
+            try:
+                pages = self._extract_pages_from_step(step_name, step_result.extracted_data)
+
+                if not pages:
+                    logger.debug("persist_no_pages_in_step", step_name=step_name)
+                    continue
+
+                logger.info(
+                    "persist_step_pages",
+                    step_name=step_name,
+                    page_count=len(pages),
+                )
+
+                # Save each page
+                for page_data in pages:
+                    try:
+                        await self._save_page(
+                            job_id=job_id,
+                            website_id=website_id,
+                            page_data=page_data,
+                        )
+                        pages_saved += 1
+                    except Exception as e:
+                        pages_failed += 1
+                        logger.error(
+                            "persist_page_failed",
+                            url=page_data.get("_url", "unknown"),
+                            error=str(e),
+                            exc_info=True,
+                        )
+
+            except Exception as e:
+                logger.error(
+                    "persist_step_failed",
+                    step_name=step_name,
+                    error=str(e),
+                    exc_info=True,
+                )
+                continue
+
+        logger.info(
+            "persist_workflow_results_completed",
+            job_id=job_id,
+            pages_saved=pages_saved,
+            pages_failed=pages_failed,
+        )
+
+        return {"pages_saved": pages_saved, "pages_failed": pages_failed}
+
+    def _extract_pages_from_step(
+        self, step_name: str, extracted_data: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Extract page data from step result.
+
+        Args:
+            step_name: Name of the step
+            extracted_data: Extracted data from step
+
+        Returns:
+            List of page data dictionaries with _url field
+        """
+        pages: list[dict[str, Any]] = []
+
+        # Guard: no extracted data
+        if not extracted_data:
+            return pages
+
+        # Case 1: Single page result (has _url field directly)
+        if "_url" in extracted_data:
+            pages.append(extracted_data)
+            return pages
+
+        # Case 2: Multiple pages in "items" array (scrape steps)
+        if "items" in extracted_data and isinstance(extracted_data["items"], list):
+            for item in extracted_data["items"]:
+                if isinstance(item, dict) and "_url" in item:
+                    pages.append(item)
+            return pages
+
+        # Case 3: Crawl step result (no pages to persist, just URLs)
+        # Skip crawl steps - they don't have extractable content
+        logger.debug(
+            "extract_pages_no_urls",
+            step_name=step_name,
+            extracted_keys=list(extracted_data.keys()),
+        )
+
+        return pages
+
+    async def _save_page(
+        self,
+        job_id: str,
+        website_id: str,
+        page_data: dict[str, Any],
+    ) -> None:
+        """Save a single page to database.
+
+        Args:
+            job_id: Job ID
+            website_id: Website ID
+            page_data: Page data with _url and extracted fields
+        """
+        # Extract URL and content
+        url = page_data.get("_url")
+        content = page_data.get("_content")
+
+        if not url:
+            logger.warning("save_page_missing_url", page_data_keys=list(page_data.keys()))
+            return
+
+        # Remove internal fields before storing
+        extracted_data = {k: v for k, v in page_data.items() if not k.startswith("_")}
+
+        # Generate hashes
+        url_hash = self._hash_url(url)
+        content_hash = self._hash_content(content)
+
+        # Extract title if present
+        title = extracted_data.get("title")
+
+        # Serialize extracted data to JSON string
+        extracted_json = json.dumps(extracted_data, ensure_ascii=False)
+
+        # Save to database
+        await self.page_repo.create(
+            website_id=website_id,
+            job_id=job_id,
+            url=url,
+            url_hash=url_hash,
+            content_hash=content_hash,
+            crawled_at=datetime.now(UTC),
+            title=str(title) if title else None,
+            extracted_content=extracted_json,
+            metadata=None,  # Can be extended later
+            gcs_html_path=None,  # Can be extended for GCS storage
+            gcs_documents=None,
+        )
+
+        logger.debug("page_saved", url=url, extracted_fields=len(extracted_data))
+
+    def _hash_url(self, url: str) -> str:
+        """Generate SHA256 hash of URL for deduplication.
+
+        Args:
+            url: URL to hash
+
+        Returns:
+            Hex digest of SHA256 hash
+        """
+        return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+    def _hash_content(self, content: str | dict[str, Any] | None) -> str:
+        """Generate SHA256 hash of content for duplicate detection.
+
+        Args:
+            content: Content to hash (HTML string or JSON dict)
+
+        Returns:
+            Hex digest of SHA256 hash
+        """
+        if content is None:
+            # Use empty string hash for None content
+            content_str = ""
+        elif isinstance(content, dict):
+            # For dict content, serialize to JSON
+            content_str = json.dumps(content, sort_keys=True, ensure_ascii=False)
+        else:
+            # For string content, use as-is
+            content_str = str(content)
+
+        return hashlib.sha256(content_str.encode("utf-8")).hexdigest()

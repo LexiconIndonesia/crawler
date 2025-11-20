@@ -83,3 +83,5 @@ monitoring/prometheus/data/
 # Generated code from OpenAPI/sqlc
 crawler/api/generated/models.py
 clients/python/
+
+.playwright-mcp/

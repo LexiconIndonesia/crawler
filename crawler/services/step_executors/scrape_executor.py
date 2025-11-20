@@ -166,7 +166,13 @@ class ScrapeExecutor(BaseStepExecutor):
                     result = result_or_exception
 
                     if result.success:
-                        all_extracted_data.append(result.extracted_data)
+                        # Include URL with extracted data for later persistence
+                        page_data = {
+                            "_url": batch_url,  # Store URL for database persistence
+                            "_content": result.content,  # Store raw content if available
+                            **result.extracted_data,  # Merge extracted fields
+                        }
+                        all_extracted_data.append(page_data)
                         logger.debug(
                             "url_scraped_success",
                             url_index=global_idx,

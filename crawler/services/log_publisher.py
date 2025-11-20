@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from nats.aio.client import Client as NATSClient
 
-from crawler.api.websocket_models import WebSocketLogMessage
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import CrawlLog
 
@@ -71,6 +70,9 @@ class LogPublisher:
             If NATS is unavailable, this fails silently with a warning.
             Logs are still persisted in the database.
         """
+        # Import here to avoid circular dependency
+        from crawler.api.websocket_models import WebSocketLogMessage
+
         message = WebSocketLogMessage.from_crawl_log(log)
         message_dict = message.model_dump()
 

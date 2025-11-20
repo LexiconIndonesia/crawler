@@ -7,6 +7,7 @@ It integrates pagination, URL extraction, and deduplication.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
 
 from crawler.api.generated import PaginationConfig
 from crawler.core.logging import get_logger
@@ -148,8 +149,8 @@ class CrawlExecutor(BaseStepExecutor):
                 if page_result.success:
                     pages_crawled += 1
 
-                    # Extract URLs from page
-                    page_urls = self._extract_urls_from_result(page_result)
+                    # Extract URLs from page (convert relative to absolute using page_url as base)
+                    page_urls = self._extract_urls_from_result(page_result, base_url=page_url)
                     all_urls.extend(page_urls)
 
                     logger.debug(
@@ -301,17 +302,20 @@ class CrawlExecutor(BaseStepExecutor):
             # Fallback to seed URL only
             return [seed_url]
 
-    def _extract_urls_from_result(self, result: ExecutionResult) -> list[str]:
-        """Extract URLs from execution result.
+    def _extract_urls_from_result(self, result: ExecutionResult, base_url: str) -> list[str]:
+        """Extract URLs from execution result and convert relative URLs to absolute.
 
         Args:
             result: Execution result from page fetch
+            base_url: Base URL to use for converting relative URLs to absolute
 
         Returns:
-            List of URLs extracted from result
+            List of absolute URLs extracted from result
 
         This method extracts ALL string and list values from the result,
         as any field could contain URLs for crawling purposes.
+        Relative URLs (e.g., /Details/123) are converted to absolute URLs
+        using the provided base_url.
         """
         # Guard: no extracted data
         if not result.extracted_data:
@@ -323,11 +327,15 @@ class CrawlExecutor(BaseStepExecutor):
         for field_name, value in result.extracted_data.items():
             # Handle list of URLs
             if isinstance(value, list):
-                # Filter out non-string values
-                urls.extend([str(u) for u in value if u and isinstance(u, str)])
+                # Filter out non-string values and convert to absolute URLs
+                for u in value:
+                    if u and isinstance(u, str):
+                        absolute_url = urljoin(base_url, u)
+                        urls.append(absolute_url)
             # Handle single URL string
             elif isinstance(value, str):
-                urls.append(value)
+                absolute_url = urljoin(base_url, value)
+                urls.append(absolute_url)
 
         return urls
 

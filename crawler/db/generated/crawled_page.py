@@ -58,6 +58,16 @@ INSERT INTO crawled_page (
     :p10,
     :p11
 )
+ON CONFLICT (website_id, url_hash)
+DO UPDATE SET
+    job_id = EXCLUDED.job_id,
+    content_hash = EXCLUDED.content_hash,
+    title = EXCLUDED.title,
+    extracted_content = EXCLUDED.extracted_content,
+    metadata = EXCLUDED.metadata,
+    gcs_html_path = EXCLUDED.gcs_html_path,
+    gcs_documents = EXCLUDED.gcs_documents,
+    crawled_at = EXCLUDED.crawled_at
 RETURNING id, website_id, job_id, url, url_hash, content_hash, title, extracted_content, metadata, gcs_html_path, gcs_documents, is_duplicate, duplicate_of, similarity_score, crawled_at, created_at
 """
 

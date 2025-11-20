@@ -82,7 +82,11 @@ class TestCrawlExecutor:
             )
 
             assert result.success
-            assert result.extracted_data["urls"] == ["/article1", "/article2", "/article3"]
+            assert result.extracted_data["urls"] == [
+                "https://example.com/article1",
+                "https://example.com/article2",
+                "https://example.com/article3",
+            ]
             assert result.extracted_data["_crawl_metadata"]["total_urls"] == 3
             assert result.extracted_data["_crawl_metadata"]["pages_crawled"] == 1
             assert result.extracted_data["_crawl_metadata"]["pages_failed"] == 0
@@ -157,11 +161,11 @@ class TestCrawlExecutor:
 
             assert result.success
             assert result.extracted_data["urls"] == [
-                "/article1",
-                "/article2",
-                "/article3",
-                "/article4",
-                "/article5",
+                "https://example.com/article1",
+                "https://example.com/article2",
+                "https://example.com/article3",
+                "https://example.com/article4",
+                "https://example.com/article5",
             ]
             assert result.extracted_data["_crawl_metadata"]["total_urls"] == 5
             assert result.extracted_data["_crawl_metadata"]["pages_crawled"] == 3
@@ -213,7 +217,10 @@ class TestCrawlExecutor:
             )
 
             assert result.success
-            assert result.extracted_data["urls"] == ["/article1", "/article2"]
+            assert result.extracted_data["urls"] == [
+                "https://example.com/article1",
+                "https://example.com/article2",
+            ]
             assert result.extracted_data["_crawl_metadata"]["total_urls"] == 2
             assert result.extracted_data["_crawl_metadata"]["pages_crawled"] == 2
             assert result.metadata["duplicate_urls"] == 2  # 4 total - 2 unique = 2 duplicates
@@ -314,7 +321,10 @@ class TestCrawlExecutor:
 
             # Should succeed even with partial failures
             assert result.success
-            assert result.extracted_data["urls"] == ["/article1", "/article2"]
+            assert result.extracted_data["urls"] == [
+                "https://example.com/article1",
+                "https://example.com/article2",
+            ]
             assert result.extracted_data["_crawl_metadata"]["total_urls"] == 2
             assert result.extracted_data["_crawl_metadata"]["pages_crawled"] == 2
             assert result.extracted_data["_crawl_metadata"]["pages_failed"] == 1
@@ -467,7 +477,7 @@ class TestCrawlExecutor:
             )
 
             assert result.success
-            assert result.extracted_data["urls"] == ["/article1"]
+            assert result.extracted_data["urls"] == ["https://example.com/article1"]
             assert result.extracted_data["_crawl_metadata"]["pages_crawled"] == 1
             assert result.metadata["pagination_enabled"] is False
 

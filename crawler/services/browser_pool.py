@@ -16,6 +16,12 @@ from typing import Any, Literal
 from playwright.async_api import Browser, BrowserContext, Playwright, async_playwright
 
 from config import Settings
+from crawler.core.browser_config import (
+    CHROMIUM_IGNORE_DEFAULT_ARGS,
+    CHROMIUM_STEALTH_ARGS,
+    STEALTH_USER_AGENT,
+    STEALTH_VIEWPORT,
+)
 from crawler.core.logging import get_logger
 from crawler.core.metrics import (
     browser_crash_recoveries_total,
@@ -239,12 +245,19 @@ class BrowserPool:
             raise RuntimeError("Playwright not initialized")
 
         try:
+            # Configure browser-specific launch args
             if browser_type == "firefox":
+                # Firefox-specific args (minimal, Firefox doesn't support most Chrome flags)
                 browser = await self._playwright.firefox.launch()
             elif browser_type == "webkit":
+                # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
                 browser = await self._playwright.webkit.launch()
             else:
-                browser = await self._playwright.chromium.launch()
+                # Chromium with centralized stealth configuration
+                browser = await self._playwright.chromium.launch(
+                    args=CHROMIUM_STEALTH_ARGS,
+                    ignore_default_args=CHROMIUM_IGNORE_DEFAULT_ARGS,
+                )
 
             return browser
         except Exception as e:
@@ -540,9 +553,12 @@ class BrowserPool:
             if browser_instance is None:
                 raise RuntimeError("No healthy browser instances available")
 
-            # Create context - handle potential browser crash during creation
+            # Create context with stealth - handle potential browser crash during creation
             try:
-                context = await browser_instance.browser.new_context()
+                context = await browser_instance.browser.new_context(
+                    user_agent=STEALTH_USER_AGENT,
+                    viewport=STEALTH_VIEWPORT,
+                )
             except Exception as e:
                 # Check if this is a browser crash
                 # First check browser connection status (most reliable)

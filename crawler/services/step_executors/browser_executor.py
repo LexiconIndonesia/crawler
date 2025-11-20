@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from crawler.core.browser_config import (
+    CHROMIUM_IGNORE_DEFAULT_ARGS,
+    CHROMIUM_STEALTH_ARGS,
+    STEALTH_USER_AGENT,
+    STEALTH_VIEWPORT,
+)
 from crawler.core.logging import get_logger
 from crawler.services.browser_pool import BrowserPool
 from crawler.services.selector_processor import SelectorProcessor
@@ -81,7 +87,8 @@ class BrowserExecutor(BaseStepExecutor):
         try:
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_for", "load")  # load, domcontentloaded, networkidle
+            # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
+            wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
 
             logger.info(
@@ -196,7 +203,8 @@ class BrowserExecutor(BaseStepExecutor):
 
             # Extract config
             timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
-            wait_for = step_config.get("wait_for", "load")  # load, domcontentloaded, networkidle
+            # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
+            wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
             browser_type = step_config.get("browser_type", "chromium")
 
@@ -215,16 +223,25 @@ class BrowserExecutor(BaseStepExecutor):
                 page = None
 
                 try:
-                    # Select browser type
+                    # Select browser type and configure launch args
                     if browser_type == "firefox":
+                        # Firefox-specific args (minimal, Firefox doesn't support most Chrome flags)
                         browser = await p.firefox.launch()
                     elif browser_type == "webkit":
+                        # WebKit-specific args (minimal, WebKit doesn't support Chrome flags)
                         browser = await p.webkit.launch()
                     else:
-                        browser = await p.chromium.launch()
+                        # Chromium with centralized stealth configuration
+                        browser = await p.chromium.launch(
+                            args=CHROMIUM_STEALTH_ARGS,
+                            ignore_default_args=CHROMIUM_IGNORE_DEFAULT_ARGS,
+                        )
 
-                    # Create context and page
-                    context = await browser.new_context()
+                    # Create context with stealth and page
+                    context = await browser.new_context(
+                        user_agent=STEALTH_USER_AGENT,
+                        viewport=STEALTH_VIEWPORT,
+                    )
                     page = await context.new_page()
 
                     # Navigate to URL

@@ -25,6 +25,7 @@ from crawler.db.session import get_db
 from crawler.services.job_retry_handler import create_retry_handler
 from crawler.services.nats_queue import NATSQueueService
 from crawler.services.redis_cache import JobCancellationFlag, URLDeduplicationCache
+from crawler.services.result_persistence import ResultPersistenceService
 from crawler.services.step_orchestrator import StepOrchestrator
 
 logger = get_logger(__name__)
@@ -169,7 +170,7 @@ class CrawlJobWorker:
             return None
 
     async def _process_job_with_connection(
-        self, job_id: str, job_data: dict[str, Any], conn: Any
+        self, job_id: str, job_data: dict[str, Any], conn: Any, session: Any = None
     ) -> bool:
         """Process job using the provided database connection.
 
@@ -177,6 +178,7 @@ class CrawlJobWorker:
             job_id: Job UUID
             job_data: Job metadata from queue message
             conn: Database connection
+            session: Optional database session for transaction commits
 
         Returns:
             True if message should be acked (job handled successfully or by JobRetryHandler),
@@ -283,7 +285,39 @@ class CrawlJobWorker:
             # Update job status based on workflow execution
             failed_steps = context.get_failed_steps()
             if not failed_steps:
-                # All steps succeeded
+                # All steps succeeded - persist results to database
+                try:
+                    persistence_service = ResultPersistenceService(conn)
+                    stats = await persistence_service.persist_workflow_results(
+                        job_id=job_id,
+                        website_id=website_id or job_id,
+                        context=context,
+                    )
+
+                    # Commit transaction after persisting results (required for sqlc inserts)
+                    if session:
+                        await session.commit()
+
+                    logger.info(
+                        "workflow_results_persisted",
+                        job_id=job_id,
+                        pages_saved=stats["pages_saved"],
+                        pages_failed=stats["pages_failed"],
+                    )
+                except Exception as e:
+                    logger.error(
+                        "result_persistence_failed",
+                        job_id=job_id,
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    # Rollback failed persistence
+                    if session:
+                        await session.rollback()
+                    # Continue to mark job as completed even if persistence fails
+                    # (logs and content are still available for debugging)
+
+                # Update job status to completed
                 await job_repo.update_status(
                     job_id=job_id,
                     status=StatusEnum.COMPLETED,
@@ -406,14 +440,16 @@ class CrawlJobWorker:
             # Use provided connection or get new one
             if conn is not None:
                 # Test mode - use provided connection
-                return await self._process_job_with_connection(job_id, job_data, conn)
+                return await self._process_job_with_connection(job_id, job_data, conn, session=None)
             else:
                 # Production mode - get connection from pool
                 # Store result before exiting context to allow commit/rollback to run
                 async with aclosing(get_db()) as db_iter:
                     db_session = await db_iter.__anext__()
                     conn = await db_session.connection()
-                    result = await self._process_job_with_connection(job_id, job_data, conn)
+                    result = await self._process_job_with_connection(
+                        job_id, job_data, conn, session=db_session
+                    )
                 # Return after context exits so get_db() can commit/rollback
                 return result
 

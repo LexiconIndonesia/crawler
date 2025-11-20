@@ -24,6 +24,16 @@ INSERT INTO crawled_page (
     sqlc.arg(gcs_documents),
     sqlc.arg(crawled_at)
 )
+ON CONFLICT (website_id, url_hash)
+DO UPDATE SET
+    job_id = EXCLUDED.job_id,
+    content_hash = EXCLUDED.content_hash,
+    title = EXCLUDED.title,
+    extracted_content = EXCLUDED.extracted_content,
+    metadata = EXCLUDED.metadata,
+    gcs_html_path = EXCLUDED.gcs_html_path,
+    gcs_documents = EXCLUDED.gcs_documents,
+    crawled_at = EXCLUDED.crawled_at
 RETURNING *;
 
 -- name: GetCrawledPageByID :one

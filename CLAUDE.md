@@ -68,10 +68,14 @@ make playwright         # Install Playwright browsers
 
 ### Running the Application
 ```bash
-make dev                # Start dev server with auto-reload (also starts db services)
-make run                # Production server (single worker)
-make run-prod           # Production server (4 workers)
+make dev                # Start API server only (for API-only development)
+make dev-worker         # Start worker only (for testing queue processing)
+make dev-all            # Start API + worker together (typical full-stack dev)
+make run                # Production API server (single worker)
+make run-prod           # Production API server (4 workers)
 ```
+
+**Note**: The crawler uses a separate worker process to consume jobs from NATS queue. In development, use `make dev-all` to run both API and worker together. In production, deploy API and worker as separate services for independent scaling.
 
 ### Testing
 ```bash
@@ -95,12 +99,35 @@ make check              # All checks (format + lint + type-check)
 ### Services
 ```bash
 make db-up              # Start PostgreSQL, Redis, NATS
-make docker-up          # Start all services (app + databases + monitoring)
+make docker-up          # Start all services (API + worker + databases + monitoring)
 make docker-down        # Stop all services
 make db-shell           # Connect to PostgreSQL
 make redis-shell        # Connect to Redis CLI
 make monitoring-up      # Start Prometheus, Grafana, Loki
 make urls               # List all service URLs
+```
+
+**Docker Services**:
+- `api` - FastAPI server (port 8000)
+- `worker` - NATS job processor (consumes crawl jobs from queue)
+- Both services run from the same Docker image with different commands
+
+**Docker Operations**:
+```bash
+# View logs
+docker-compose logs -f api          # API logs only
+docker-compose logs -f worker       # Worker logs only
+docker-compose logs -f              # All services
+
+# Scale workers (add more worker instances)
+docker-compose up -d --scale worker=3
+
+# Restart specific service
+docker-compose restart api
+docker-compose restart worker
+
+# Check service status
+docker-compose ps
 ```
 
 ### Utilities
