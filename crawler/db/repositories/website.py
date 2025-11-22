@@ -181,3 +181,7 @@ class WebsiteRepository:
             - last_crawl_at: Timestamp of last successful crawl (nullable)
         """
         return await self._querier.get_website_statistics(website_id=to_uuid(website_id))
+
+    async def delete_crawled_pages_by_website(self, website_id: str | UUID) -> None:
+        """Delete all crawled pages for a website."""
+        await self._querier.delete_crawled_pages_by_website(website_id=to_uuid(website_id))

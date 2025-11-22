@@ -650,7 +650,7 @@ class TestCreateSeedJobInlineEndpoint:
         data = response.json()
         assert data["seed_url"] == "https://example.com/articles"
         assert data["website_id"] is None  # Inline jobs have no website_id
-        assert data["status"] == "pending"
+        assert data["status"]["status"] == "pending"
         assert data["job_type"] == "one_time"
         assert data["priority"] == 5  # Default priority
         assert data["scheduled_at"] is None
@@ -735,7 +735,7 @@ class TestCreateSeedJobInlineEndpoint:
         assert response.status_code == 201
 
         data = response.json()
-        assert data["status"] == "pending"
+        assert data["status"]["status"] == "pending"
         assert data["website_id"] is None
 
     async def test_create_seed_job_inline_with_custom_retry_config(
@@ -767,7 +767,7 @@ class TestCreateSeedJobInlineEndpoint:
         assert response.status_code == 201
 
         data = response.json()
-        assert data["status"] == "pending"
+        assert data["status"]["status"] == "pending"
         assert data["website_id"] is None
 
         # Verify max_retries was set correctly in the database
@@ -805,7 +805,7 @@ class TestCreateSeedJobInlineEndpoint:
 
         data = response.json()
         assert data["seed_url"] == "https://dynamic.example.com/products"
-        assert data["status"] == "pending"
+        assert data["status"]["status"] == "pending"
 
     async def test_create_seed_job_inline_duplicate_step_names(
         self, test_client: AsyncClient

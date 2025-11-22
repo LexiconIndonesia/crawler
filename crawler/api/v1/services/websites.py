@@ -21,12 +21,11 @@ from crawler.api.generated import (
     UpdateWebsiteResponse,
     WebsiteResponse,
     WebsiteStatistics,
+    WebsiteStatus,
     WebsiteSummary,
     WebsiteWithStatsResponse,
 )
-from crawler.api.generated import (
-    StatusEnum as ApiStatusEnum,
-)
+from crawler.api.generated.models import JobStatusEnum
 from crawler.api.validators import validate_and_calculate_next_run
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum
@@ -41,6 +40,26 @@ from crawler.services.nats_queue import NATSQueueService
 from crawler.services.priority_queue import PRIORITY_MANUAL_TRIGGER
 
 logger = get_logger(__name__)
+
+
+def _convert_db_status_to_website_status(db_status: DbStatusEnum) -> WebsiteStatus:
+    """Convert database StatusEnum to API WebsiteStatus.
+
+    Args:
+        db_status: Database status enum
+
+    Returns:
+        API website status enum
+
+    Raises:
+        ValueError: If database status is not a valid website status
+    """
+    if db_status == DbStatusEnum.ACTIVE:
+        return WebsiteStatus.active
+    elif db_status == DbStatusEnum.INACTIVE:
+        return WebsiteStatus.inactive
+    else:
+        raise ValueError(f"Invalid website status: {db_status}")
 
 
 class WebsiteService:
@@ -155,8 +174,8 @@ class WebsiteService:
             has_schedule=scheduled_job_id is not None,
         )
 
-        # Build response - convert database status enum to API status enum
-        api_status = ApiStatusEnum(website.status.value)
+        # Build response - convert database status enum to API website status enum
+        api_status = _convert_db_status_to_website_status(website.status)
 
         return WebsiteResponse(
             id=website.id,
@@ -230,8 +249,8 @@ class WebsiteService:
                 scheduled_job_id = active_job.id
                 next_run_time = active_job.next_run_time
 
-        # Convert database status to API status
-        api_status = ApiStatusEnum(website.status.value)
+        # Convert database status to API website status
+        api_status = _convert_db_status_to_website_status(website.status)
 
         # Build response
         return WebsiteWithStatsResponse(
@@ -288,7 +307,7 @@ class WebsiteService:
                 id=website.id,
                 name=website.name,
                 base_url=AnyUrl(website.base_url),
-                status=ApiStatusEnum(website.status.value),
+                status=_convert_db_status_to_website_status(website.status),
                 cron_schedule=website.cron_schedule,
                 created_at=website.created_at,
                 updated_at=website.updated_at,
@@ -507,7 +526,7 @@ class WebsiteService:
                 logger.info("recrawl_triggered", job_id=recrawl_job_id, website_id=website_id)
 
         # Build response
-        api_status = ApiStatusEnum(updated_website.status.value)
+        api_status = _convert_db_status_to_website_status(updated_website.status)
 
         return UpdateWebsiteResponse(
             id=updated_website.id,
@@ -582,6 +601,11 @@ class WebsiteService:
             change_reason="Website deleted - config archived",
         )
         logger.info("config_archived", website_id=website_id, version=new_version)
+
+        if delete_data:
+            logger.info("deleting_crawled_data", website_id=website_id)
+            await self.website_repo.delete_crawled_pages_by_website(website_id)
+            logger.info("crawled_data_deleted", website_id=website_id)
 
         # Soft delete the website
         deleted_website = await self.website_repo.soft_delete(website_id)
@@ -892,7 +916,7 @@ class WebsiteService:
                 )
 
         # Build response
-        api_status = ApiStatusEnum(updated_website.status.value)
+        api_status = _convert_db_status_to_website_status(updated_website.status)
 
         return RollbackConfigResponse(
             id=updated_website.id,
@@ -1046,7 +1070,9 @@ class WebsiteService:
             website_id=UUID(website_id),
             seed_url=AnyUrl(website.base_url),
             priority=crawl_job.priority,
-            status=CrawlJobStatus.pending,  # Job always starts as pending
+            status=CrawlJobStatus(
+                job_id=crawl_job.id, status=JobStatusEnum.pending
+            ),  # Job always starts as pending
             triggered_at=triggered_at,
             message="High-priority crawl job created and queued",
         )

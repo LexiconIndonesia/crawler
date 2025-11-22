@@ -7,14 +7,13 @@ from pydantic import AnyUrl
 from crawler.api.generated import (
     CancelJobRequest,
     CancelJobResponse,
+    CrawlJobStatus,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     JobType,
     SeedJobResponse,
 )
-from crawler.api.generated import (
-    StatusEnum as ApiStatusEnum,
-)
+from crawler.api.generated.models import JobStatusEnum
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
@@ -167,7 +166,7 @@ class JobService:
             # Worker can still pick it up via database polling as fallback
 
         # Build response - convert database enum to API enum
-        api_status = ApiStatusEnum(job.status.value)
+        api_status = JobStatusEnum(job.status.value)
         job_type = JobType(job.job_type.value)
 
         # Ensure website_id is not None (it shouldn't be for template-based jobs)
@@ -177,7 +176,7 @@ class JobService:
             id=job.id,
             website_id=job.website_id,
             seed_url=AnyUrl(job.seed_url),
-            status=api_status,
+            status=CrawlJobStatus(job_id=job.id, status=api_status),
             job_type=job_type,
             priority=job.priority,
             scheduled_at=job.scheduled_at,
@@ -296,14 +295,14 @@ class JobService:
             # Worker can still pick it up via database polling as fallback
 
         # Build response - convert database enum to API enum
-        api_status = ApiStatusEnum(job.status.value)
+        api_status = JobStatusEnum(job.status.value)
         job_type = JobType(job.job_type.value)
 
         return SeedJobResponse(
             id=job.id,
             website_id=None,  # Inline config jobs don't have website_id
             seed_url=AnyUrl(job.seed_url),
-            status=api_status,
+            status=CrawlJobStatus(job_id=job.id, status=api_status),
             job_type=job_type,
             priority=job.priority,
             scheduled_at=job.scheduled_at,
@@ -411,7 +410,7 @@ class JobService:
 
                 return CancelJobResponse(
                     id=current_job.id,
-                    status=ApiStatusEnum.cancelled,
+                    status=CrawlJobStatus(job_id=current_job.id, status=JobStatusEnum.cancelled),
                     message="Job is already cancelled",
                     cancelled_at=current_job.cancelled_at,
                 )
@@ -454,7 +453,7 @@ class JobService:
 
         return CancelJobResponse(
             id=cancelled_job.id,
-            status=ApiStatusEnum.cancelled,
+            status=CrawlJobStatus(job_id=cancelled_job.id, status=JobStatusEnum.cancelled),
             message="Job cancellation initiated",
             cancelled_at=cancelled_job.cancelled_at,
         )

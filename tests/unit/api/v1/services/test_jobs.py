@@ -133,7 +133,7 @@ class TestJobService:
         assert result.id == mock_crawl_job.id
         assert result.website_id == sample_request.website_id
         assert str(result.seed_url) == str(sample_request.seed_url)
-        assert result.status == ApiStatusEnum.pending
+        assert result.status.status == ApiStatusEnum.pending
         assert result.priority == 7
         assert result.variables == {"year": "2025", "category": "tech"}
 
@@ -290,7 +290,7 @@ class TestJobService:
         assert result.id == mock_inline_job.id
         assert result.website_id is None  # Inline jobs have no website_id
         assert str(result.seed_url) == str(inline_request.seed_url)
-        assert result.status == ApiStatusEnum.pending
+        assert result.status.status == ApiStatusEnum.pending
         assert result.priority == 7
         assert result.variables == {"api_key": "test_key_123"}
 
@@ -570,7 +570,7 @@ class TestJobService:
 
         # Assert
         assert result.id == UUID(job_id)
-        assert result.status == ApiStatusEnum.cancelled
+        assert result.status.status == ApiStatusEnum.cancelled
         assert result.message == "Job cancellation initiated"
         assert result.cancelled_at is not None
 
@@ -646,7 +646,7 @@ class TestJobService:
 
         # Assert - should succeed idempotently
         assert response.id == UUID(job_id)
-        assert response.status == ApiStatusEnum.cancelled
+        assert response.status.status == ApiStatusEnum.cancelled
         assert response.message == "Job is already cancelled"
         assert response.cancelled_at == cancelled_at
 
@@ -902,7 +902,7 @@ class TestJobService:
 
         # Assert
         assert result.id == UUID(job_id)
-        assert result.status == ApiStatusEnum.cancelled
+        assert result.status.status == ApiStatusEnum.cancelled
 
         # Verify cancellation was called with None reason
         job_service.cancellation_flag.set_cancellation.assert_called_once_with(
