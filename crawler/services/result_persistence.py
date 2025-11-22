@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Simhash uses 64-bit fingerprints
+SIMHASH_BITS = 64
+
 
 class ResultPersistenceService:
     """Service for persisting crawl results to database."""
@@ -121,13 +124,13 @@ class ResultPersistenceService:
         return {"pages_saved": pages_saved, "pages_failed": pages_failed}
 
     def _extract_pages_from_step(
-        self, step_name: str, extracted_data: dict[str, Any]
+        self, step_name: str, extracted_data: dict[str, Any] | None
     ) -> list[dict[str, Any]]:
         """Extract page data from step result.
 
         Args:
             step_name: Name of the step
-            extracted_data: Extracted data from step
+            extracted_data: Extracted data from step (None if no data)
 
         Returns:
             List of page data dictionaries with _url field
@@ -245,10 +248,12 @@ class ResultPersistenceService:
                 if similar_page:
                     duplicate_of = str(similar_page.id)
 
-                    # Calculate similarity score: (1 - distance/64) * 100
-                    # distance is in match.hamming_distance
+                    # Calculate similarity score: (1 - distance/SIMHASH_BITS) * 100
+                    # distance is Hamming distance between 64-bit fingerprints
                     distance = match.hamming_distance
-                    similarity_score = int((1 - distance / 64) * 100)
+                    raw_score = (1 - distance / SIMHASH_BITS) * 100
+                    # Clamp score to [0, 100] to guard against unexpected distances
+                    similarity_score = max(0, min(100, int(raw_score)))
 
                     logger.info(
                         "page_duplicate_detected_fuzzy",

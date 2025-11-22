@@ -489,7 +489,7 @@ class TestGetWebsiteEndpoints:
         """Test retrieving a non-existent website returns 404."""
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = await test_client.get(f"/api/v1/websites/{fake_id}")
-        assert response.status_code == 400  # ValueError -> 400 via decorator
+        assert response.status_code == 404  # "Website with ID ... not found" -> 404 via decorator
 
         error = response.json()
         assert "not found" in error["detail"].lower()
@@ -568,7 +568,7 @@ class TestUpdateWebsiteEndpoint:
             f"/api/v1/websites/{fake_id}",
             json={"name": "New Name"},
         )
-        assert response.status_code == 400
+        assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
     async def test_update_website_no_changes(self, test_client: AsyncClient) -> None:
@@ -965,10 +965,10 @@ class TestDeleteWebsiteEndpoint:
         assert job.status == "cancelled"
 
     async def test_delete_website_not_found(self, test_client: AsyncClient) -> None:
-        """Test deleting non-existent website returns 400."""
+        """Test deleting non-existent website returns 404."""
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = await test_client.delete(f"/api/v1/websites/{fake_id}")
-        assert response.status_code == 400
+        assert response.status_code == 404
 
         error = response.json()
         assert "not found" in error["detail"].lower()

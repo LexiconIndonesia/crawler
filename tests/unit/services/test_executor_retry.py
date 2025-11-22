@@ -1,5 +1,6 @@
 """Unit tests for executor retry logic."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -185,7 +186,20 @@ class TestExecuteWithRetry:
         async def mock_sleep(delay: float) -> None:
             sleep_calls.append(delay)
 
-        with patch("crawler.services.executor_retry.asyncio.sleep", side_effect=mock_sleep):
+        # Patch calculate_backoff to return deterministic values (no jitter)
+        def deterministic_backoff(attempt: int, **kwargs: Any) -> float:
+            # Simple exponential: 1, 2, 4
+            return kwargs.get("initial_delay_seconds", 1.0) * (
+                kwargs.get("backoff_multiplier", 2.0) ** (attempt - 1)
+            )
+
+        with (
+            patch("crawler.services.executor_retry.asyncio.sleep", side_effect=mock_sleep),
+            patch(
+                "crawler.services.executor_retry.calculate_backoff",
+                side_effect=deterministic_backoff,
+            ),
+        ):
             await execute_with_retry(
                 func=mock_func,
                 retry_config={
@@ -201,11 +215,10 @@ class TestExecuteWithRetry:
 
         # Should have 3 delays (max_attempts - 1)
         assert len(sleep_calls) == 3
-        # Delays should increase (with jitter, so just check general trend)
-        # Exponential: 1, 2, 4 (with jitter will vary slightly)
-        assert sleep_calls[0] > 0
-        assert sleep_calls[1] > sleep_calls[0]
-        assert sleep_calls[2] > sleep_calls[1]
+        # With deterministic backoff, delays should be exactly: 1, 2, 4
+        assert sleep_calls[0] == 1.0
+        assert sleep_calls[1] == 2.0
+        assert sleep_calls[2] == 4.0
 
     async def test_invalid_backoff_strategy_uses_default(self) -> None:
         """Test that invalid backoff strategy falls back to exponential."""

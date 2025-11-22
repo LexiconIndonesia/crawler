@@ -76,7 +76,8 @@ class LocalRateLimiter:
 
     async def _acquire_token(self) -> None:
         """Acquire a token, waiting if necessary."""
-        async with self._lock:
+        await self._lock.acquire()
+        try:
             # Refill tokens first
             await self._refill_tokens()
 
@@ -92,12 +93,12 @@ class LocalRateLimiter:
                     wait_seconds=wait_seconds,
                 )
 
-                # Wait with lock released (allow other coroutines to proceed)
-                # We'll re-acquire the lock after sleep
+                # Release lock before sleeping (allow other coroutines to proceed)
                 self._lock.release()
                 try:
                     await asyncio.sleep(wait_seconds)
                 finally:
+                    # Re-acquire lock after sleeping
                     await self._lock.acquire()
 
                 # Refill tokens after waiting
@@ -106,6 +107,8 @@ class LocalRateLimiter:
             # Consume token (we have >= 1.0 tokens now)
             self._tokens -= 1.0
             logger.debug("rate_limit_token_acquired", tokens_remaining=self._tokens)
+        finally:
+            self._lock.release()
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[None]:

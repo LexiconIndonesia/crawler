@@ -82,7 +82,6 @@ async def execute_with_retry(
         return await func()
 
     # Attempt execution with retries
-    last_exception: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             logger.debug(
@@ -160,8 +159,6 @@ async def execute_with_retry(
             return result
 
         except Exception as e:
-            last_exception = e
-
             # Classify exception to determine if retryable
             error_category = classify_exception(e, log_decision=False)
             is_retryable = _is_retryable_error(error_category)
@@ -202,7 +199,7 @@ async def execute_with_retry(
                 )
 
                 await asyncio.sleep(delay)
-                # Continue to next attempt
+                continue  # Retry next attempt
             else:
                 # Last attempt - raise exception
                 logger.error(
@@ -216,12 +213,9 @@ async def execute_with_retry(
                 )
                 raise
 
-    # Should never reach here, but if we do, raise the last exception
-    if last_exception:
-        raise last_exception
-
-    # This should be unreachable
-    raise RuntimeError("Unexpected code path in execute_with_retry")
+    # This line should be unreachable - loop always returns or raises
+    # Added to satisfy mypy's return path analysis
+    raise RuntimeError("Unexpected: retry loop exited without return or raise")
 
 
 def _classify_result_error(result: Any) -> ErrorCategoryEnum:

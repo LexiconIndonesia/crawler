@@ -86,6 +86,9 @@ class StepOrchestrator:
         self.step_validator = StepValidator()
 
         # Initialize rate limiter from global config
+        # Note: If rate_limit is absent, uses conservative defaults
+        # (2 req/s, 5 concurrent, burst 10). To disable rate limiting,
+        # set explicit high values in rate_limit config
         rate_limit_config = self.global_config.get("rate_limit", {})
         self.rate_limiter = LocalRateLimiter.from_config(rate_limit_config)
 
@@ -551,12 +554,17 @@ class StepOrchestrator:
 
         Returns:
             Timeout in seconds (defaults: 30 for HTTP/API, 30 for page_load, 10 for selector_wait)
+
+        Note:
+            This helper centralizes timeout selection logic. Individual executors may have
+            their own per-request timeout extraction - keeping these in sync is important.
         """
         timeout_config = merged_config.get("timeout", {})
 
-        # If timeout is a simple integer (legacy format), use it directly
-        if isinstance(timeout_config, int):
-            return timeout_config
+        # If timeout is a simple number (legacy format), use it directly
+        # Supports both int and float values
+        if isinstance(timeout_config, (int, float)):
+            return int(timeout_config)
 
         # BrowserExecutor uses page_load timeout
         if isinstance(executor, BrowserExecutor):
@@ -626,6 +634,13 @@ class StepOrchestrator:
 
         Returns:
             Merged configuration (step config takes precedence)
+
+        Note:
+            While rate_limit is deep-merged here, the LocalRateLimiter instance
+            is created once in __init__ from global_config only. Step-specific
+            rate_limit overrides are currently NOT applied to the limiter.
+            If per-step rate limits are needed, the limiter would need to be
+            reconfigured or created per-step.
         """
         # Start with global config
         merged = self.global_config.copy()

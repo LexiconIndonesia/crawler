@@ -107,6 +107,28 @@ class ScheduledJobRepository:
                 jobs.append(deserialized_job)
         return jobs
 
+    async def list_by_status(
+        self, is_active: bool, limit: int = 100, offset: int = 0
+    ) -> list[models.ScheduledJob]:
+        """List scheduled jobs by active status with pagination and deserialized job_config.
+
+        Args:
+            is_active: Filter by active status (True for active, False for inactive)
+            limit: Maximum number of jobs to return
+            offset: Number of jobs to skip
+
+        Returns:
+            List of ScheduledJob models with deserialized job_config, ordered by next_run_time
+        """
+        jobs = []
+        async for job in self._querier.list_scheduled_jobs_by_status(
+            is_active=is_active, offset_count=offset, limit_count=limit
+        ):
+            deserialized_job = self._deserialize_job_config(job)
+            if deserialized_job:
+                jobs.append(deserialized_job)
+        return jobs
+
     async def get_due_jobs(
         self, cutoff_time: datetime, limit: int = 100
     ) -> list[models.ScheduledJob]:

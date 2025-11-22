@@ -107,4 +107,4 @@ LEFT JOIN page_stats ps ON w.id = ps.website_id
 WHERE w.id = sqlc.arg(website_id);
 
 -- name: DeleteCrawledPagesByWebsite :exec
-DELETE FROM crawled_page WHERE website_id = $1;
+DELETE FROM crawled_page WHERE website_id = sqlc.arg(website_id);

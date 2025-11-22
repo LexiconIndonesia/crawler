@@ -86,35 +86,28 @@ class ScheduledJobService:
             jobs = all_jobs[offset : offset + limit]
             total = len(all_jobs)
         elif is_active is not None:
-            # Filter by is_active only
-            if is_active:
-                jobs = await self.scheduled_job_repo.list_active(limit=limit, offset=offset)
-                total = await self.scheduled_job_repo.count(is_active=True)
-            else:
-                # For inactive jobs, we need to use count with is_active=False
-                # Since list_active only returns active jobs, we need a different approach
-                # Use count to get total, and manually filter
-                # This is a limitation of the current repository - it doesn't have list_inactive
-                # For now, we'll use count and note this limitation
-                total = await self.scheduled_job_repo.count(is_active=False)
-                # We can't easily get inactive jobs with current repo methods
-                # Return empty list for now - this is a gap
-                jobs = []
-                logger.warning(
-                    "list_inactive_jobs_not_implemented",
-                    reason="Repository does not support listing inactive jobs directly",
-                )
+            # Filter by is_active only - use list_by_status for both active and inactive
+            jobs = await self.scheduled_job_repo.list_by_status(
+                is_active=is_active, limit=limit, offset=offset
+            )
+            total = await self.scheduled_job_repo.count(is_active=is_active)
         else:
             # No filters - list all active jobs (default behavior)
             jobs = await self.scheduled_job_repo.list_active(limit=limit, offset=offset)
             total = await self.scheduled_job_repo.count()
 
         # Build summary list with website names
+        # Cache websites by ID to avoid N+1 queries (many jobs may share few websites)
+        website_cache: dict[str, str] = {}  # website_id -> website_name
         summaries = []
         for job in jobs:
-            # Get website name
-            website = await self.website_repo.get_by_id(str(job.website_id))
-            website_name = website.name if website else "Unknown"
+            # Get website name from cache or fetch once and cache it
+            website_id_str = str(job.website_id)
+            if website_id_str not in website_cache:
+                website = await self.website_repo.get_by_id(website_id_str)
+                website_cache[website_id_str] = website.name if website else "Unknown"
+
+            website_name = website_cache[website_id_str]
 
             summaries.append(
                 ScheduledJobSummary(

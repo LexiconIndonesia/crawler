@@ -94,7 +94,8 @@ class APIExecutor(BaseStepExecutor):
                 # Legacy: timeout as integer
                 timeout = timeout_config if isinstance(timeout_config, (int, float)) else 30
 
-            headers = step_config.get("headers", {})
+            # Copy headers to avoid mutating step_config
+            headers = dict(step_config.get("headers", {}))
             method = step_config.get("http_method", "GET").upper()
 
             # Default to JSON content type

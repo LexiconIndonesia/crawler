@@ -49,17 +49,24 @@ def _convert_db_status_to_website_status(db_status: DbStatusEnum) -> WebsiteStat
         db_status: Database status enum
 
     Returns:
-        API website status enum
+        API website status enum (defaults to inactive for unknown statuses)
 
-    Raises:
-        ValueError: If database status is not a valid website status
+    Note:
+        Unknown/unexpected statuses are logged and mapped to 'inactive' to avoid
+        hard failures during reads. This handles schema drift or future status values gracefully.
     """
     if db_status == DbStatusEnum.ACTIVE:
         return WebsiteStatus.active
     elif db_status == DbStatusEnum.INACTIVE:
         return WebsiteStatus.inactive
     else:
-        raise ValueError(f"Invalid website status: {db_status}")
+        # Log unexpected status but don't fail - map to safe default
+        logger.warning(
+            "unknown_website_status_defaulting_to_inactive",
+            db_status=db_status,
+            db_status_value=db_status.value if hasattr(db_status, "value") else str(db_status),
+        )
+        return WebsiteStatus.inactive
 
 
 class WebsiteService:
@@ -553,7 +560,15 @@ class WebsiteService:
 
         Args:
             website_id: Website ID
-            delete_data: Whether to delete all crawled data (not implemented yet)
+            delete_data: Whether to delete all crawled pages for this website.
+                DESTRUCTIVE OPERATION: When True, permanently removes all crawled_page
+                entries for this website. This operation:
+                - Executes within the same transaction as website deletion
+                - Uses a single DELETE statement (not batched)
+                - May be slow for large datasets (thousands+ of pages)
+                - Acquires table-level locks during deletion
+                - Cannot be rolled back after transaction commits
+                When False (default), crawled data is preserved for audit purposes.
 
         Returns:
             DeleteWebsiteResponse with deletion details

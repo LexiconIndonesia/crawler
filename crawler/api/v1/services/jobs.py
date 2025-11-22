@@ -24,6 +24,56 @@ from crawler.utils import normalize_url
 logger = get_logger(__name__)
 
 
+def _safe_convert_status(db_status: StatusEnum) -> JobStatusEnum:
+    """Safely convert database StatusEnum to API JobStatusEnum.
+
+    Args:
+        db_status: Database status enum
+
+    Returns:
+        API job status enum (defaults to pending for unknown statuses)
+
+    Note:
+        If DB StatusEnum diverges from API JobStatusEnum (e.g., new statuses added),
+        this logs a warning and returns a safe default instead of failing.
+    """
+    try:
+        return JobStatusEnum(db_status.value)
+    except ValueError:
+        logger.warning(
+            "unknown_job_status_defaulting_to_pending",
+            db_status=db_status,
+            db_status_value=db_status.value,
+        )
+        # Default to pending as a safe fallback
+        return JobStatusEnum.pending
+
+
+def _safe_convert_job_type(db_job_type: JobTypeEnum) -> JobType:
+    """Safely convert database JobTypeEnum to API JobType.
+
+    Args:
+        db_job_type: Database job type enum
+
+    Returns:
+        API job type enum (defaults to one_time for unknown types)
+
+    Note:
+        If DB JobTypeEnum diverges from API JobType, this logs a warning
+        and returns a safe default instead of failing.
+    """
+    try:
+        return JobType(db_job_type.value)
+    except ValueError:
+        logger.warning(
+            "unknown_job_type_defaulting_to_one_time",
+            db_job_type=db_job_type,
+            db_job_type_value=db_job_type.value,
+        )
+        # Default to one_time as a safe fallback
+        return JobType.one_time
+
+
 class JobService:
     """Service for crawl job operations with dependency injection."""
 
@@ -165,9 +215,9 @@ class JobService:
             # Note: Job is still created in DB even if queue publish fails
             # Worker can still pick it up via database polling as fallback
 
-        # Build response - convert database enum to API enum
-        api_status = JobStatusEnum(job.status.value)
-        job_type = JobType(job.job_type.value)
+        # Build response - convert database enum to API enum (with safe fallbacks)
+        api_status = _safe_convert_status(job.status)
+        job_type = _safe_convert_job_type(job.job_type)
 
         # Ensure website_id is not None (it shouldn't be for template-based jobs)
         assert job.website_id is not None, "website_id should not be None for template-based jobs"
@@ -294,9 +344,9 @@ class JobService:
             # Note: Job is still created in DB even if queue publish fails
             # Worker can still pick it up via database polling as fallback
 
-        # Build response - convert database enum to API enum
-        api_status = JobStatusEnum(job.status.value)
-        job_type = JobType(job.job_type.value)
+        # Build response - convert database enum to API enum (with safe fallbacks)
+        api_status = _safe_convert_status(job.status)
+        job_type = _safe_convert_job_type(job.job_type)
 
         return SeedJobResponse(
             id=job.id,

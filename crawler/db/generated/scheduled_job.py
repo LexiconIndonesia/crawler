@@ -75,6 +75,14 @@ OFFSET :p1 LIMIT :p2
 """
 
 
+LIST_SCHEDULED_JOBS_BY_STATUS = """-- name: list_scheduled_jobs_by_status \\:many
+SELECT id, website_id, cron_schedule, next_run_time, last_run_time, is_active, job_config, created_at, updated_at, timezone FROM scheduled_job
+WHERE is_active = :p1
+ORDER BY next_run_time ASC
+OFFSET :p2 LIMIT :p3
+"""
+
+
 TOGGLE_SCHEDULED_JOB_STATUS = """-- name: toggle_scheduled_job_status \\:one
 UPDATE scheduled_job
 SET
@@ -199,6 +207,22 @@ class AsyncQuerier:
 
     async def list_active_scheduled_jobs(self, *, offset_count: int, limit_count: int) -> AsyncIterator[models.ScheduledJob]:
         result = await self._conn.stream(sqlalchemy.text(LIST_ACTIVE_SCHEDULED_JOBS), {"p1": offset_count, "p2": limit_count})
+        async for row in result:
+            yield models.ScheduledJob(
+                id=row[0],
+                website_id=row[1],
+                cron_schedule=row[2],
+                next_run_time=row[3],
+                last_run_time=row[4],
+                is_active=row[5],
+                job_config=row[6],
+                created_at=row[7],
+                updated_at=row[8],
+                timezone=row[9],
+            )
+
+    async def list_scheduled_jobs_by_status(self, *, is_active: bool, offset_count: int, limit_count: int) -> AsyncIterator[models.ScheduledJob]:
+        result = await self._conn.stream(sqlalchemy.text(LIST_SCHEDULED_JOBS_BY_STATUS), {"p1": is_active, "p2": offset_count, "p3": limit_count})
         async for row in result:
             yield models.ScheduledJob(
                 id=row[0],
