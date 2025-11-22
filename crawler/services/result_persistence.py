@@ -12,7 +12,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from crawler.core.logging import get_logger
-from crawler.db.repositories import CrawledPageRepository
+from crawler.db.repositories import ContentHashRepository, CrawledPageRepository
+from crawler.services.content_normalizer import ContentNormalizer
+from crawler.utils.simhash import Simhash
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -20,6 +22,9 @@ if TYPE_CHECKING:
     from crawler.services.step_execution_context import StepExecutionContext
 
 logger = get_logger(__name__)
+
+# Simhash uses 64-bit fingerprints
+SIMHASH_BITS = 64
 
 
 class ResultPersistenceService:
@@ -33,6 +38,8 @@ class ResultPersistenceService:
         """
         self.conn = conn
         self.page_repo = CrawledPageRepository(conn)
+        self.content_hash_repo = ContentHashRepository(conn)
+        self.normalizer = ContentNormalizer()
 
     async def persist_workflow_results(
         self,
@@ -117,13 +124,13 @@ class ResultPersistenceService:
         return {"pages_saved": pages_saved, "pages_failed": pages_failed}
 
     def _extract_pages_from_step(
-        self, step_name: str, extracted_data: dict[str, Any]
+        self, step_name: str, extracted_data: dict[str, Any] | None
     ) -> list[dict[str, Any]]:
         """Extract page data from step result.
 
         Args:
             step_name: Name of the step
-            extracted_data: Extracted data from step
+            extracted_data: Extracted data from step (None if no data)
 
         Returns:
             List of page data dictionaries with _url field
@@ -162,7 +169,7 @@ class ResultPersistenceService:
         website_id: str,
         page_data: dict[str, Any],
     ) -> None:
-        """Save a single page to database.
+        """Save a single page to database with duplicate detection.
 
         Args:
             job_id: Job ID
@@ -184,14 +191,80 @@ class ResultPersistenceService:
         url_hash = self._hash_url(url)
         content_hash = self._hash_content(content)
 
+        # Generate Simhash fingerprint if content is available
+        simhash_fingerprint = None
+        if content:
+            try:
+                # Normalize content for hashing
+                normalized_content = self.normalizer.normalize_for_hash(content)
+                if normalized_content:
+                    # Generate fingerprint
+                    simhash = Simhash(normalized_content)
+                    simhash_fingerprint = simhash.fingerprint
+            except Exception as e:
+                logger.warning("simhash_generation_failed", url=url, error=str(e))
+
         # Extract title if present
         title = extracted_data.get("title")
 
         # Serialize extracted data to JSON string
         extracted_json = json.dumps(extracted_data, ensure_ascii=False)
 
-        # Save to database
-        await self.page_repo.create(
+        # Step 1: Check if content is duplicate (by content_hash)
+        duplicate_of = None
+        similarity_score = None
+        existing_page_with_content = await self.page_repo.get_by_content_hash(content_hash)
+
+        if existing_page_with_content:
+            # Content already exists - this is a duplicate
+            duplicate_of = str(existing_page_with_content.id)
+            similarity_score = 100  # Exact match
+
+            logger.info(
+                "page_duplicate_detected_exact",
+                url=url,
+                content_hash=content_hash,
+                duplicate_of=duplicate_of,
+            )
+
+        # Step 1.5: Check for fuzzy duplicate if no exact match found and we have a fingerprint
+        elif simhash_fingerprint is not None:
+            # Find similar content within Hamming distance of 3 (approx 95% similarity)
+            similar_content = await self.content_hash_repo.find_similar(
+                target_fingerprint=simhash_fingerprint,
+                max_distance=3,
+                limit=1,
+            )
+
+            if similar_content:
+                # Found a similar page
+                match = similar_content[0]
+
+                # Get the page ID associated with this content hash
+                # Note: find_similar returns content_hash rows,
+                # we need to find a page with this hash
+                similar_page = await self.page_repo.get_by_content_hash(match.content_hash)
+
+                if similar_page:
+                    duplicate_of = str(similar_page.id)
+
+                    # Calculate similarity score: (1 - distance/SIMHASH_BITS) * 100
+                    # distance is Hamming distance between 64-bit fingerprints
+                    distance = match.hamming_distance
+                    raw_score = (1 - distance / SIMHASH_BITS) * 100
+                    # Clamp score to [0, 100] to guard against unexpected distances
+                    similarity_score = max(0, min(100, int(raw_score)))
+
+                    logger.info(
+                        "page_duplicate_detected_fuzzy",
+                        url=url,
+                        duplicate_of=duplicate_of,
+                        distance=distance,
+                        similarity_score=similarity_score,
+                    )
+
+        # Step 2: Save to database (ON CONFLICT handles same URL gracefully)
+        saved_page = await self.page_repo.create(
             website_id=website_id,
             job_id=job_id,
             url=url,
@@ -205,7 +278,40 @@ class ResultPersistenceService:
             gcs_documents=None,
         )
 
-        logger.debug("page_saved", url=url, extracted_fields=len(extracted_data))
+        # Step 2.5: Upsert content hash with Simhash fingerprint
+        if saved_page:
+            try:
+                if simhash_fingerprint is not None:
+                    await self.content_hash_repo.upsert_with_simhash(
+                        content_hash_value=content_hash,
+                        first_seen_page_id=saved_page.id,
+                        simhash_fingerprint=simhash_fingerprint,
+                    )
+                else:
+                    # Fallback to standard upsert if no fingerprint
+                    await self.content_hash_repo.upsert(
+                        content_hash_value=content_hash,
+                        first_seen_page_id=saved_page.id,
+                    )
+            except Exception as e:
+                logger.error("content_hash_upsert_failed", error=str(e))
+
+        # Step 3: Mark as duplicate if content already exists
+        if duplicate_of and saved_page:
+            await self.page_repo.mark_as_duplicate(
+                page_id=str(saved_page.id),
+                duplicate_of=duplicate_of,
+                similarity_score=similarity_score,
+            )
+            logger.info(
+                "page_marked_as_duplicate",
+                url=url,
+                page_id=str(saved_page.id),
+                duplicate_of=duplicate_of,
+                similarity_score=similarity_score,
+            )
+        else:
+            logger.debug("page_saved", url=url, extracted_fields=len(extracted_data))
 
     def _hash_url(self, url: str) -> str:
         """Generate SHA256 hash of URL for deduplication.

@@ -19,6 +19,12 @@ from .jobs import (
     generate_ws_token_handler,
 )
 from .logs import get_job_logs_handler
+from .scheduled_jobs import (
+    delete_scheduled_job_handler,
+    get_scheduled_job_handler,
+    list_scheduled_jobs_handler,
+    update_scheduled_job_handler,
+)
 from .websites import (
     create_website_handler,
     delete_website_handler,
@@ -58,4 +64,8 @@ __all__ = [
     "retry_dlq_entry_handler",
     "resolve_dlq_entry_handler",
     "get_dlq_stats_handler",
+    "list_scheduled_jobs_handler",
+    "get_scheduled_job_handler",
+    "update_scheduled_job_handler",
+    "delete_scheduled_job_handler",
 ]

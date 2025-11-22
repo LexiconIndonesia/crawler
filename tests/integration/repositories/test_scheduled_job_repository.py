@@ -281,6 +281,66 @@ class TestScheduledJobRepository:
         assert isinstance(matching_job.job_config, dict)
         assert matching_job.job_config == complex_config
 
+    async def test_list_by_status_pagination(self, db_session: AsyncSession) -> None:
+        """Test listing jobs by status with pagination."""
+        conn = await db_session.connection()
+        website_repo = WebsiteRepository(conn)
+        scheduled_job_repo = ScheduledJobRepository(conn)
+
+        # Create website
+        website = await website_repo.create(
+            name="list-status-site", base_url="https://test.com", config={}
+        )
+
+        # Create 5 active jobs and 3 inactive jobs
+        for i in range(5):
+            await scheduled_job_repo.create(
+                website_id=str(website.id),
+                cron_schedule="0 0 * * *",
+                next_run_time=datetime.now(UTC) + timedelta(hours=i),
+                timezone="UTC",
+                is_active=True,
+            )
+
+        for i in range(3):
+            await scheduled_job_repo.create(
+                website_id=str(website.id),
+                cron_schedule="0 12 * * *",
+                next_run_time=datetime.now(UTC) + timedelta(hours=i),
+                timezone="UTC",
+                is_active=False,
+            )
+
+        # Test list_by_status for active jobs
+        active_jobs = await scheduled_job_repo.list_by_status(is_active=True, limit=10, offset=0)
+        website_active_jobs = [j for j in active_jobs if j.website_id == website.id]
+        assert len(website_active_jobs) == 5
+        assert all(job.is_active for job in website_active_jobs)
+
+        # Test list_by_status for inactive jobs
+        inactive_jobs = await scheduled_job_repo.list_by_status(is_active=False, limit=10, offset=0)
+        website_inactive_jobs = [j for j in inactive_jobs if j.website_id == website.id]
+        assert len(website_inactive_jobs) == 3
+        assert all(not job.is_active for job in website_inactive_jobs)
+
+        # Test pagination for active jobs
+        page1 = await scheduled_job_repo.list_by_status(is_active=True, limit=2, offset=0)
+        page1_website = [j for j in page1 if j.website_id == website.id]
+        assert len(page1_website) <= 2
+
+        page2 = await scheduled_job_repo.list_by_status(is_active=True, limit=2, offset=2)
+        page2_website = [j for j in page2 if j.website_id == website.id]
+        # Ensure we get different jobs in different pages
+        page1_ids = {j.id for j in page1_website}
+        page2_ids = {j.id for j in page2_website}
+        assert page1_ids.isdisjoint(page2_ids), "Pages should contain different jobs"
+
+        # Test count method
+        active_count = await scheduled_job_repo.count(is_active=True)
+        inactive_count = await scheduled_job_repo.count(is_active=False)
+        assert active_count >= 5
+        assert inactive_count >= 3
+
     async def test_timezone_persistence_and_retrieval(self, db_session: AsyncSession) -> None:
         """Test that timezone is correctly persisted and retrieved across all repository methods."""
         conn = await db_session.connection()

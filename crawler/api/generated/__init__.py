@@ -40,8 +40,10 @@ from .models import (
     ErrorResponse,
     HealthResponse,
     HttpMethod,
+    JobStatusEnum,
     JobType,
     JobTypeEnum,
+    ListScheduledJobsResponse,
     ListWebsitesResponse,
     LogLevelEnum,
     MethodEnum,
@@ -53,26 +55,33 @@ from .models import (
     RollbackConfigRequest,
     RollbackConfigResponse,
     RootResponse,
+    ScheduledJobResponse,
+    ScheduledJobSummary,
     ScheduleStatusResponse,
     ScheduleTypeEnum,
     SeedJobResponse,
     SelectorConfig,
     SelectorTypeEnum,
     Status,
-    StatusEnum,
     StepTypeEnum,
     TimeoutConfig,
     TriggerCrawlRequest,
     TriggerCrawlResponse,
+    UpdateScheduledJobRequest,
     UpdateWebsiteResponse,
     ValidationError,
     WaitUntil,
     WebsiteResponse,
     WebsiteStatistics,
+    WebsiteStatus,
     WebsiteSummary,
     WebsiteWithStatsResponse,
     WSTokenResponse,
 )
+
+# Aliases for better naming
+StatusEnum = JobStatusEnum  # Job status enum (pending, running, completed, failed, cancelled)
+CrawlJobStatusEnum = JobStatusEnum  # Alias for compatibility
 
 # Aliases for convenience (shorter names)
 PaginationType = PaginationTypeEnum
@@ -110,6 +119,11 @@ __all__ = [
     "ErrorResponse",
     "ValidationError",
     "DetailItem",
+    # Scheduled Jobs Models
+    "ListScheduledJobsResponse",
+    "ScheduledJobSummary",
+    "ScheduledJobResponse",
+    "UpdateScheduledJobRequest",
     # DLQ Models
     "DLQEntry",
     "DLQEntryResponse",
@@ -132,7 +146,10 @@ __all__ = [
     "CrawlStep",
     # Enums
     "StatusEnum",
+    "CrawlJobStatusEnum",
     "CrawlJobStatus",
+    "WebsiteStatus",
+    "JobStatusEnum",
     "ScheduleTypeEnum",
     "StepTypeEnum",
     "MethodEnum",

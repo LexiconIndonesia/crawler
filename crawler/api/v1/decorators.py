@@ -62,6 +62,8 @@ def handle_service_errors(
                     or "job id" in error_msg
                     or "entry with id" in error_msg
                     or "dlq entry" in error_msg
+                    or "website with id" in error_msg
+                    or "scheduled job with id" in error_msg
                 )
 
                 if is_not_found:
