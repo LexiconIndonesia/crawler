@@ -244,3 +244,55 @@ class TestLocalRateLimiter:
 
         # Should have refilled to near max (might be slightly less due to consumption)
         assert limiter._tokens >= 4.0
+
+    async def test_acquire_releases_semaphore_on_cancellation(self) -> None:
+        """Test that acquire() releases semaphore when cancelled during token acquisition.
+
+        This test verifies the fix for the semaphore leak when a task is cancelled
+        while waiting for rate limit tokens. The semaphore must be released even
+        when CancelledError (a BaseException) is raised.
+        """
+        # Use low rate to force token waiting, high burst initially, concurrent_pages=1
+        limiter = LocalRateLimiter(requests_per_second=0.5, concurrent_pages=1, burst=100)
+
+        # Deplete tokens to force next acquire to wait for refill
+        for _ in range(100):
+            async with limiter.acquire():
+                pass
+
+        # Tokens are now depleted
+        assert limiter._tokens < 1.0
+
+        # Create a task that will be cancelled during token acquisition
+        async def acquire_and_wait() -> None:
+            async with limiter.acquire():
+                pytest.fail("Should have been cancelled before entering context")
+
+        # Start task - it acquires semaphore, then waits for tokens
+        task = asyncio.create_task(acquire_and_wait())
+
+        # Give time to acquire semaphore and start waiting for tokens
+        await asyncio.sleep(0.05)
+
+        # Cancel while waiting for tokens
+        task.cancel()
+
+        # Verify cancellation
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Now verify semaphore was released by checking we can acquire it
+        # We'll use a direct semaphore check instead of full acquire
+        # to avoid token refill timing issues
+        semaphore_acquired = False
+        try:
+            # Try to acquire semaphore without waiting - should succeed immediately
+            # if the cancelled task properly released it
+            await asyncio.wait_for(limiter._semaphore.acquire(), timeout=0.1)
+            semaphore_acquired = True
+            limiter._semaphore.release()
+        except TimeoutError:
+            # Semaphore was not available - means it wasn't released properly
+            semaphore_acquired = False
+
+        assert semaphore_acquired, "Semaphore should have been released when task was cancelled"

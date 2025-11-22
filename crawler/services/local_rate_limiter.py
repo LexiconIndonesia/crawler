@@ -127,8 +127,8 @@ class LocalRateLimiter:
         # Then acquire token (limits rate)
         try:
             await self._acquire_token()
-        except Exception:
-            # If token acquisition fails, release semaphore
+        except BaseException:
+            # If token acquisition fails (including cancellation), release semaphore
             self._semaphore.release()
             raise
 

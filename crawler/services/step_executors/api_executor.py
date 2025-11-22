@@ -81,18 +81,19 @@ class APIExecutor(BaseStepExecutor):
         Returns:
             ExecutionResult with JSON response and extracted data
         """
+        # Extract timeout from merged config (handles GlobalConfig.timeout.http_request)
+        # Initialize before try block to avoid UnboundLocalError in exception handlers
+        timeout_config = step_config.get("timeout", {})
+        if isinstance(timeout_config, dict):
+            # GlobalConfig structure: {"http_request": 30, "page_load": 30, "selector_wait": 10}
+            timeout = timeout_config.get("http_request", 30)
+        else:
+            # Legacy: timeout as integer
+            timeout = timeout_config if isinstance(timeout_config, (int, float)) else 30
+
         try:
             # Get or create client
             client = await self._get_client()
-
-            # Extract timeout from merged config (handles GlobalConfig.timeout.http_request)
-            timeout_config = step_config.get("timeout", {})
-            if isinstance(timeout_config, dict):
-                # GlobalConfig structure: {"http_request": 30, "page_load": 30, "selector_wait": 10}
-                timeout = timeout_config.get("http_request", 30)
-            else:
-                # Legacy: timeout as integer
-                timeout = timeout_config if isinstance(timeout_config, (int, float)) else 30
 
             # Copy headers to avoid mutating step_config
             headers = dict(step_config.get("headers", {}))
