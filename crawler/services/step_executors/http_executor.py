@@ -95,7 +95,8 @@ class HTTPExecutor(BaseStepExecutor):
             # Get or create client
             client = await self._get_client()
 
-            headers = step_config.get("headers", {})
+            # Copy headers to avoid mutating step_config
+            headers = dict(step_config.get("headers", {}))
             method = step_config.get("http_method", "GET").upper()
 
             # Make HTTP request (with rate limiting if configured)
@@ -107,6 +108,22 @@ class HTTPExecutor(BaseStepExecutor):
                 rate_limited=self.rate_limiter is not None,
             )
 
+            # Extract additional request kwargs from step_config
+            # This enables POST/PUT bodies, query params, files, etc.
+            extra_kwargs = {
+                key: step_config[key]
+                for key in (
+                    "params",
+                    "data",
+                    "json",
+                    "content",
+                    "files",
+                    "cookies",
+                    "auth",
+                )
+                if key in step_config
+            }
+
             # Apply rate limiting if configured
             if self.rate_limiter:
                 async with self.rate_limiter.acquire():
@@ -116,6 +133,7 @@ class HTTPExecutor(BaseStepExecutor):
                         headers=headers,
                         timeout=timeout,
                         follow_redirects=True,
+                        **extra_kwargs,
                     )
             else:
                 response = await client.request(
@@ -124,6 +142,7 @@ class HTTPExecutor(BaseStepExecutor):
                     headers=headers,
                     timeout=timeout,
                     follow_redirects=True,
+                    **extra_kwargs,
                 )
 
             # Get descriptive status message (e.g., "200 OK", "404 Not Found")

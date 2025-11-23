@@ -76,14 +76,19 @@ class LocalRateLimiter:
 
     async def _acquire_token(self) -> None:
         """Acquire a token, waiting if necessary."""
-        await self._lock.acquire()
-        try:
-            # Refill tokens first
-            await self._refill_tokens()
+        while True:
+            async with self._lock:
+                # Refill tokens
+                await self._refill_tokens()
 
-            # If we don't have tokens, wait for them
-            while self._tokens < 1.0:
-                # How long until we have 1 token?
+                # Check if we have enough tokens
+                if self._tokens >= 1.0:
+                    # Consume token and exit
+                    self._tokens -= 1.0
+                    logger.debug("rate_limit_token_acquired", tokens_remaining=self._tokens)
+                    return
+
+                # Calculate wait time (we need more tokens)
                 tokens_needed = 1.0 - self._tokens
                 wait_seconds = tokens_needed / self.requests_per_second
 
@@ -93,22 +98,10 @@ class LocalRateLimiter:
                     wait_seconds=wait_seconds,
                 )
 
-                # Release lock before sleeping (allow other coroutines to proceed)
-                self._lock.release()
-                try:
-                    await asyncio.sleep(wait_seconds)
-                finally:
-                    # Re-acquire lock after sleeping
-                    await self._lock.acquire()
-
-                # Refill tokens after waiting
-                await self._refill_tokens()
-
-            # Consume token (we have >= 1.0 tokens now)
-            self._tokens -= 1.0
-            logger.debug("rate_limit_token_acquired", tokens_remaining=self._tokens)
-        finally:
-            self._lock.release()
+            # Lock is released here (exiting async with context)
+            # Sleep outside the lock to allow other coroutines to proceed
+            await asyncio.sleep(wait_seconds)
+            # Loop back to re-acquire lock and check tokens again
 
     @asynccontextmanager
     async def acquire(self) -> AsyncIterator[None]:
