@@ -7,9 +7,9 @@ from .scheduled_jobs import router as scheduled_jobs_router
 from .websites import router as websites_router
 
 __all__ = [
-    "websites_router",
-    "jobs_router",
     "dlq_router",
     "duplicates_router",
+    "jobs_router",
     "scheduled_jobs_router",
+    "websites_router",
 ]

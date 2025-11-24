@@ -122,7 +122,7 @@ async def drop_schema(conn: AsyncConnection) -> None:
 
 
 @pytest.fixture(scope="session")
-def event_loop() -> AsyncGenerator[asyncio.AbstractEventLoop, None]:  # type: ignore[misc]
+def event_loop() -> AsyncGenerator[asyncio.AbstractEventLoop]:  # type: ignore[misc]
     """Create event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
@@ -140,7 +140,7 @@ def settings() -> Settings:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession]:
     """Create a test database session.
 
     This fixture reuses the session-scoped schema and creates a transaction
@@ -166,7 +166,7 @@ async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession, None]
 
 
 @pytest_asyncio.fixture(scope="function")
-async def db_connection(test_db_schema: None) -> AsyncGenerator[AsyncConnection, None]:
+async def db_connection(test_db_schema: None) -> AsyncGenerator[AsyncConnection]:
     """Create a test database connection for sqlc repositories.
 
     This fixture reuses the session-scoped schema and creates a transaction
@@ -254,7 +254,7 @@ async def dlq_repo(db_connection: AsyncConnection) -> DeadLetterQueueRepository:
 
 
 @pytest_asyncio.fixture
-async def redis_client() -> AsyncGenerator[redis.Redis, None]:
+async def redis_client() -> AsyncGenerator[redis.Redis]:
     """Create a Redis client for testing.
 
     This fixture provides a Redis client without reusing the global pool
@@ -316,7 +316,7 @@ async def seed_retry_policies(conn: AsyncConnection) -> None:
 
 
 @pytest_asyncio.fixture(scope="session")
-async def test_db_schema() -> AsyncGenerator[None, None]:
+async def test_db_schema() -> AsyncGenerator[None]:
     """Set up database schema once for all integration tests."""
     engine = create_async_engine(str(_test_settings.database_url), echo=False)
 
@@ -340,7 +340,7 @@ async def test_db_schema() -> AsyncGenerator[None, None]:
 
 
 @pytest_asyncio.fixture
-async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient, None]:
+async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
     """Create FastAPI test client for integration tests.
 
     This fixture provides an async HTTP client for testing API endpoints.
@@ -381,7 +381,7 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient, None]
         transaction = await session.begin()
         try:
 
-            async def get_test_db() -> AsyncGenerator[AsyncSession, None]:
+            async def get_test_db() -> AsyncGenerator[AsyncSession]:
                 """Return the shared test session."""
                 yield session
 

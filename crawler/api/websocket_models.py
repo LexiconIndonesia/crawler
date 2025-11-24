@@ -42,7 +42,7 @@ class WebSocketLogMessage(BaseModel):
     )
 
     @classmethod
-    def from_crawl_log(cls, log: CrawlLog) -> "WebSocketLogMessage":
+    def from_crawl_log(cls, log: CrawlLog) -> WebSocketLogMessage:
         """Convert CrawlLog database model to WebSocket message format.
 
         Args:

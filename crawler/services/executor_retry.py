@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 T = TypeVar("T")
 
 
-async def execute_with_retry(
+async def execute_with_retry[T](
     func: Callable[[], Awaitable[T]],
     retry_config: dict[str, Any] | None,
     operation_name: str,

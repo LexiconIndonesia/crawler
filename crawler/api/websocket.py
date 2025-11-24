@@ -1,6 +1,7 @@
 """WebSocket endpoints for real-time features."""
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -141,7 +142,7 @@ async def stream_job_logs(
 async def _send_initial_logs(
     websocket: WebSocket,
     log_repo: CrawlLogRepository,
-    log_buffer: "LogBuffer",
+    log_buffer: LogBuffer,
     job_id: str,
     last_log_id: int | None = None,
     timeout: float = 30.0,
@@ -316,10 +317,8 @@ async def _stream_logs_via_nats(
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="NATS error")
     finally:
         # Flush any remaining messages
-        try:
+        with contextlib.suppress(Exception):
             await flush_buffer()
-        except Exception:
-            pass  # WebSocket already closed
 
         # Cleanup NATS subscription
         if subscription:

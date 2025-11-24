@@ -21,25 +21,25 @@ from crawler.utils.url import (
 )
 
 __all__ = [
-    # URL utilities
-    "normalize_url",
-    "are_urls_equivalent",
-    "hash_url",
-    "normalize_and_hash",
-    # Simhash utilities
-    "Simhash",
-    "compare_texts",
-    "find_near_duplicates",
-    "to_signed_int64",
-    "from_signed_int64",
     # Pagination utilities
     "PaginationPattern",
-    "QueryParamPattern",
-    "PathSegmentPattern",
-    "PathEmbeddedPattern",
-    "TemplatePattern",
     "PaginationPatternDetector",
-    "PaginationURLGenerator",
     "PaginationStopDetector",
+    "PaginationURLGenerator",
+    "PathEmbeddedPattern",
+    "PathSegmentPattern",
+    "QueryParamPattern",
+    # Simhash utilities
+    "Simhash",
     "StopCondition",
+    "TemplatePattern",
+    "are_urls_equivalent",
+    "compare_texts",
+    "find_near_duplicates",
+    "from_signed_int64",
+    "hash_url",
+    "normalize_and_hash",
+    # URL utilities
+    "normalize_url",
+    "to_signed_int64",
 ]

@@ -1,6 +1,7 @@
 """Integration tests for Redis-based retry scheduler."""
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -180,10 +181,8 @@ class TestRetrySchedulerLoop:
         # Let it run for 1.5 seconds (enough for one iteration)
         await asyncio.sleep(1.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Verify both jobs were published
         assert mock_nats_queue.publish_job.call_count == 2
@@ -206,10 +205,8 @@ class TestRetrySchedulerLoop:
 
         await asyncio.sleep(1.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Job should be removed from Redis
         assert await retry_cache.redis.zscore(retry_cache.key, job_id) is None
@@ -233,10 +230,8 @@ class TestRetrySchedulerLoop:
 
         await asyncio.sleep(1.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Job should still be in Redis
         assert await retry_cache.redis.zscore(retry_cache.key, job_id) is not None
@@ -259,10 +254,8 @@ class TestRetrySchedulerLoop:
         # Run for 0.5 seconds (less than interval, only one iteration)
         await asyncio.sleep(0.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Should only process 5 jobs in first iteration
         assert mock_nats_queue.publish_job.call_count == 5
@@ -288,10 +281,8 @@ class TestRetrySchedulerLoop:
 
         await asyncio.sleep(1.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Only ready job should be published
         assert mock_nats_queue.publish_job.call_count == 1
@@ -328,10 +319,8 @@ class TestRetrySchedulerLoop:
 
         await asyncio.sleep(0.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # Both jobs should be attempted in one iteration
         assert call_count == 2
@@ -437,10 +426,8 @@ class TestSchedulerPerformance:
 
         await asyncio.sleep(1.5)
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
         # All 100 jobs should be processed
         assert mock_nats_queue.publish_job.call_count == 100

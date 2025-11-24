@@ -7,6 +7,7 @@ Provides reliable message queuing for crawl jobs with:
 - Dead letter queue for failed jobs
 """
 
+import contextlib
 import json
 from typing import Any
 
@@ -245,13 +246,11 @@ class NATSQueueService:
                 # Clean up temporary subscription
                 await psub.unsubscribe()
                 # Delete the temporary consumer
-                try:
+                with contextlib.suppress(Exception):
                     await self.js.delete_consumer(
                         self.stream_name,
                         f"temp-cancel-{job_id[:8]}",
                     )
-                except Exception:
-                    pass  # Consumer might already be deleted
 
             if removed:
                 logger.info("job_cancelled_from_queue", job_id=job_id)
@@ -280,7 +279,7 @@ class NATSQueueService:
 
         try:
             stream_info = await self.js.stream_info(self.stream_name)
-            return stream_info.state.messages
+            return int(stream_info.state.messages)
         except Exception as e:
             logger.error("failed_to_get_pending_count", error=str(e))
             return 0

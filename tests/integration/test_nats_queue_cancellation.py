@@ -22,7 +22,7 @@ from crawler.services.redis_cache import JobCancellationFlag
 
 
 @pytest.fixture
-async def redis_client() -> AsyncGenerator[redis.Redis, None]:
+async def redis_client() -> AsyncGenerator[redis.Redis]:
     """Create Redis client for testing."""
     settings = get_settings()
     client = redis.from_url(settings.redis_url)

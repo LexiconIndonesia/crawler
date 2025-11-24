@@ -1,0 +1,104 @@
+# Pre-commit hooks for Lexicon Crawler
+# See https://pre-commit.com for more information
+# Install hooks: make install-hooks or pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Ruff - Fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.6
+    hooks:
+      # Run the formatter
+      - id: ruff-format
+        name: ruff format
+        description: Format Python code with ruff
+        types_or: [python, pyi]
+        exclude: ^(crawler/db/generated|crawler/api/generated|clients/python)/
+
+      # Run the linter with auto-fix
+      - id: ruff
+        name: ruff lint
+        description: Lint Python code with ruff
+        args: [--fix]
+        types_or: [python, pyi]
+        exclude: ^(crawler/db/generated|crawler/api/generated|clients/python)/
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.1
+    hooks:
+      - id: mypy
+        name: mypy type check
+        description: Run static type checking with mypy
+        files: ^crawler/(api/(routes|handlers|v1)|services|core|worker\.py)
+        args: []
+        additional_dependencies:
+          - types-redis>=4.6.0
+          - types-croniter>=6.0.0.20250809
+          - types-lxml>=2025.3.0
+          - types-psutil>=6.0.0
+          - asyncpg-stubs>=0.30.0
+          - pydantic>=2.0.0
+          - pydantic-settings>=2.0.0
+          - sqlalchemy>=2.0.0
+          - fastapi>=0.115.0
+          - httpx>=0.27.0
+          - nats-py>=2.9.0
+          - playwright>=1.48.0
+          - prometheus-client>=0.21.0
+          - structlog>=24.4.0
+          - google-cloud-storage>=2.18.0
+
+  # OpenAPI validation and model generation
+  - repo: local
+    hooks:
+      # Validate OpenAPI spec
+      - id: validate-openapi
+        name: Validate OpenAPI spec
+        description: Validate openapi.yaml specification
+        entry: bash -c 'openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5'
+        language: system
+        files: ^openapi\.yaml$
+        pass_filenames: false
+
+      # Generate Pydantic models from OpenAPI
+      - id: generate-openapi-models
+        name: Generate OpenAPI models
+        description: Generate Pydantic models from openapi.yaml
+        entry: bash -c 'mkdir -p crawler/api/generated && uv run datamodel-codegen --input openapi.yaml --output crawler/api/generated/models.py --input-file-type openapi --output-model-type pydantic_v2.BaseModel --use-standard-collections --use-schema-description --field-constraints --use-default --use-annotated --use-double-quotes --target-python-version 3.14'
+        language: system
+        files: ^openapi\.yaml$
+        pass_filenames: false
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        exclude: ^(.*\.md|.*\.txt)$
+      - id: end-of-file-fixer
+        name: Fix end of files
+        exclude: ^(crawler/db/generated|crawler/api/generated|clients/python)/
+      - id: check-yaml
+        name: Check YAML syntax
+        args: [--unsafe]  # Allow custom YAML tags
+      - id: check-added-large-files
+        name: Check for large files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: check-case-conflict
+        name: Check for case conflicts
+      - id: mixed-line-ending
+        name: Check line endings
+        args: [--fix=lf]
+
+# Global configuration
+default_language_version:
+  python: python3.14
+
+# Skip hooks that are too slow or not needed for every commit
+# You can override this with: SKIP=hook-id git commit
+ci:
+  skip: [mypy, validate-openapi, generate-openapi-models]

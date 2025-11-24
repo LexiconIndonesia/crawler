@@ -20,6 +20,7 @@ import hashlib
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import ClassVar
 from urllib.parse import ParseResult, parse_qs, urlencode, urlparse, urlunparse
 
 from crawler.core.logging import get_logger
@@ -190,10 +191,10 @@ class PaginationPatternDetector:
     """
 
     # Common pagination parameter names (in priority order)
-    QUERY_PARAM_NAMES = ["page", "p", "offset", "start", "skip", "from"]
+    QUERY_PARAM_NAMES: ClassVar[list[str]] = ["page", "p", "offset", "start", "skip", "from"]
 
     # Common path segment indicators
-    PATH_SEGMENT_INDICATORS = ["page", "p"]
+    PATH_SEGMENT_INDICATORS: ClassVar[list[str]] = ["page", "p"]
 
     def detect(self, seed_url: str) -> PaginationPattern | None:
         """Detect pagination pattern from seed URL.
@@ -300,17 +301,15 @@ class PaginationPatternDetector:
 
         # Look for indicators like /page/5 or /p/3
         for i, part in enumerate(path_parts):
-            if part.lower() in self.PATH_SEGMENT_INDICATORS:
-                # Check if next segment is a number
-                if i + 1 < len(path_parts):
-                    try:
-                        page_number = int(path_parts[i + 1])
-                        return PathSegmentPattern(
-                            segment_index=i + 1,
-                            current_page=page_number,
-                        )
-                    except ValueError:
-                        continue
+            if part.lower() in self.PATH_SEGMENT_INDICATORS and i + 1 < len(path_parts):
+                try:
+                    page_number = int(path_parts[i + 1])
+                    return PathSegmentPattern(
+                        segment_index=i + 1,
+                        current_page=page_number,
+                    )
+                except ValueError:
+                    continue
 
         return None
 

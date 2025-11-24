@@ -93,7 +93,7 @@ async def health(
         health_status["checks"]["database"] = "connected"
     except Exception as e:
         health_status["status"] = "unhealthy"
-        health_status["checks"]["database"] = f"error: {str(e)}"
+        health_status["checks"]["database"] = f"error: {e!s}"
 
     # Check Redis connection
     try:
@@ -101,7 +101,7 @@ async def health(
         health_status["checks"]["redis"] = "connected"
     except Exception as e:
         health_status["status"] = "unhealthy"
-        health_status["checks"]["redis"] = f"error: {str(e)}"
+        health_status["checks"]["redis"] = f"error: {e!s}"
 
     return HealthResponse(**health_status)
 

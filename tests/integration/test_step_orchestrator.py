@@ -697,7 +697,7 @@ class TestStepOrchestrator:
             # Only first step in execution order should have executed
             # (dependency validator determines order, not definition order)
             assert len(context.step_results) == 1
-            first_step = list(context.step_results.keys())[0]
+            first_step = next(iter(context.step_results.keys()))
             assert context.step_results[first_step].success
 
             # Other steps should not have executed

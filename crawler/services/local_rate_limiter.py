@@ -132,7 +132,7 @@ class LocalRateLimiter:
             self._semaphore.release()
 
     @classmethod
-    def from_config(cls, rate_limit_config: dict[str, Any] | None) -> "LocalRateLimiter":
+    def from_config(cls, rate_limit_config: dict[str, Any] | None) -> LocalRateLimiter:
         """Create rate limiter from GlobalConfig.rate_limit dict.
 
         Args:

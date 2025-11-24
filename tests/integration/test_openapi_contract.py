@@ -16,7 +16,7 @@ from main import create_app
 def load_contract_spec() -> dict:
     """Load the OpenAPI contract from openapi.yaml."""
     contract_path = Path(__file__).parent.parent.parent / "openapi.yaml"
-    with open(contract_path) as f:
+    with contract_path.open() as f:
         return yaml.safe_load(f)
 
 
@@ -81,8 +81,8 @@ class TestOpenAPIContract:
         for path, contract_methods in contract_spec.get("paths", {}).items():
             fastapi_methods = fastapi_spec.get("paths", {}).get(path, {})
 
-            contract_method_set = set(m for m in contract_methods.keys() if m not in ["parameters"])
-            fastapi_method_set = set(m for m in fastapi_methods.keys() if m not in ["parameters"])
+            contract_method_set = {m for m in contract_methods if m not in ["parameters"]}
+            fastapi_method_set = {m for m in fastapi_methods if m not in ["parameters"]}
 
             if contract_method_set != fastapi_method_set:
                 mismatches.append(
@@ -142,9 +142,7 @@ class TestOpenAPIContract:
                 contract_responses = contract_methods[method].get("responses", {})
                 fastapi_responses = fastapi_methods.get(method, {}).get("responses", {})
 
-                has_success_response = any(
-                    status.startswith("2") for status in fastapi_responses.keys()
-                )
+                has_success_response = any(status.startswith("2") for status in fastapi_responses)
 
                 if not has_success_response and contract_responses:
                     missing_responses.append({"path": path, "method": method.upper()})

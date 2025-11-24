@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-__all__ = ["MemoryPressureHandler", "PressureState", "PressureAction", "PressureResponse"]
+__all__ = ["MemoryPressureHandler", "PressureAction", "PressureResponse", "PressureState"]
 
 
 class PressureState(str, Enum):

@@ -12,7 +12,7 @@ This service orchestrates the complete seed URL crawling workflow:
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -114,10 +114,10 @@ class SeedURLCrawlerConfig:
     cleanup_coordinator: CleanupCoordinator | None = None
 
     # Optional: CrawlJobRepository for updating job status on cancellation
-    job_repo: "CrawlJobRepository | None" = None
+    job_repo: CrawlJobRepository | None = None
 
     # Optional: CrawlLogRepository for writing crawl logs
-    crawl_log_repo: "CrawlLogRepository | None" = None
+    crawl_log_repo: CrawlLogRepository | None = None
 
     # Optional: Website ID for log entries
     website_id: str | None = None
@@ -150,6 +150,7 @@ class SeedURLCrawler:
     def __init__(self) -> None:
         """Initialize seed URL crawler."""
         self.pagination_service = PaginationService()
+        self._background_tasks: set[asyncio.Task[Any]] = set()  # Prevent task GC
         # HTML parser and URL extractor will be created per-crawl
         # to avoid sharing state
 
@@ -206,7 +207,9 @@ class SeedURLCrawler:
                 )
 
         # Fire and forget - don't await
-        asyncio.create_task(write_log_task())
+        task = asyncio.create_task(write_log_task())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _check_cancellation(
         self,
@@ -453,7 +456,7 @@ class SeedURLCrawler:
                 # Write log: request error
                 self._write_log(
                     config,
-                    f"Failed to fetch seed URL: {str(e)}",
+                    f"Failed to fetch seed URL: {e!s}",
                     log_level=LogLevelEnum.ERROR,
                     step_name="fetch_seed_url",
                     context={"seed_url": seed_url, "error": str(e)},
@@ -517,7 +520,7 @@ class SeedURLCrawler:
             # Write log: unexpected error
             self._write_log(
                 config,
-                f"Unexpected error during crawl: {str(e)}",
+                f"Unexpected error during crawl: {e!s}",
                 log_level=LogLevelEnum.CRITICAL,
                 step_name="crawl",
                 context={"seed_url": seed_url, "error": str(e)},
@@ -657,7 +660,7 @@ class SeedURLCrawler:
                 # Write log: seed page extraction failed
                 self._write_log(
                     config,
-                    f"Failed to extract URLs from seed page: {str(e)}",
+                    f"Failed to extract URLs from seed page: {e!s}",
                     log_level=LogLevelEnum.ERROR,
                     step_name="extract_urls",
                     context={"page_url": seed_url, "error": str(e)},
@@ -675,7 +678,7 @@ class SeedURLCrawler:
             # Now crawl remaining pagination pages
             async for (
                 url,
-                status_code,
+                _status_code,
                 content,
             ) in self.pagination_service.generate_with_stop_detection(
                 seed_url=seed_url,
@@ -747,7 +750,7 @@ class SeedURLCrawler:
                     # Write log: pagination page extraction failed
                     self._write_log(
                         config,
-                        f"Failed to extract URLs from page {pages_crawled + 1}: {str(e)}",
+                        f"Failed to extract URLs from page {pages_crawled + 1}: {e!s}",
                         log_level=LogLevelEnum.WARNING,
                         step_name="extract_urls",
                         context={"page_url": url, "error": str(e)},
@@ -841,7 +844,7 @@ class SeedURLCrawler:
                 # Write log: single page extraction failed
                 self._write_log(
                     config,
-                    f"Failed to extract URLs from single page: {str(e)}",
+                    f"Failed to extract URLs from single page: {e!s}",
                     log_level=LogLevelEnum.ERROR,
                     step_name="extract_urls",
                     context={"page_url": seed_url, "error": str(e)},

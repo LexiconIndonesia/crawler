@@ -1749,5 +1749,3 @@ ALTER TABLE ONLY website_config_history
 --
 -- PostgreSQL database dump complete
 --
-
-
