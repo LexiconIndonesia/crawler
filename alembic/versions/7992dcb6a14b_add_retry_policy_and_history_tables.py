@@ -57,7 +57,7 @@ def upgrade() -> None:
     # Create retry_policy table
     op.execute("""
         CREATE TABLE retry_policy (
-            id UUID PRIMARY KEY DEFAULT uuidv7(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
             error_category error_category_enum NOT NULL UNIQUE,
             is_retryable BOOLEAN NOT NULL DEFAULT true,
             max_attempts INTEGER NOT NULL DEFAULT 3,

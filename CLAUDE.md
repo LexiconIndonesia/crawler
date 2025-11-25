@@ -489,7 +489,7 @@ The project uses **Alembic** for database migrations. All schema changes must go
    def upgrade() -> None:
        op.execute("""
        CREATE TABLE user_auth (
-           id UUID PRIMARY KEY DEFAULT uuidv7(),
+           id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
            username VARCHAR(255) NOT NULL UNIQUE,
            ...
        );
