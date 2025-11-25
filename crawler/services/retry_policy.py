@@ -277,8 +277,23 @@ def classify_exception(exc: Exception, *, log_decision: bool = True) -> ErrorCat
             )
         return category
 
-    # Resource exhaustion (memory, disk, connections)
-    if exc_type_name in ("MemoryError", "ResourceWarning", "OSError") and isinstance(exc, OSError):
+    # MemoryError - resource exhaustion
+    if exc_type_name == "MemoryError":
+        category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+        if log_decision:
+            logger.warning(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=False,
+                reason="Memory exhaustion - system resource limit reached",
+            )
+        return category
+
+    # OS-level resource exhaustion (disk, file descriptors)
+    if exc_type_name in ("ResourceWarning", "OSError") and isinstance(exc, OSError):
         # Check if OSError is due to file descriptors or disk space
         # errno 24: Too many open files
         # errno 28: No space left on device

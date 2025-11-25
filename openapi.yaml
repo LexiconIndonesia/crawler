@@ -634,8 +634,13 @@ paths:
         - Jobs are marked with cancellation reason
         - Returns list of cancelled job IDs
 
-        **Future Feature:**
-        - `delete_data` parameter will allow deletion of all crawled pages (not yet implemented)
+        **Data Deletion (delete_data=true):**
+        - **DESTRUCTIVE OPERATION**: Permanently removes all crawled_page entries for this website
+        - Executes within the same database transaction as the website soft-delete
+        - Uses a single DELETE statement (not batched) - may be slow for large datasets (1000s+ pages)
+        - Acquires table-level locks during deletion
+        - Cannot be undone after the transaction commits
+        - When false (default), crawled data is preserved for audit purposes
       operationId: deleteWebsite
       parameters:
         - name: id
@@ -648,7 +653,10 @@ paths:
         - name: delete_data
           in: query
           required: false
-          description: Delete all crawled data (not yet implemented, reserved for future use)
+          description: |
+            **DESTRUCTIVE**: When true, permanently deletes all crawled pages for this website.
+            Operation runs in the same transaction as soft-delete. May be slow for large datasets
+            (uses single DELETE, not batched). Default false preserves data for audit.
           schema:
             type: boolean
             default: false

@@ -116,19 +116,17 @@ class LocalRateLimiter:
         """
         # Acquire semaphore first (limits concurrency)
         await self._semaphore.acquire()
-
-        # Then acquire token (limits rate)
         try:
+            # Acquire token (limits rate)
+            # If cancelled here, finally block ensures semaphore release
             await self._acquire_token()
-        except BaseException:
-            # If token acquisition fails (including cancellation), release semaphore
-            self._semaphore.release()
-            raise
-
-        try:
             yield
         finally:
-            # Always release semaphore on exit
+            # Always release semaphore on any exit path:
+            # - CancelledError during _acquire_token()
+            # - Exception during _acquire_token()
+            # - Exception in context body
+            # - Normal completion
             self._semaphore.release()
 
     @classmethod

@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://crawler:crawler@localhost:5432/crawler",
         description="PostgreSQL connection URL",
     )
+    test_database_url: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/crawler_test",
+        description="PostgreSQL connection URL for tests (isolated from main database)",
+    )
     database_pool_size: int = 5
     database_max_overflow: int = 5
     database_echo: bool = False

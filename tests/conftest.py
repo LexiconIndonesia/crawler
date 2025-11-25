@@ -30,8 +30,11 @@ from crawler.db.repositories import (
 )
 from main import create_app
 
-# Module-level settings for test setup
+# Module-level settings for test setup (reads from .env files)
 _test_settings = get_settings()
+
+# Test database URL from settings (supports .env file configuration)
+_test_database_url = str(_test_settings.test_database_url)
 
 # SQL schema files location
 SCHEMA_DIR = Path(__file__).parent.parent / "sql" / "schema"
@@ -44,6 +47,9 @@ async def create_schema(conn: AsyncConnection) -> None:
     """
     # Get the raw asyncpg connection for executing multi-statement scripts
     raw_conn = await conn.get_raw_connection()
+
+    # Set search_path to public to ensure types are created in the correct schema
+    await raw_conn.driver_connection.execute("SET search_path TO public;")  # type: ignore[union-attr]
 
     # Discover all SQL files in sorted order
     schema_files = sorted(SCHEMA_DIR.glob("*.sql"))
@@ -58,16 +64,26 @@ async def drop_schema(conn: AsyncConnection) -> None:
     """Drop all tables, types, functions, and views automatically by querying the database."""
     raw_conn = await conn.get_raw_connection()
 
-    # Get all views in public schema
+    # Set search_path to public to ensure we're working in the correct schema
+    await raw_conn.driver_connection.execute("SET search_path TO public;")  # type: ignore[union-attr]
+
+    # Get all views in public schema (exclude extension-owned views)
     views_query = """
-        SELECT viewname
-        FROM pg_views
-        WHERE schemaname = 'public'
-        ORDER BY viewname;
+        SELECT c.relname as viewname
+        FROM pg_class c
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = 'public'
+        AND c.relkind = 'v'
+        AND NOT EXISTS (
+            SELECT 1 FROM pg_depend d
+            WHERE d.objid = c.oid
+            AND d.deptype = 'e'
+        )
+        ORDER BY c.relname;
     """
     views = await raw_conn.driver_connection.fetch(views_query)  # type: ignore[union-attr]
 
-    # Drop all views with CASCADE
+    # Drop all user views (not extension views)
     for view in views:
         drop_view_sql = f"DROP VIEW IF EXISTS {view['viewname']} CASCADE;"
         await raw_conn.driver_connection.execute(drop_view_sql)  # type: ignore[union-attr]
@@ -150,7 +166,7 @@ async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession]:
         test_db_schema: Session-scoped fixture that ensures schema exists
     """
     # Create test engine
-    engine = create_async_engine(str(_test_settings.database_url), echo=False)
+    engine = create_async_engine(_test_database_url, echo=False)
 
     # Create session
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -176,7 +192,7 @@ async def db_connection(test_db_schema: None) -> AsyncGenerator[AsyncConnection]
         test_db_schema: Session-scoped fixture that ensures schema exists
     """
     # Create test engine
-    engine = create_async_engine(str(_test_settings.database_url), echo=False)
+    engine = create_async_engine(_test_database_url, echo=False)
 
     # Create connection with transaction
     async with engine.connect() as connection:
@@ -315,10 +331,10 @@ async def seed_retry_policies(conn: AsyncConnection) -> None:
     await raw_conn.driver_connection.execute(seed_sql)  # type: ignore[union-attr]
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def test_db_schema() -> AsyncGenerator[None]:
     """Set up database schema once for all integration tests."""
-    engine = create_async_engine(str(_test_settings.database_url), echo=False)
+    engine = create_async_engine(_test_database_url, echo=False)
 
     # Drop existing schema first to ensure clean state
     async with engine.begin() as conn:
@@ -355,7 +371,7 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
 
     # Create test engine with minimal pooling to avoid connection leaks
     engine = create_async_engine(
-        str(_test_settings.database_url),
+        _test_database_url,
         echo=False,
         pool_pre_ping=False,
         pool_size=1,  # Minimal pool size for tests

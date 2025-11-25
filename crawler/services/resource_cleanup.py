@@ -8,6 +8,8 @@ browser contexts, etc.) when a crawl job is cancelled. It implements:
 - Job status updates with cancellation metadata
 """
 
+from __future__ import annotations
+
 import asyncio
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager

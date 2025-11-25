@@ -94,6 +94,7 @@ make lint               # Lint check
 make lint-fix           # Lint with auto-fix
 make type-check         # Run mypy type checking
 make check              # All checks (format + lint + type-check)
+make pre-commit         # Run all pre-commit hooks on all files
 ```
 
 ### Services

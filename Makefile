@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema db-migrate db-migrate-check db-migrate-current db-migrate-history db-migrate-create db-migrate-rollback db-migrate-rollback-to db-stamp db-stamp-revision
+.PHONY: help install install-dev run run-prod test lint format type-check clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema db-migrate db-migrate-check db-migrate-current db-migrate-history db-migrate-create db-migrate-rollback db-migrate-rollback-to db-stamp db-stamp-revision pre-commit
 
 # Default target
 .DEFAULT_GOAL := help
@@ -136,6 +136,11 @@ type-check: ## Run type checker
 
 check: format lint type-check ## Run all code quality checks
 	@echo "$(GREEN)✅ All checks passed$(NC)"
+
+pre-commit: ## Run pre-commit hooks on all files
+	@echo "$(BLUE)🪝 Running pre-commit hooks...$(NC)"
+	uv run pre-commit run --all-files
+	@echo "$(GREEN)✅ Pre-commit hooks passed$(NC)"
 
 ##@ Docker
 

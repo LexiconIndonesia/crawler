@@ -30,7 +30,8 @@ repos:
       - id: mypy
         name: mypy type check
         description: Run static type checking with mypy
-        files: ^crawler/(api/(routes|handlers|v1)|services|core|worker\.py)
+        files: ^crawler/.*\.py$
+        exclude: ^(crawler/db/generated|crawler/api/generated)/
         args: []
         additional_dependencies:
           - types-redis>=4.6.0
