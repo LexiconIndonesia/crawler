@@ -141,7 +141,8 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = [
     "-ra",                      # Show all test summary info
     "-q",                       # Quiet mode
@@ -156,6 +157,8 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore:unclosed transport:ResourceWarning",
 ]
 
 [tool.coverage.run]

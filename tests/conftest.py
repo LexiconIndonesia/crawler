@@ -1,6 +1,5 @@
 """Pytest configuration and fixtures."""
 
-import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -135,14 +134,6 @@ async def drop_schema(conn: AsyncConnection) -> None:
     for type_row in types:
         drop_type_sql = f"DROP TYPE IF EXISTS {type_row['typname']} CASCADE;"
         await raw_conn.driver_connection.execute(drop_type_sql)  # type: ignore[union-attr]
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> AsyncGenerator[asyncio.AbstractEventLoop]:  # type: ignore[misc]
-    """Create event loop for async tests."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture
