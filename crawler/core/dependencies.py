@@ -56,7 +56,7 @@ def get_app_settings() -> Settings:
     return get_settings()
 
 
-async def get_database() -> AsyncGenerator[AsyncSession, None]:
+async def get_database() -> AsyncGenerator[AsyncSession]:
     """Get database session.
 
     Yields:
@@ -70,7 +70,7 @@ async def get_database() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def get_redis_client() -> AsyncGenerator[redis.Redis, None]:
+async def get_redis_client() -> AsyncGenerator[redis.Redis]:
     """Get Redis client.
 
     Yields:

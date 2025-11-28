@@ -60,7 +60,7 @@ def upgrade() -> None:
     # Create website table
     op.execute("""
         CREATE TABLE website (
-            id UUID PRIMARY KEY DEFAULT uuidv7(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
             name VARCHAR(255) NOT NULL UNIQUE,
             base_url VARCHAR(2048) NOT NULL,
             config JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -81,7 +81,7 @@ def upgrade() -> None:
     # Create crawl_job table
     op.execute("""
         CREATE TABLE crawl_job (
-            id UUID PRIMARY KEY DEFAULT uuidv7(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
             website_id UUID NOT NULL REFERENCES website(id) ON DELETE CASCADE,
             job_type job_type_enum NOT NULL DEFAULT 'one_time'::job_type_enum,
             seed_url VARCHAR(2048) NOT NULL,
@@ -122,7 +122,7 @@ def upgrade() -> None:
     # Create crawled_page table
     op.execute("""
         CREATE TABLE crawled_page (
-            id UUID PRIMARY KEY DEFAULT uuidv7(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
             website_id UUID NOT NULL REFERENCES website(id) ON DELETE CASCADE,
             job_id UUID NOT NULL REFERENCES crawl_job(id) ON DELETE CASCADE,
             url VARCHAR(2048) NOT NULL,

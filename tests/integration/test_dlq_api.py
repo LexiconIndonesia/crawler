@@ -16,7 +16,7 @@ from crawler.db.repositories import CrawlJobRepository, DeadLetterQueueRepositor
 @pytest.fixture
 async def test_dlq_entry(
     db_connection: AsyncConnection,
-) -> AsyncGenerator[tuple[models.DeadLetterQueue, models.CrawlJob], None]:
+) -> AsyncGenerator[tuple[models.DeadLetterQueue, models.CrawlJob]]:
     """Create a test DLQ entry for API tests.
 
     Returns:

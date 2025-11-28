@@ -87,7 +87,7 @@ class URLDeduplicationCache:
             key = self._make_key(url_hash)
             value: str | None = await self.redis.get(key)
             if value:
-                return cast(dict[str, Any], json.loads(value))
+                return cast("dict[str, Any]", json.loads(value))
             return None
         except Exception as e:
             logger.error("url_dedup_get_error", url_hash=url_hash, error=str(e))
@@ -229,7 +229,9 @@ class URLDeduplicationCache:
 
             # Collect hashes that have values (exist in cache)
             existing_hashes = {
-                url_hash for url_hash, value in zip(url_hashes, values) if value is not None
+                url_hash
+                for url_hash, value in zip(url_hashes, values, strict=False)
+                if value is not None
             }
 
             logger.debug(
@@ -525,7 +527,7 @@ class BrowserPoolStatus:
         try:
             value: str | None = await self.redis.get(self.key)
             if value:
-                return cast(dict[str, Any], json.loads(value))
+                return cast("dict[str, Any]", json.loads(value))
             return None
         except Exception as e:
             logger.error("browser_pool_status_get_error", error=str(e))
@@ -594,7 +596,7 @@ class JobProgressCache:
             key = self._make_key(job_id)
             value: str | None = await self.redis.get(key)
             if value:
-                return cast(dict[str, Any], json.loads(value))
+                return cast("dict[str, Any]", json.loads(value))
             return None
         except Exception as e:
             logger.error("job_progress_get_error", job_id=job_id, error=str(e))

@@ -182,7 +182,7 @@ class CrawlExecutor(BaseStepExecutor):
             if selectors and pages_crawled > 0:
                 # Reconstruct the extracted data with original field names
                 # For crawl steps, we typically have one main field with URLs
-                for field_name in selectors.keys():
+                for field_name in selectors:
                     extracted_data[field_name] = unique_urls
 
             # Always add standard crawl metadata fields
@@ -324,7 +324,7 @@ class CrawlExecutor(BaseStepExecutor):
         urls: list[str] = []
 
         # Extract from ALL fields (any field could contain URLs)
-        for field_name, value in result.extracted_data.items():
+        for _field_name, value in result.extracted_data.items():
             # Handle list of URLs
             if isinstance(value, list):
                 # Filter out non-string values and convert to absolute URLs

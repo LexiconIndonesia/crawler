@@ -427,9 +427,7 @@ class TestCustomClassificationRules:
 
         def is_custom_rate_limit(exc, status_code):
             """Check if error message contains rate limit keywords."""
-            if exc and "rate" in str(exc).lower() and "limit" in str(exc).lower():
-                return True
-            return False
+            return bool(exc and "rate" in str(exc).lower() and "limit" in str(exc).lower())
 
         rule = ErrorClassificationRule(
             name="custom_rate_limit_detection",
@@ -627,9 +625,7 @@ class TestCustomClassificationRules:
             if status_code == 429:
                 return True
             # Also check for Shopify error message patterns
-            if exc and "shopify" in str(exc).lower() and "throttled" in str(exc).lower():
-                return True
-            return False
+            return bool(exc and "shopify" in str(exc).lower() and "throttled" in str(exc).lower())
 
         rule = ErrorClassificationRule(
             name="shopify_rate_limit",

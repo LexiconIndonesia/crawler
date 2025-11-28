@@ -7,6 +7,7 @@ thresholds and alerting. Emits Prometheus metrics for observability.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-__all__ = ["MemoryMonitor", "MemoryLevel", "MemoryStatus"]
+__all__ = ["MemoryLevel", "MemoryMonitor", "MemoryStatus"]
 
 
 class MemoryLevel(str, Enum):
@@ -136,10 +137,8 @@ class MemoryMonitor:
         # Cancel monitor task
         if self._monitor_task is not None:
             self._monitor_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("memory_monitor_stopped")
 

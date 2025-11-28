@@ -13,6 +13,7 @@ from crawler.api.v1.services import (
     DuplicateService,
     JobService,
     LogService,
+    ScheduledJobService,
     WebsiteService,
 )
 from crawler.core.dependencies import DBSessionDep, JobCancellationFlagDep, NATSQueueDep
@@ -211,9 +212,45 @@ async def get_dlq_service(
     )
 
 
+async def get_scheduled_job_service(
+    db: DBSessionDep,
+) -> ScheduledJobService:
+    """Get scheduled job service with injected dependencies.
+
+    Args:
+        db: Database session from centralized dependency injection
+
+    Returns:
+        ScheduledJobService instance with injected repositories
+
+    Usage:
+        async def my_route(scheduled_job_service: ScheduledJobServiceDep):
+            jobs = await scheduled_job_service.list_scheduled_jobs()
+
+    Note:
+        This function properly manages database connections from the session's
+        connection pool to avoid concurrent operation errors with asyncpg.
+    """
+    # Get connection from session - this uses the connection pool
+    # The connection is managed by the session's transaction context
+    conn = await db.connection()
+
+    # Create repositories with the connection
+    # Each repository will execute queries sequentially within the transaction
+    scheduled_job_repo = ScheduledJobRepository(conn)
+    website_repo = WebsiteRepository(conn)
+
+    # Return service with injected repositories
+    return ScheduledJobService(
+        scheduled_job_repo=scheduled_job_repo,
+        website_repo=website_repo,
+    )
+
+
 # Type aliases for dependency injection
 WebsiteServiceDep = Annotated[WebsiteService, Depends(get_website_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 LogServiceDep = Annotated[LogService, Depends(get_log_service)]
 DuplicateServiceDep = Annotated[DuplicateService, Depends(get_duplicate_service)]
 DLQServiceDep = Annotated[DLQService, Depends(get_dlq_service)]
+ScheduledJobServiceDep = Annotated[ScheduledJobService, Depends(get_scheduled_job_service)]

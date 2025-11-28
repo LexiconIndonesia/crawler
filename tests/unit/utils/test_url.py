@@ -458,7 +458,7 @@ class TestNormalizeAndHash:
     def test_normalize_and_hash_consistency(self) -> None:
         """Test that hash matches hash_url result."""
         url = "https://example.com/path?utm_source=fb&page=1"
-        normalized, hash_value = normalize_and_hash(url)
+        _normalized, hash_value = normalize_and_hash(url)
         expected_hash = hash_url(url, normalize=True)
         assert hash_value == expected_hash
 

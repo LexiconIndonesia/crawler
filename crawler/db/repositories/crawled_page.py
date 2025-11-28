@@ -84,6 +84,17 @@ class CrawledPageRepository:
             website_id=to_uuid(website_id), url_hash=url_hash
         )
 
+    async def get_by_content_hash(self, content_hash: str) -> models.CrawledPage | None:
+        """Get first page with matching content hash (for duplicate detection).
+
+        Args:
+            content_hash: SHA256 hash of page content
+
+        Returns:
+            First CrawledPage with matching content_hash, or None if not found
+        """
+        return await self._querier.get_page_by_content_hash(content_hash=content_hash)
+
     async def list_by_job(
         self, job_id: str | UUID, limit: int = 100, offset: int = 0
     ) -> list[models.CrawledPage]:

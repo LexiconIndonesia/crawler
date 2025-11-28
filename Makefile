@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-prod test lint format type-check pre-commit clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema db-migrate db-migrate-check db-migrate-current db-migrate-history db-migrate-create db-migrate-rollback db-migrate-rollback-to db-stamp db-stamp-revision
+.PHONY: help install install-dev run run-prod test lint format type-check clean docker-build docker-up docker-down docker-logs db-up db-down db-shell redis-shell nats-shell monitoring-up monitoring-down setup dev encode-gcs playwright install-hooks partition-create partition-drop partition-maintain partition-list sqlc-generate regenerate-schema db-migrate db-migrate-check db-migrate-current db-migrate-history db-migrate-create db-migrate-rollback db-migrate-rollback-to db-stamp db-stamp-revision pre-commit
 
 # Default target
 .DEFAULT_GOAL := help
@@ -42,7 +42,14 @@ playwright: ## Install Playwright browsers
 	$(PYTHON) -m playwright install chromium
 	@echo "$(GREEN)✅ Playwright browsers installed$(NC)"
 
-setup: ## Complete project setup (install deps + playwright + create .env)
+install-hooks: ## Install pre-commit hooks
+	@echo "$(BLUE)🪝 Installing pre-commit hooks...$(NC)"
+	uv run pre-commit install
+	@echo "$(GREEN)✅ Pre-commit hooks installed$(NC)"
+	@echo "$(YELLOW)💡 Hooks will run automatically on git commit$(NC)"
+	@echo "$(YELLOW)💡 Run 'pre-commit run --all-files' to check all files$(NC)"
+
+setup: ## Complete project setup (install deps + playwright + hooks + create .env)
 	@echo "$(BLUE)🚀 Setting up Lexicon Crawler...$(NC)"
 	@if [ ! -f .env ]; then \
 		echo "$(YELLOW)📝 Creating .env from template...$(NC)"; \
@@ -51,6 +58,7 @@ setup: ## Complete project setup (install deps + playwright + create .env)
 	fi
 	@make install-dev
 	@make playwright
+	@make install-hooks
 	@echo "$(GREEN)✅ Setup complete!$(NC)"
 
 ##@ Development
@@ -129,15 +137,10 @@ type-check: ## Run type checker
 check: format lint type-check ## Run all code quality checks
 	@echo "$(GREEN)✅ All checks passed$(NC)"
 
-pre-commit: ## Run auto-fixes and checks before commit (format + lint-fix + type-check)
-	@echo "$(BLUE)🔧 Running pre-commit checks with auto-fix...$(NC)"
-	@echo "$(BLUE)1/3 Formatting code...$(NC)"
-	@$(RUFF) format .
-	@echo "$(BLUE)2/3 Auto-fixing linting issues...$(NC)"
-	@$(RUFF) check --fix .
-	@echo "$(BLUE)3/3 Running type checker...$(NC)"
-	@$(MYPY) .
-	@echo "$(GREEN)✅ Pre-commit checks complete!$(NC)"
+pre-commit: ## Run pre-commit hooks on all files
+	@echo "$(BLUE)🪝 Running pre-commit hooks...$(NC)"
+	uv run pre-commit run --all-files
+	@echo "$(GREEN)✅ Pre-commit hooks passed$(NC)"
 
 ##@ Docker
 
@@ -402,7 +405,7 @@ generate-models: ## Generate Pydantic models from OpenAPI spec
 	  --use-default \
 	  --use-annotated \
 	  --use-double-quotes \
-	  --target-python-version 3.11
+	  --target-python-version 3.14
 	@echo "$(GREEN)✅ Pydantic models generated$(NC)"
 	@echo "$(YELLOW)⚠️  Remember to review crawler/api/generated/extended.py for any needed updates$(NC)"
 

@@ -3,6 +3,7 @@
 This module extends the auto-generated models with custom business logic validators.
 """
 
+from collections.abc import Sequence
 from typing import TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -209,7 +210,7 @@ class CreateWebsiteRequest(
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     global_config: GlobalConfig = Field(default_factory=GlobalConfig)
     # Use extended CrawlStep with validators and proper enum serialization
-    steps: list[CrawlStep] = Field(
+    steps: Sequence[CrawlStep] = Field(
         description="List of crawl/scrape steps to execute", min_length=1
     )
 
@@ -238,7 +239,7 @@ class CreateSeedJobInlineRequest(
     # Override with default value for global_config
     global_config: GlobalConfig = Field(default_factory=GlobalConfig)
     # Use extended CrawlStep with validators and proper enum serialization
-    steps: list[CrawlStep] = Field(
+    steps: Sequence[CrawlStep] = Field(
         description="List of crawl/scrape steps to execute", min_length=1
     )
 
@@ -264,6 +265,6 @@ class UpdateWebsiteRequest(
     # Override schedule field to use our extended ScheduleConfig
     schedule: ScheduleConfig | None = None
     # Override steps field to use our extended CrawlStep
-    steps: list[CrawlStep] | None = None
+    steps: Sequence[CrawlStep] | None = None
     # Override global_config field to use our extended GlobalConfig
     global_config: GlobalConfig | None = None

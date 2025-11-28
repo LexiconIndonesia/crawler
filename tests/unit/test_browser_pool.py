@@ -1,6 +1,7 @@
 """Unit tests for BrowserPool."""
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1231,10 +1232,8 @@ class TestBrowserCrashDetection:
 
         # First attempt should succeed (no backoff yet)
         async with pool._lock:
-            try:
+            with contextlib.suppress(BrowserCrashError):
                 await pool._remove_and_replace_browser(crashed_instance)
-            except BrowserCrashError:
-                pass
 
         # Verify recovery attempt was recorded
         assert crashed_instance.recovery_attempts == 1
@@ -1271,10 +1270,8 @@ class TestBrowserCrashDetection:
         # Exhaust all recovery attempts (settings default is 3)
         for i in range(settings.browser_max_recovery_attempts):
             async with pool._lock:
-                try:
+                with contextlib.suppress(BrowserCrashError):
                     await pool._remove_and_replace_browser(crashed_instance)
-                except BrowserCrashError:
-                    pass
 
             # Manually advance time to bypass backoff for testing
             if crashed_instance.last_recovery_attempt:
@@ -1320,10 +1317,8 @@ class TestBrowserCrashDetection:
 
         # First recovery attempt - should increment crash metric
         async with pool._lock:
-            try:
+            with contextlib.suppress(BrowserCrashError):
                 await pool._remove_and_replace_browser(crashed_instance)
-            except BrowserCrashError:
-                pass
 
         current_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
         assert current_crashes == initial_crashes + 1
@@ -1334,10 +1329,8 @@ class TestBrowserCrashDetection:
 
         # Second recovery attempt - should NOT increment crash metric again
         async with pool._lock:
-            try:
+            with contextlib.suppress(BrowserCrashError):
                 await pool._remove_and_replace_browser(crashed_instance)
-            except BrowserCrashError:
-                pass
 
         final_crashes = browser_crashes_total.labels(browser_type="chromium")._value._value
         assert final_crashes == current_crashes  # No increment on second attempt

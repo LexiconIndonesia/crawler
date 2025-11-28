@@ -25,7 +25,7 @@ class CrawlLogRepository:
     def __init__(
         self,
         connection: AsyncConnection,
-        log_publisher: "LogPublisher | None" = None,
+        log_publisher: LogPublisher | None = None,
     ):
         """Initialize repository.
 

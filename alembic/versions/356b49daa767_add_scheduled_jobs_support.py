@@ -38,7 +38,7 @@ def upgrade() -> None:
     # Create scheduled_job table
     op.execute("""
         CREATE TABLE scheduled_job (
-            id UUID PRIMARY KEY DEFAULT uuidv7(),
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
             website_id UUID NOT NULL REFERENCES website(id) ON DELETE CASCADE,
             cron_schedule VARCHAR(255) NOT NULL,
             next_run_time TIMESTAMPTZ NOT NULL,

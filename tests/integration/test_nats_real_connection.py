@@ -55,7 +55,7 @@ def check_nats_available() -> bool:
 
 
 @pytest.fixture
-async def nats_service() -> AsyncGenerator[NATSQueueService, None]:
+async def nats_service() -> AsyncGenerator[NATSQueueService]:
     """Create NATS service with real connection."""
     settings = get_settings()
     service = NATSQueueService(settings)

@@ -48,10 +48,15 @@ def setup_pipeline_mock():
             execute_return_value: Return value for pipeline.execute() call
         """
         pipeline_mock = AsyncMock()
-        pipeline_mock.zadd = AsyncMock()
-        pipeline_mock.set = AsyncMock()
-        pipeline_mock.expire = AsyncMock()
-        pipeline_mock.get = AsyncMock()
+        # Pipeline methods are sync (they queue commands), only execute() is async
+        pipeline_mock.zadd = MagicMock()
+        pipeline_mock.set = MagicMock()
+        pipeline_mock.expire = MagicMock()
+        pipeline_mock.get = MagicMock()
+        pipeline_mock.zrem = MagicMock()
+        pipeline_mock.delete = MagicMock()
+        pipeline_mock.zrange = MagicMock()
+        # Only execute() is awaited
         pipeline_mock.execute = AsyncMock(return_value=execute_return_value)
         pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
         pipeline_mock.__aexit__ = AsyncMock(return_value=None)
@@ -326,36 +331,24 @@ class TestRemove:
     """Test job removal functionality."""
 
     @pytest.mark.asyncio
-    async def test_remove_success(self, priority_queue, mock_redis):
+    async def test_remove_success(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test successfully removing a job."""
         job_id = "remove-job"
 
-        # Setup mock pipeline
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zrem = AsyncMock()
-        pipeline_mock.delete = AsyncMock()
-        pipeline_mock.execute = AsyncMock(return_value=[1, True])  # ZREM removed 1, DELETE ok
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Setup mock pipeline (ZREM removed 1, DELETE ok)
+        setup_pipeline_mock(mock_redis, [1, True])
 
         result = await priority_queue.remove(job_id)
 
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_remove_nonexistent_job(self, priority_queue, mock_redis):
+    async def test_remove_nonexistent_job(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test removing a job that doesn't exist."""
         job_id = "nonexistent-job"
 
-        # Setup mock pipeline
-        pipeline_mock = AsyncMock()
-        pipeline_mock.zrem = AsyncMock()
-        pipeline_mock.delete = AsyncMock()
-        pipeline_mock.execute = AsyncMock(return_value=[0, True])  # ZREM removed 0 (not found)
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        # Setup mock pipeline (ZREM removed 0 - not found, DELETE ok)
+        setup_pipeline_mock(mock_redis, [0, True])
 
         result = await priority_queue.remove(job_id)
 
@@ -442,18 +435,13 @@ class TestClear:
     """Test queue clearing functionality."""
 
     @pytest.mark.asyncio
-    async def test_clear_queue(self, priority_queue, mock_redis):
+    async def test_clear_queue(self, priority_queue, mock_redis, setup_pipeline_mock):
         """Test clearing all jobs from queue."""
         job_ids = [b"job-1", b"job-2", b"job-3"]
         mock_redis.zrange.return_value = job_ids
 
         # Setup mock pipeline
-        pipeline_mock = AsyncMock()
-        pipeline_mock.delete = AsyncMock()
-        pipeline_mock.execute = AsyncMock()
-        pipeline_mock.__aenter__ = AsyncMock(return_value=pipeline_mock)
-        pipeline_mock.__aexit__ = AsyncMock(return_value=None)
-        mock_redis.pipeline.return_value = pipeline_mock
+        pipeline_mock = setup_pipeline_mock(mock_redis, [True, True, True, True])
 
         count = await priority_queue.clear()
 

@@ -22,7 +22,7 @@ def upgrade() -> None:
     # Create duplicate_group table
     op.execute("""
     CREATE TABLE duplicate_group (
-        id UUID PRIMARY KEY DEFAULT uuidv7(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
         canonical_page_id UUID NOT NULL REFERENCES crawled_page(id) ON DELETE CASCADE,
         group_size INT NOT NULL DEFAULT 1 CHECK (group_size >= 1),
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

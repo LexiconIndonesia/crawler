@@ -15,6 +15,8 @@ from crawler.core.browser_config import (
 )
 from crawler.core.logging import get_logger
 from crawler.services.browser_pool import BrowserPool
+from crawler.services.executor_retry import execute_with_retry
+from crawler.services.local_rate_limiter import LocalRateLimiter
 from crawler.services.selector_processor import SelectorProcessor
 from crawler.services.step_executors.base import BaseStepExecutor, ExecutionResult
 
@@ -36,15 +38,43 @@ class BrowserExecutor(BaseStepExecutor):
         self,
         selector_processor: SelectorProcessor | None = None,
         browser_pool: BrowserPool | None = None,
+        rate_limiter: LocalRateLimiter | None = None,
     ):
         """Initialize browser executor.
 
         Args:
             selector_processor: Selector processor for data extraction
             browser_pool: Optional browser pool for efficient browser reuse
+            rate_limiter: Rate limiter for request throttling (optional)
         """
         self.selector_processor = selector_processor or SelectorProcessor()
         self.browser_pool = browser_pool
+        self.rate_limiter = rate_limiter
+
+    def _extract_browser_timeouts(self, step_config: dict[str, Any]) -> tuple[int, int]:
+        """Extract page_load and selector_wait timeouts from config.
+
+        Handles both GlobalConfig structure and legacy integer timeout.
+
+        Args:
+            step_config: Step configuration with merged GlobalConfig
+
+        Returns:
+            Tuple of (page_load_timeout_ms, selector_wait_timeout_ms)
+        """
+        timeout_config = step_config.get("timeout", {})
+
+        # GlobalConfig structure: {"http_request": 30, "page_load": 30, "selector_wait": 10}
+        if isinstance(timeout_config, dict):
+            page_load_seconds = timeout_config.get("page_load", 30)
+            selector_wait_seconds = timeout_config.get("selector_wait", 10)
+        else:
+            # Legacy: timeout as integer (use for page_load, default 10s for selector_wait)
+            page_load_seconds = timeout_config if isinstance(timeout_config, (int, float)) else 30
+            selector_wait_seconds = step_config.get("selector_wait_timeout", 10)
+
+        # Convert to milliseconds (Playwright expects milliseconds)
+        return (int(page_load_seconds * 1000), int(selector_wait_seconds * 1000))
 
     async def execute(
         self,
@@ -52,7 +82,33 @@ class BrowserExecutor(BaseStepExecutor):
         step_config: dict[str, Any],
         selectors: dict[str, Any] | None = None,
     ) -> ExecutionResult:
-        """Execute browser navigation and extract data.
+        """Execute browser navigation and extract data with retry logic.
+
+        Args:
+            url: Target URL
+            step_config: Configuration (timeout, wait_for, browser_type, retry, etc.)
+            selectors: Selectors for data extraction
+
+        Returns:
+            ExecutionResult with page content and extracted data
+        """
+        # Extract retry config and wrap execution with retry logic
+        retry_config = step_config.get("retry", {})
+
+        return await execute_with_retry(
+            func=lambda: self._execute_browser(url, step_config, selectors),
+            retry_config=retry_config,
+            operation_name="browser_navigate",
+            url=url,
+        )
+
+    async def _execute_browser(
+        self,
+        url: str,
+        step_config: dict[str, Any],
+        selectors: dict[str, Any] | None = None,
+    ) -> ExecutionResult:
+        """Execute browser navigation once (no retry logic - called by execute_with_retry).
 
         Args:
             url: Target URL
@@ -85,8 +141,11 @@ class BrowserExecutor(BaseStepExecutor):
             ExecutionResult with page content and extracted data
         """
         try:
-            # Extract config
-            timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
+            # Extract timeouts from GlobalConfig
+            page_load_timeout_ms, selector_wait_timeout_ms = self._extract_browser_timeouts(
+                step_config
+            )
+
             # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
             wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
@@ -94,7 +153,9 @@ class BrowserExecutor(BaseStepExecutor):
             logger.info(
                 "browser_request_starting_with_pool",
                 url=url,
-                timeout=timeout,
+                page_load_timeout_ms=page_load_timeout_ms,
+                selector_wait_timeout_ms=selector_wait_timeout_ms,
+                rate_limited=self.rate_limiter is not None,
             )
 
             # Acquire context from pool
@@ -107,8 +168,16 @@ class BrowserExecutor(BaseStepExecutor):
                     # Create page
                     page = await context.new_page()
 
-                    # Navigate to URL
-                    response = await page.goto(url, timeout=timeout, wait_until=wait_for)
+                    # Navigate to URL (with rate limiting if configured)
+                    if self.rate_limiter:
+                        async with self.rate_limiter.acquire():
+                            response = await page.goto(
+                                url, timeout=page_load_timeout_ms, wait_until=wait_for
+                            )
+                    else:
+                        response = await page.goto(
+                            url, timeout=page_load_timeout_ms, wait_until=wait_for
+                        )
 
                     # Check response status
                     status_code = response.status if response else None
@@ -124,7 +193,7 @@ class BrowserExecutor(BaseStepExecutor):
                         try:
                             await page.wait_for_selector(
                                 selector_wait,
-                                timeout=step_config.get("selector_wait_timeout", 10) * 1000,
+                                timeout=selector_wait_timeout_ms,
                             )
                         except Exception as e:
                             logger.warning(
@@ -201,8 +270,11 @@ class BrowserExecutor(BaseStepExecutor):
                     url=url,
                 )
 
-            # Extract config
-            timeout = step_config.get("timeout", 30) * 1000  # Convert to milliseconds
+            # Extract timeouts from GlobalConfig
+            page_load_timeout_ms, selector_wait_timeout_ms = self._extract_browser_timeouts(
+                step_config
+            )
+
             # Backward compatibility: support old "wait_for" key, fallback to "wait_until"
             wait_for = step_config.get("wait_for") or step_config.get("wait_until", "load")
             selector_wait = step_config.get("selector_wait")
@@ -212,7 +284,9 @@ class BrowserExecutor(BaseStepExecutor):
                 "browser_request_starting_per_request",
                 url=url,
                 browser_type=browser_type,
-                timeout=timeout,
+                page_load_timeout_ms=page_load_timeout_ms,
+                selector_wait_timeout_ms=selector_wait_timeout_ms,
+                rate_limited=self.rate_limiter is not None,
             )
 
             # Launch browser
@@ -244,8 +318,16 @@ class BrowserExecutor(BaseStepExecutor):
                     )
                     page = await context.new_page()
 
-                    # Navigate to URL
-                    response = await page.goto(url, timeout=timeout, wait_until=wait_for)
+                    # Navigate to URL (with rate limiting if configured)
+                    if self.rate_limiter:
+                        async with self.rate_limiter.acquire():
+                            response = await page.goto(
+                                url, timeout=page_load_timeout_ms, wait_until=wait_for
+                            )
+                    else:
+                        response = await page.goto(
+                            url, timeout=page_load_timeout_ms, wait_until=wait_for
+                        )
 
                     # Check response status
                     status_code = response.status if response else None
@@ -261,7 +343,7 @@ class BrowserExecutor(BaseStepExecutor):
                         try:
                             await page.wait_for_selector(
                                 selector_wait,
-                                timeout=step_config.get("selector_wait_timeout", 10) * 1000,
+                                timeout=selector_wait_timeout_ms,
                             )
                         except Exception as e:
                             logger.warning(

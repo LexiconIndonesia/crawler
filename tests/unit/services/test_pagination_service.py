@@ -282,7 +282,7 @@ class TestPaginationServiceWithStopDetection:
                 return 404, b"Not Found"
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/page/1",
             config=config,
             fetch_fn=mock_fetch,
@@ -306,7 +306,7 @@ class TestPaginationServiceWithStopDetection:
             return 200, same_content
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, _status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/page/1",
             config=config,
             fetch_fn=mock_fetch,
@@ -326,7 +326,7 @@ class TestPaginationServiceWithStopDetection:
             return 200, b"Content" * 20
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, _status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/products",
             config=config,
             fetch_fn=mock_fetch,
@@ -360,7 +360,7 @@ class TestPaginationServiceWithStopDetection:
             return 200, b"x" * 60  # >50 bytes (meets custom min_content_length)
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, _status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/page/1",
             config=config,
             fetch_fn=mock_fetch,
@@ -392,7 +392,7 @@ class TestPaginationServiceWithStopDetection:
             return 200, b"small"  # <100 bytes = empty
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, _status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/page/1",
             config=config,
             fetch_fn=mock_fetch,
@@ -425,7 +425,7 @@ class TestPaginationServiceWithStopDetection:
             return 200, b"x" * 200  # 200 bytes < 500 bytes = empty
 
         results = []
-        async for url, status, content in service.generate_with_stop_detection(
+        async for url, _status, _content in service.generate_with_stop_detection(
             seed_url="https://example.com/page/1",
             config=config,
             fetch_fn=mock_fetch,

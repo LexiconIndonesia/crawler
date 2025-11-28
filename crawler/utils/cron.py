@@ -70,7 +70,7 @@ def calculate_next_run(
 
         return next_time_utc
     except (ValueError, KeyError) as e:
-        raise ValueError(f"Invalid cron expression '{cron_expression}': {str(e)}") from e
+        raise ValueError(f"Invalid cron expression '{cron_expression}': {e!s}") from e
 
 
 def is_valid_cron(cron_expression: str) -> bool:

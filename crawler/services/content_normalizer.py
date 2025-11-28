@@ -9,6 +9,7 @@ duplicate detection and content similarity comparison.
 """
 
 import re
+from typing import ClassVar
 
 from bs4 import BeautifulSoup, Comment
 from bs4.element import Tag
@@ -33,7 +34,7 @@ class ContentNormalizer:
     """
 
     # HTML elements that typically contain boilerplate/navigation
-    BOILERPLATE_TAGS = {
+    BOILERPLATE_TAGS: ClassVar[set[str]] = {
         "nav",
         "header",
         "footer",
@@ -49,7 +50,7 @@ class ContentNormalizer:
     }
 
     # CSS classes/IDs commonly used for ads and tracking
-    AD_PATTERNS = [
+    AD_PATTERNS: ClassVar[list[str]] = [
         r"ad[_-]",
         r"ads[_-]",
         r"advert",
@@ -73,7 +74,7 @@ class ContentNormalizer:
     ]
 
     # Regex patterns for dynamic content
-    TIMESTAMP_PATTERNS = [
+    TIMESTAMP_PATTERNS: ClassVar[list[str]] = [
         # Date with time: 2024-01-15 14:30:00, 2024-01-15T14:30:00Z (must come before simple date)
         r"\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:?\d{2}|Z)?",
         # ISO dates: 2024-01-15, 2024/01/15
@@ -96,8 +97,8 @@ class ContentNormalizer:
     ]
 
     # Compiled regex patterns (done at class level for performance)
-    _compiled_ad_patterns: list[re.Pattern[str]] = []
-    _compiled_timestamp_patterns: list[re.Pattern[str]] = []
+    _compiled_ad_patterns: ClassVar[list[re.Pattern[str]]] = []
+    _compiled_timestamp_patterns: ClassVar[list[re.Pattern[str]]] = []
 
     def __init__(self) -> None:
         """Initialize content normalizer with compiled regex patterns."""

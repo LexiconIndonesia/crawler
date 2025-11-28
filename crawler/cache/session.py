@@ -30,7 +30,7 @@ _settings = get_settings()
 redis_pool: redis.ConnectionPool = create_redis_pool(_settings)
 
 
-async def get_redis() -> AsyncGenerator[redis.Redis, None]:
+async def get_redis() -> AsyncGenerator[redis.Redis]:
     """Get Redis client dependency with connection pooling.
 
     This dependency provides a Redis client that uses connection pooling

@@ -112,7 +112,7 @@ class PaginationService:
             generator = PaginationURLGenerator(seed_url, detected_pattern, max_pages=max_pages)
             # Include seed URL + all generated URLs
             remaining_urls = generator.generate_all()
-            urls = [seed_url] + remaining_urls
+            urls = [seed_url, *remaining_urls]
             logger.info(
                 "pagination_urls_generated_from_detection",
                 seed_url=seed_url,
@@ -287,10 +287,7 @@ class PaginationService:
 
         # No pattern detected - check if selector configured
         # Selector can be used for any type, not just next_button
-        if config.selector:
-            return True
-
-        return False
+        return bool(config.selector)
 
     def get_pagination_strategy(self, seed_url: str, config: PaginationConfig) -> str:
         """Get the pagination strategy that will be used.

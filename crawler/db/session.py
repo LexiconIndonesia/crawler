@@ -67,7 +67,7 @@ engine = create_engine(_settings)
 async_session_maker = create_sessionmaker(engine)
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[AsyncSession]:
     """Get database session dependency.
 
     Creates a session with automatic transaction management:

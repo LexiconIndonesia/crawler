@@ -345,10 +345,17 @@ async def update_website(
     - Jobs are marked with cancellation reason
     - Returns list of cancelled job IDs
 
-    Future feature (delete_data parameter):
-    - Option to delete all crawled pages and data (not yet implemented)
-    - When true, removes all crawled_page entries
-    - When false (default), preserves crawled data for audit
+    Data deletion (delete_data parameter):
+    - DESTRUCTIVE OPERATION: Permanently deletes all crawled pages for this website
+    - When true, removes all crawled_page entries for the website
+    - When false (default), preserves crawled data for audit purposes
+    - Performance considerations:
+      * Executes within the same database transaction as website deletion
+      * Uses single DELETE statement (not batched)
+      * May be slow for large datasets (thousands+ of crawled pages)
+      * Acquires table-level locks during deletion - blocks concurrent crawl operations
+      * Cannot be rolled back after transaction commits
+    - Use with caution: Deleted crawled pages cannot be recovered
     """,
     responses={
         200: {
@@ -407,7 +414,11 @@ async def delete_website(
     delete_data: Annotated[
         bool,
         Query(
-            description=("Delete all crawled data (not yet implemented, reserved for future use)")
+            description=(
+                "DESTRUCTIVE: Permanently delete all crawled pages for this website. "
+                "Uses single DELETE (not batched), may be slow for large datasets. "
+                "Wrapped in transaction but cannot be rolled back after commit. Default: false."
+            )
         ),
     ] = False,
 ) -> DeleteWebsiteResponse:
@@ -416,7 +427,9 @@ async def delete_website(
     Args:
         id: Website ID (UUID format)
         website_service: Injected website service
-        delete_data: Whether to delete all crawled data (not yet implemented)
+        delete_data: Whether to permanently delete all crawled pages for this website.
+            DESTRUCTIVE operation that cannot be undone. May be slow for large datasets.
+            Executes within transaction but cannot be rolled back after commit.
 
     Returns:
         Deletion summary including cancelled jobs and archived config version

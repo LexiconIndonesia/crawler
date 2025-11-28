@@ -145,7 +145,7 @@ class Simhash:
 
         return fingerprint
 
-    def distance(self, other: "Simhash") -> int:
+    def distance(self, other: Simhash) -> int:
         """Calculate Hamming distance between two fingerprints.
 
         Hamming distance is the number of bit positions where the two
@@ -174,7 +174,7 @@ class Simhash:
 
         return distance
 
-    def similarity(self, other: "Simhash") -> float:
+    def similarity(self, other: Simhash) -> float:
         """Calculate similarity percentage between two fingerprints.
 
         Similarity is calculated as: (1 - distance/hash_bits) * 100

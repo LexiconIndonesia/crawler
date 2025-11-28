@@ -22,7 +22,7 @@ from crawler.services.redis_cache import JobCancellationFlag
 
 
 @pytest.fixture
-async def redis_client() -> AsyncGenerator[redis.Redis, None]:
+async def redis_client() -> AsyncGenerator[redis.Redis]:
     """Create Redis client for testing."""
     settings = get_settings()
     client = redis.from_url(settings.redis_url)
@@ -149,7 +149,7 @@ class TestNATSQueueCancellation:
         # Verify job status is cancelled
         from crawler.api.generated import StatusEnum
 
-        assert cancel_response.status == StatusEnum.cancelled
+        assert cancel_response.status.status == StatusEnum.cancelled
 
         # Cleanup
         await cancellation_flag.clear_cancellation(job_response.id)
@@ -204,7 +204,7 @@ class TestNATSQueueCancellation:
         # Verify job status is cancelled
         from crawler.api.generated import StatusEnum
 
-        assert cancel_response.status == StatusEnum.cancelled
+        assert cancel_response.status.status == StatusEnum.cancelled
 
     @patch("crawler.services.nats_queue.nats.connect")
     async def test_publish_failure_does_not_prevent_job_creation(
@@ -241,7 +241,7 @@ class TestNATSQueueCancellation:
         assert job_response.id is not None
         from crawler.api.generated import StatusEnum
 
-        assert job_response.status == StatusEnum.pending
+        assert job_response.status.status == StatusEnum.pending
 
         # Verify publish was attempted
         nats_queue_service.publish_job.assert_called_once()

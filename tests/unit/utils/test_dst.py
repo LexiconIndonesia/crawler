@@ -80,10 +80,10 @@ class TestDSTSafeScheduling:
 
         # Schedule hourly in America/New_York time
         # "0 * * * *" means every hour on the hour in NEW YORK TIME
-        next_run1, warning1 = safe_next_run_utc("0 * * * *", base_time, "America/New_York")
+        next_run1, _warning1 = safe_next_run_utc("0 * * * *", base_time, "America/New_York")
 
         # Calculate next run after that
-        next_run2, warning2 = safe_next_run_utc("0 * * * *", next_run1, "America/New_York")
+        next_run2, _warning2 = safe_next_run_utc("0 * * * *", next_run1, "America/New_York")
 
         # The cron is evaluated in NY time, so we get the next hour in NY time
         # which is then converted to UTC. During fall back, the UTC times will
@@ -107,10 +107,10 @@ class TestDSTSafeScheduling:
         base_time = datetime(2025, 3, 9, 6, 0, tzinfo=UTC)
 
         # Schedule hourly (every hour in UTC)
-        next_run1, warning1 = safe_next_run_utc("0 * * * *", base_time, "America/New_York")
+        next_run1, _warning1 = safe_next_run_utc("0 * * * *", base_time, "America/New_York")
 
         # Calculate next run after that
-        next_run2, warning2 = safe_next_run_utc("0 * * * *", next_run1, "America/New_York")
+        next_run2, _warning2 = safe_next_run_utc("0 * * * *", next_run1, "America/New_York")
 
         # In UTC, we get 7 AM and 8 AM (no gaps)
         assert next_run1 == datetime(2025, 3, 9, 7, 0, tzinfo=UTC)
@@ -131,7 +131,7 @@ class TestDSTSafeScheduling:
 
         # Schedule for 7 AM in America/New_York time
         # "0 7 * * *" means 7 AM in NEW YORK TIME (not UTC)
-        next_run, warning = safe_next_run_utc("0 7 * * *", base_time, "America/New_York")
+        next_run, _warning = safe_next_run_utc("0 7 * * *", base_time, "America/New_York")
 
         # The next run time in UTC is valid, DST handled correctly
         assert next_run.tzinfo == UTC
@@ -151,7 +151,7 @@ class TestDSTSafeScheduling:
 
         # Schedule for 6 AM in America/New_York time
         # "0 6 * * *" means 6 AM in NEW YORK TIME (not UTC)
-        next_run, warning = safe_next_run_utc("0 6 * * *", base_time, "America/New_York")
+        next_run, _warning = safe_next_run_utc("0 6 * * *", base_time, "America/New_York")
 
         # The next run time in UTC is valid, DST handled correctly
         assert next_run.tzinfo == UTC

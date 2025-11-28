@@ -204,16 +204,13 @@ class ConditionEvaluator:
             value = self._resolve_value(var_part)
 
             # Check if empty
-            if isinstance(value, (list, dict, str)):
-                is_empty = len(value) == 0
-            else:
-                is_empty = value is None
+            is_empty = len(value) == 0 if isinstance(value, (list, dict, str)) else value is None
 
             return not is_empty if is_negated else is_empty
 
         except ValueError:
             # Variable doesn't exist, treat as empty
-            return False if is_negated else True
+            return not is_negated
 
     def _evaluate_boolean(self, condition: str) -> bool:
         """Evaluate a boolean condition.

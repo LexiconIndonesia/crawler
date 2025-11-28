@@ -28,7 +28,7 @@ from crawler.services import (
 
 
 @pytest.fixture
-async def redis_client() -> AsyncGenerator[redis.Redis, None]:  # type: ignore[type-arg]
+async def redis_client() -> AsyncGenerator[redis.Redis]:  # type: ignore[type-arg]
     """Create Redis client for testing."""
     settings = get_settings()
     client = redis.from_url(settings.redis_url)

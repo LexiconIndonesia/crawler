@@ -22,7 +22,7 @@ def upgrade() -> None:
     # Create table
     op.execute("""
     CREATE TABLE website_config_history (
-        id UUID PRIMARY KEY DEFAULT uuidv7(),
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
         website_id UUID NOT NULL REFERENCES website(id) ON DELETE CASCADE,
         version INTEGER NOT NULL,
         config JSONB NOT NULL,

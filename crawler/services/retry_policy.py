@@ -277,26 +277,40 @@ def classify_exception(exc: Exception, *, log_decision: bool = True) -> ErrorCat
             )
         return category
 
-    # Resource exhaustion (memory, disk, connections)
-    if exc_type_name in ("MemoryError", "ResourceWarning", "OSError"):
+    # MemoryError - resource exhaustion
+    if exc_type_name == "MemoryError":
+        category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+        if log_decision:
+            logger.warning(
+                "error_classified",
+                classification_type="exception",
+                exception_type=exc_type_name,
+                exception_module=exc_module,
+                error_category=category.value,
+                is_retryable=False,
+                reason="Memory exhaustion - system resource limit reached",
+            )
+        return category
+
+    # OS-level resource exhaustion (disk, file descriptors)
+    if exc_type_name in ("ResourceWarning", "OSError") and isinstance(exc, OSError):
         # Check if OSError is due to file descriptors or disk space
-        if isinstance(exc, OSError):
-            # errno 24: Too many open files
-            # errno 28: No space left on device
-            if exc.errno in (24, 28):
-                category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
-                if log_decision:
-                    logger.warning(
-                        "error_classified",
-                        classification_type="exception",
-                        exception_type=exc_type_name,
-                        exception_module=exc_module,
-                        error_category=category.value,
-                        is_retryable=True,
-                        os_errno=exc.errno,
-                        reason=f"Resource exhaustion (errno {exc.errno}) - may resolve with retry",
-                    )
-                return category
+        # errno 24: Too many open files
+        # errno 28: No space left on device
+        if exc.errno in (24, 28):
+            category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
+            if log_decision:
+                logger.warning(
+                    "error_classified",
+                    classification_type="exception",
+                    exception_type=exc_type_name,
+                    exception_module=exc_module,
+                    error_category=category.value,
+                    is_retryable=True,
+                    os_errno=exc.errno,
+                    reason=f"Resource exhaustion (errno {exc.errno}) - may resolve with retry",
+                )
+            return category
         category = ErrorCategoryEnum.RESOURCE_UNAVAILABLE
         if log_decision:
             logger.warning(

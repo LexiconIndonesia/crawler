@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -38,7 +38,7 @@ logger = get_logger(__name__)
 
 BrowserType = Literal["chromium", "firefox", "webkit"]
 
-__all__ = ["BrowserPool", "BrowserInstance", "BrowserCrashError", "BrowserType"]
+__all__ = ["BrowserCrashError", "BrowserInstance", "BrowserPool", "BrowserType"]
 
 
 class BrowserCrashError(Exception):
@@ -596,11 +596,8 @@ class BrowserPool:
                     # Mark browser as unhealthy and attempt recovery
                     async with self._lock:
                         browser_instance.is_healthy = False
-                        try:
+                        with suppress(BrowserCrashError):
                             await self._remove_and_replace_browser(browser_instance)
-                        except BrowserCrashError:
-                            # Recovery failed - semaphore will be released in finally block
-                            pass
 
                     # Re-raise as BrowserCrashError
                     raise BrowserCrashError(
@@ -1136,10 +1133,8 @@ class BrowserPool:
         # Stop health check task
         if self._health_check_task is not None:
             self._health_check_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._health_check_task
-            except asyncio.CancelledError:
-                pass
 
         # Close all browsers
         await self._cleanup_all_browsers()
