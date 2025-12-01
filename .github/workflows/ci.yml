@@ -21,7 +21,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - name: Install uv
               uses: astral-sh/setup-uv@v7
               with:
@@ -56,7 +56,7 @@ jobs:
         needs: quality-checks
         steps:
             - name: Checkout code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - name: Install uv
               uses: astral-sh/setup-uv@v7
               with:
@@ -94,7 +94,7 @@ jobs:
         needs: quality-checks
         steps:
             - name: Checkout code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
             - name: Install uv
               uses: astral-sh/setup-uv@v7
               with:
