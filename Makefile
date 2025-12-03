@@ -388,7 +388,7 @@ urls: ## Display all service URLs
 
 validate-openapi: ## Validate OpenAPI specification
 	@echo "$(BLUE)✅ Validating OpenAPI spec...$(NC)"
-	openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5
+	@bash -o pipefail -c 'openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5'
 	@echo "$(GREEN)✅ OpenAPI spec is valid$(NC)"
 
 generate-models: ## Generate Pydantic models from OpenAPI spec
@@ -405,7 +405,7 @@ generate-models: ## Generate Pydantic models from OpenAPI spec
 	  --use-default \
 	  --use-annotated \
 	  --use-double-quotes \
-	  --target-python-version 3.14
+	  --target-python-version 3.11
 	@echo "$(GREEN)✅ Pydantic models generated$(NC)"
 	@echo "$(YELLOW)⚠️  Remember to review crawler/api/generated/extended.py for any needed updates$(NC)"
 

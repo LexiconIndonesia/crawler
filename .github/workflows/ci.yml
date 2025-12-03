@@ -1,6 +1,7 @@
 name: CI
 permissions:
     contents: read
+    packages: read
 
 on:
     pull_request:
@@ -121,6 +122,12 @@ jobs:
                     --use-double-quotes \
                     --target-python-version 3.11
                   echo "✅ Models generated successfully"
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
             - name: Start services with docker-compose
               run: |
                   echo "Starting PostgreSQL, Redis, and NATS..."

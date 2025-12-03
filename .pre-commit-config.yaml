@@ -57,7 +57,7 @@ repos:
       - id: validate-openapi
         name: Validate OpenAPI spec
         description: Validate openapi.yaml specification
-        entry: bash -c 'openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5'
+        entry: bash -c 'set -o pipefail; openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -5'
         language: system
         files: ^openapi\.yaml$
         pass_filenames: false
@@ -66,7 +66,7 @@ repos:
       - id: generate-openapi-models
         name: Generate OpenAPI models
         description: Generate Pydantic models from openapi.yaml
-        entry: bash -c 'mkdir -p crawler/api/generated && uv run datamodel-codegen --input openapi.yaml --output crawler/api/generated/models.py --input-file-type openapi --output-model-type pydantic_v2.BaseModel --use-standard-collections --use-schema-description --field-constraints --use-default --use-annotated --use-double-quotes --target-python-version 3.14'
+        entry: bash -c 'mkdir -p crawler/api/generated && uv run datamodel-codegen --input openapi.yaml --output crawler/api/generated/models.py --input-file-type openapi --output-model-type pydantic_v2.BaseModel --use-standard-collections --use-schema-description --field-constraints --use-default --use-annotated --use-double-quotes --target-python-version 3.11'
         language: system
         files: ^openapi\.yaml$
         pass_filenames: false
