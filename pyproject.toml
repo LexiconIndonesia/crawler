@@ -41,19 +41,19 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.14.0",
-    "mypy>=1.8.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",  # Avoid 0.23.x scoping regression
+    "pytest-cov>=4.1.0,<8.0.0",
+    "ruff>=0.14.6,<0.15.0",  # Match pre-commit rev v0.14.6
+    "mypy>=1.18.1,<2.0.0",  # Match pre-commit rev v1.18.1
     "types-redis>=4.6.0",
     "types-croniter>=6.0.0.20250809",
     "types-lxml>=2025.3.0",
     "types-psutil>=6.0.0",
     "asyncpg-stubs>=0.30.0",
-    "datamodel-code-generator[http]>=0.35.0",
-    "pyyaml>=6.0.0",
-    "pre-commit>=4.0.0",
+    "datamodel-code-generator[http]>=0.35.0,<0.36.0",
+    "pyyaml>=6.0.0,<7.0.0",
+    "pre-commit>=4.0.0,<5.0.0",
 ]
 
 [build-system]
