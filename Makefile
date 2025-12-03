@@ -405,7 +405,7 @@ generate-models: ## Generate Pydantic models from OpenAPI spec
 	  --use-default \
 	  --use-annotated \
 	  --use-double-quotes \
-	  --target-python-version 3.11
+	  --target-python-version 3.14
 	@echo "$(GREEN)✅ Pydantic models generated$(NC)"
 	@echo "$(YELLOW)⚠️  Remember to review crawler/api/generated/extended.py for any needed updates$(NC)"
 

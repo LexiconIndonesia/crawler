@@ -84,7 +84,7 @@ async def drop_schema(conn: AsyncConnection) -> None:
 
     # Drop all user views (not extension views)
     for view in views:
-        drop_view_sql = f"DROP VIEW IF EXISTS {view['viewname']} CASCADE;"
+        drop_view_sql = f'DROP VIEW IF EXISTS "{view["viewname"]}" CASCADE;'
         await raw_conn.driver_connection.execute(drop_view_sql)  # type: ignore[union-attr]
 
     # Get all tables in public schema (excluding system tables)
@@ -98,7 +98,7 @@ async def drop_schema(conn: AsyncConnection) -> None:
 
     # Drop all tables with CASCADE
     for table in tables:
-        drop_table_sql = f"DROP TABLE IF EXISTS {table['tablename']} CASCADE;"
+        drop_table_sql = f'DROP TABLE IF EXISTS "{table["tablename"]}" CASCADE;'
         await raw_conn.driver_connection.execute(drop_table_sql)  # type: ignore[union-attr]
 
     # Get all user-created functions in public schema (exclude extension functions)
@@ -117,7 +117,7 @@ async def drop_schema(conn: AsyncConnection) -> None:
 
     # Drop all user functions (not extension functions)
     for func in functions:
-        drop_func_sql = f"DROP FUNCTION IF EXISTS {func['proname']}({func['argtypes']}) CASCADE;"
+        drop_func_sql = f'DROP FUNCTION IF EXISTS "{func["proname"]}"({func["argtypes"]}) CASCADE;'
         await raw_conn.driver_connection.execute(drop_func_sql)  # type: ignore[union-attr]
 
     # Get all custom types (enums, composites, etc.)
@@ -132,7 +132,7 @@ async def drop_schema(conn: AsyncConnection) -> None:
 
     # Drop all custom types with CASCADE
     for type_row in types:
-        drop_type_sql = f"DROP TYPE IF EXISTS {type_row['typname']} CASCADE;"
+        drop_type_sql = f'DROP TYPE IF EXISTS "{type_row["typname"]}" CASCADE;'
         await raw_conn.driver_connection.execute(drop_type_sql)  # type: ignore[union-attr]
 
 
@@ -167,7 +167,9 @@ async def db_session(test_db_schema: None) -> AsyncGenerator[AsyncSession]:
         try:
             yield session
         finally:
-            await transaction.rollback()
+            # Only rollback if transaction is still active
+            if transaction.is_active:
+                await transaction.rollback()
 
     await engine.dispose()
 
@@ -277,7 +279,10 @@ async def redis_client() -> AsyncGenerator[redis.Redis]:
         await client.ping()
         yield client
         # Clean up test keys after each test
-        await client.flushdb()
+        # Only flush if this looks like a test Redis instance
+        redis_url = str(_test_settings.redis_url)
+        if "test" in redis_url.lower() or redis_url.endswith("/15"):
+            await client.flushdb()
     finally:
         # Clean up connection
         await client.aclose()  # type: ignore[attr-defined]
@@ -406,10 +411,11 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
             # Clean up overrides
             app.dependency_overrides.clear()
 
+    # Restore original module-level engine first (before disposal)
+    # This ensures module state is consistent even if disposal fails
+    db_module.engine = original_engine
+    db_module.async_session_maker = original_sessionmaker
+
     # Cleanup after session context exits
     # Dispose engine and wait for all connections to close
     await engine.dispose()
-
-    # Restore original module-level engine
-    db_module.engine = original_engine
-    db_module.async_session_maker = original_sessionmaker

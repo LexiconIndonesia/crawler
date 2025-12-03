@@ -37,8 +37,9 @@ jobs:
                   npm install -g @openapitools/openapi-generator-cli
             - name: Validate OpenAPI contract
               run: |
+                  set -o pipefail
                   echo "Validating OpenAPI specification..."
-                  openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -10 || true
+                  openapi-generator-cli validate -i openapi.yaml 2>&1 | grep -v "Unable to query repository" | head -10
                   echo "✅ OpenAPI spec validation complete"
             - name: Run all quality checks
               run: |
@@ -82,7 +83,7 @@ jobs:
                     --use-default \
                     --use-annotated \
                     --use-double-quotes \
-                    --target-python-version 3.11
+                    --target-python-version 3.14
                   echo "✅ Models generated successfully"
             - name: Run unit tests
               run: |
@@ -120,14 +121,14 @@ jobs:
                     --use-default \
                     --use-annotated \
                     --use-double-quotes \
-                    --target-python-version 3.11
+                    --target-python-version 3.14
                   echo "✅ Models generated successfully"
             - name: Login to GitHub Container Registry
               uses: docker/login-action@v3
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
+                  password: ${{ secrets.GHCR_PAT }}
             - name: Start services with docker-compose
               run: |
                   echo "Starting PostgreSQL, Redis, and NATS..."
