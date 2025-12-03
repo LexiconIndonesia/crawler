@@ -2706,13 +2706,20 @@ components:
 
     CrawlJobStatus:
       type: object
+      required:
+        - job_id
+        - status
       properties:
         job_id:
           type: string
           format: uuid
+          description: The job ID this status belongs to
+          example: "770e8400-e29b-41d4-a716-446655440000"
         status:
           $ref: "#/components/schemas/JobStatusEnum"
-      description: Status of a crawl job
+      description: |
+        Job status object containing both job_id and status.
+        Provides structured status information for tracking job state.
 
     WebsiteStatus:
       type: string

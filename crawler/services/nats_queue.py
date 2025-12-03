@@ -7,7 +7,6 @@ Provides reliable message queuing for crawl jobs with:
 - Dead letter queue for failed jobs
 """
 
-import contextlib
 import json
 from typing import Any
 
@@ -21,6 +20,7 @@ from nats.js.api import (
     RetentionPolicy,
     StreamConfig,
 )
+from nats.js.errors import NotFoundError
 
 from config import Settings
 from crawler.core.logging import get_logger
@@ -245,11 +245,22 @@ class NATSQueueService:
             finally:
                 # Clean up temporary subscription
                 await psub.unsubscribe()
-                # Delete the temporary consumer
-                with contextlib.suppress(Exception):
+                # Delete the temporary consumer (may already be gone if unsubscribe cleaned it up)
+                try:
                     await self.js.delete_consumer(
                         self.stream_name,
                         f"temp-cancel-{job_id[:8]}",
+                    )
+                except NotFoundError:
+                    # Consumer already deleted or never existed - this is expected
+                    pass
+                except Exception as e:
+                    # Log unexpected errors but don't fail the cancellation operation
+                    logger.warning(
+                        "failed_to_delete_temp_consumer",
+                        consumer=f"temp-cancel-{job_id[:8]}",
+                        error=str(e),
+                        error_type=type(e).__name__,
                     )
 
             if removed:

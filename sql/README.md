@@ -45,7 +45,7 @@ Add metadata at the top:
 ```sql
 -- version: 002
 -- description: Add analytics tables
--- requires: PostgreSQL 18+
+-- requires: PostgreSQL 17+
 -- date: 2025-10-27
 
 CREATE TABLE analytics_events (

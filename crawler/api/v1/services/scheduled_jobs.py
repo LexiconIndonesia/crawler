@@ -34,6 +34,9 @@ class ScheduledJobService:
         self.scheduled_job_repo = scheduled_job_repo
         self.website_repo = website_repo
 
+    # Maximum allowed limit for pagination to prevent excessive database load
+    MAX_LIMIT = 100
+
     async def list_scheduled_jobs(
         self,
         website_id: str | UUID | None = None,
@@ -46,7 +49,8 @@ class ScheduledJobService:
         Args:
             website_id: Optional website ID filter
             is_active: Optional active status filter
-            limit: Maximum number of results (default: 20, max: 100)
+            limit: Maximum number of results (default: 20, max: 100).
+                   Values exceeding 100 are clamped to 100.
             offset: Number of results to skip (default: 0)
 
         Returns:
@@ -56,11 +60,20 @@ class ScheduledJobService:
             ValueError: If website_id is invalid or website not found
             RuntimeError: If database operation fails
         """
+        # Clamp limit to MAX_LIMIT to prevent excessive database load
+        effective_limit = min(limit, self.MAX_LIMIT)
+        if limit > self.MAX_LIMIT:
+            logger.debug(
+                "limit_clamped_to_max",
+                requested_limit=limit,
+                effective_limit=effective_limit,
+            )
+
         logger.info(
             "list_scheduled_jobs",
             website_id=str(website_id) if website_id else None,
             is_active=is_active,
-            limit=limit,
+            limit=effective_limit,
             offset=offset,
         )
 
@@ -78,22 +91,22 @@ class ScheduledJobService:
             all_jobs = await self.scheduled_job_repo.get_by_website_id(str(website_id))
             filtered_jobs = [job for job in all_jobs if job.is_active == is_active]
             # Apply pagination manually
-            jobs = filtered_jobs[offset : offset + limit]
+            jobs = filtered_jobs[offset : offset + effective_limit]
             total = len(filtered_jobs)
         elif website_id:
             # Filter by website_id only
             all_jobs = await self.scheduled_job_repo.get_by_website_id(str(website_id))
-            jobs = all_jobs[offset : offset + limit]
+            jobs = all_jobs[offset : offset + effective_limit]
             total = len(all_jobs)
         elif is_active is not None:
             # Filter by is_active only - use list_by_status for both active and inactive
             jobs = await self.scheduled_job_repo.list_by_status(
-                is_active=is_active, limit=limit, offset=offset
+                is_active=is_active, limit=effective_limit, offset=offset
             )
             total = await self.scheduled_job_repo.count(is_active=is_active)
         else:
             # No filters - list all active jobs (default behavior)
-            jobs = await self.scheduled_job_repo.list_active(limit=limit, offset=offset)
+            jobs = await self.scheduled_job_repo.list_active(limit=effective_limit, offset=offset)
             total = await self.scheduled_job_repo.count()
 
         # Build summary list with website names
@@ -129,7 +142,7 @@ class ScheduledJobService:
         return ListScheduledJobsResponse(
             scheduled_jobs=summaries,
             total=total,
-            limit=limit,
+            limit=effective_limit,
             offset=offset,
         )
 

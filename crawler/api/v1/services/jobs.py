@@ -25,53 +25,59 @@ logger = get_logger(__name__)
 
 
 def _safe_convert_status(db_status: StatusEnum) -> JobStatusEnum:
-    """Safely convert database StatusEnum to API JobStatusEnum.
+    """Convert database StatusEnum to API JobStatusEnum.
 
     Args:
         db_status: Database status enum
 
     Returns:
-        API job status enum (defaults to pending for unknown statuses)
+        API job status enum
 
-    Note:
-        If DB StatusEnum diverges from API JobStatusEnum (e.g., new statuses added),
-        this logs a warning and returns a safe default instead of failing.
+    Raises:
+        ValueError: If db_status cannot be mapped to a valid API JobStatusEnum.
+            This indicates a schema mismatch between the database and API that
+            must be resolved before the system can operate correctly.
     """
     try:
         return JobStatusEnum(db_status.value)
-    except ValueError:
-        logger.warning(
-            "unknown_job_status_defaulting_to_pending",
+    except ValueError as e:
+        logger.error(
+            "unmapped_job_status",
             db_status=db_status,
             db_status_value=db_status.value,
         )
-        # Default to pending as a safe fallback
-        return JobStatusEnum.pending
+        raise ValueError(
+            f"Cannot map database status '{db_status.value}' to API JobStatusEnum. "
+            f"This indicates a schema mismatch that must be resolved."
+        ) from e
 
 
 def _safe_convert_job_type(db_job_type: JobTypeEnum) -> JobType:
-    """Safely convert database JobTypeEnum to API JobType.
+    """Convert database JobTypeEnum to API JobType.
 
     Args:
         db_job_type: Database job type enum
 
     Returns:
-        API job type enum (defaults to one_time for unknown types)
+        API job type enum
 
-    Note:
-        If DB JobTypeEnum diverges from API JobType, this logs a warning
-        and returns a safe default instead of failing.
+    Raises:
+        ValueError: If db_job_type cannot be mapped to a valid API JobType.
+            This indicates a schema mismatch between the database and API that
+            must be resolved before the system can operate correctly.
     """
     try:
         return JobType(db_job_type.value)
-    except ValueError:
-        logger.warning(
-            "unknown_job_type_defaulting_to_one_time",
+    except ValueError as e:
+        logger.error(
+            "unmapped_job_type",
             db_job_type=db_job_type,
             db_job_type_value=db_job_type.value,
         )
-        # Default to one_time as a safe fallback
-        return JobType.one_time
+        raise ValueError(
+            f"Cannot map database job type '{db_job_type.value}' to API JobType. "
+            f"This indicates a schema mismatch that must be resolved."
+        ) from e
 
 
 class JobService:
@@ -460,7 +466,9 @@ class JobService:
 
                 return CancelJobResponse(
                     id=current_job.id,
-                    status=CrawlJobStatus(job_id=current_job.id, status=JobStatusEnum.cancelled),
+                    status=CrawlJobStatus(
+                        job_id=current_job.id, status=_safe_convert_status(current_job.status)
+                    ),
                     message="Job is already cancelled",
                     cancelled_at=current_job.cancelled_at,
                 )
@@ -503,7 +511,9 @@ class JobService:
 
         return CancelJobResponse(
             id=cancelled_job.id,
-            status=CrawlJobStatus(job_id=cancelled_job.id, status=JobStatusEnum.cancelled),
+            status=CrawlJobStatus(
+                job_id=cancelled_job.id, status=_safe_convert_status(cancelled_job.status)
+            ),
             message="Job cancellation initiated",
             cancelled_at=cancelled_job.cancelled_at,
         )

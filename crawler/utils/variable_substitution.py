@@ -617,7 +617,7 @@ class VariableResolver:
         except KeyError:
             if default is not None:
                 return default
-            raise VariableNotFoundError(variable_path, source, path) from None
+            raise VariableNotFoundError(variable_path, source, path) from KeyError(path)
 
     def list_available_variables(self, context: VariableContext) -> dict[str, list[str]]:
         """List all available variables by source."""

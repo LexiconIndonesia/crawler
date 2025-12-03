@@ -74,7 +74,7 @@ class StorageService:
         """Download HTML from GCS."""
         try:
             blob = self.bucket.blob(blob_name)
-            content = cast("str", blob.download_as_text())
+            content = cast(str, blob.download_as_text())
 
             logger.info("html_downloaded", blob_name=blob_name)
             return content

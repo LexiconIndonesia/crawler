@@ -246,7 +246,7 @@ class StepOrchestrator:
             # Step 5: Get timeout from config based on executor type
             timeout_seconds = self._get_timeout_for_executor(executor, merged_config)
 
-            # Step 5: Execute step with timeout enforcement and timing
+            # Step 6: Execute step with timeout enforcement and timing
             start_time = time.time()
             try:
                 # Wrap execution with asyncio.wait_for for timeout enforcement
