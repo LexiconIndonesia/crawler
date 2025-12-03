@@ -229,7 +229,9 @@ class URLDeduplicationCache:
 
             # Collect hashes that have values (exist in cache)
             existing_hashes = {
-                url_hash for url_hash, value in zip(url_hashes, values) if value is not None
+                url_hash
+                for url_hash, value in zip(url_hashes, values, strict=False)
+                if value is not None
             }
 
             logger.debug(

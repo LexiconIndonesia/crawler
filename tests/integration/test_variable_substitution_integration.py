@@ -620,7 +620,7 @@ class TestRealWorldScenarios:
 
         # Generate URLs for each source and topic
         configs = []
-        for source_name, source_url in context.job_variables["sources"].items():
+        for source_name, _source_url in context.job_variables["sources"].items():
             for topic in context.job_variables["topics"]:
                 config = {
                     "source": source_name,
@@ -645,7 +645,7 @@ class TestRealWorldScenarios:
         results = resolver.substitute_in_dict({"configs": configs}, context, convert_types=True)
 
         # Verify first few configurations
-        assert len(results["configs"]) == 9  # 3 sources × 3 topics
+        assert len(results["configs"]) == 9  # 3 sources x 3 topics
         assert results["configs"][0]["url"] == "https://newsapi.org/v2/everything"
         assert results["configs"][0]["params"]["sources"] == "cnn"
         assert results["configs"][0]["params"]["q"] == "technology"

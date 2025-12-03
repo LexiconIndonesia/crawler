@@ -5,6 +5,7 @@ for jobs whose retry time has arrived, then publishes them to the NATS queue.
 """
 
 import asyncio
+import contextlib
 
 from crawler.core.logging import get_logger
 from crawler.services.nats_queue import NATSQueueService
@@ -129,10 +130,8 @@ async def stop_retry_scheduler() -> None:
         return
 
     _scheduler_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await _scheduler_task
-    except asyncio.CancelledError:
-        pass
 
     _scheduler_task = None
     logger.info("retry_scheduler_stopped")

@@ -45,11 +45,11 @@ Add metadata at the top:
 ```sql
 -- version: 002
 -- description: Add analytics tables
--- requires: PostgreSQL 18+
+-- requires: PostgreSQL 17+
 -- date: 2025-10-27
 
 CREATE TABLE analytics_events (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     event_type VARCHAR(100) NOT NULL,
     data JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -197,7 +197,7 @@ Time-ordered UUIDs (built-in, no extension):
 
 ```sql
 CREATE TABLE example (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     ...
 );
 ```
@@ -281,7 +281,7 @@ CREATE INDEX idx_page_search ON crawled_page USING gin(search_vector);
 -- date: 2025-10-27
 
 CREATE TABLE user_sessions (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
     user_id VARCHAR(255) NOT NULL,
     session_token VARCHAR(255) NOT NULL UNIQUE,
     ip_address INET,

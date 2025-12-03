@@ -165,7 +165,7 @@ COMMENT ON COLUMN content_hash.simhash_fingerprint IS '64-bit Simhash fingerprin
 --
 
 CREATE TABLE crawl_job (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     website_id uuid,
     job_type job_type_enum DEFAULT 'one_time'::job_type_enum NOT NULL,
     seed_url character varying(2048) NOT NULL,
@@ -389,7 +389,7 @@ CREATE TABLE crawl_log_2026_02 (
 --
 
 CREATE TABLE crawled_page (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     website_id uuid NOT NULL,
     job_id uuid NOT NULL,
     url character varying(2048) NOT NULL,
@@ -469,7 +469,7 @@ ALTER SEQUENCE dead_letter_queue_id_seq OWNED BY dead_letter_queue.id;
 --
 
 CREATE TABLE duplicate_group (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     canonical_page_id uuid NOT NULL,
     group_size integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -558,7 +558,7 @@ ALTER SEQUENCE retry_history_id_seq OWNED BY retry_history.id;
 --
 
 CREATE TABLE retry_policy (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     error_category error_category_enum NOT NULL,
     is_retryable boolean DEFAULT true NOT NULL,
     max_attempts integer DEFAULT 3 NOT NULL,
@@ -581,7 +581,7 @@ CREATE TABLE retry_policy (
 --
 
 CREATE TABLE scheduled_job (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     website_id uuid NOT NULL,
     cron_schedule character varying(255) NOT NULL,
     next_run_time timestamp with time zone NOT NULL,
@@ -650,7 +650,7 @@ COMMENT ON COLUMN scheduled_job.timezone IS 'IANA timezone name (e.g., UTC, Amer
 --
 
 CREATE TABLE website (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     name character varying(255) NOT NULL,
     base_url character varying(2048) NOT NULL,
     config jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -689,7 +689,7 @@ COMMENT ON COLUMN website.deleted_at IS 'Timestamp when website was soft deleted
 --
 
 CREATE TABLE website_config_history (
-    id uuid DEFAULT uuidv7() NOT NULL,
+    id uuid DEFAULT uuid_generate_v7() NOT NULL,
     website_id uuid NOT NULL,
     version integer NOT NULL,
     config jsonb NOT NULL,
@@ -1749,5 +1749,3 @@ ALTER TABLE ONLY website_config_history
 --
 -- PostgreSQL database dump complete
 --
-
-

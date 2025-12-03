@@ -348,11 +348,7 @@ class CrawlJobWorker:
                     if not exc:
                         # Fall back to creating Exception from error attribute
                         error_text = getattr(step, "error", None)
-                        if error_text:
-                            exc = Exception(error_text)
-                        else:
-                            # Last resort: stringify the step result
-                            exc = Exception(str(step))
+                        exc = Exception(error_text) if error_text else Exception(str(step))
 
                 # Handle failure with retry logic
                 will_retry = await retry_handler.handle_job_failure(

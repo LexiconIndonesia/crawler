@@ -7,14 +7,13 @@ from pydantic import AnyUrl
 from crawler.api.generated import (
     CancelJobRequest,
     CancelJobResponse,
+    CrawlJobStatus,
     CreateSeedJobInlineRequest,
     CreateSeedJobRequest,
     JobType,
     SeedJobResponse,
 )
-from crawler.api.generated import (
-    StatusEnum as ApiStatusEnum,
-)
+from crawler.api.generated.models import JobStatusEnum
 from crawler.core.logging import get_logger
 from crawler.db.generated.models import JobTypeEnum, StatusEnum
 from crawler.db.repositories import CrawlJobRepository, WebsiteRepository
@@ -23,6 +22,62 @@ from crawler.services.redis_cache import JobCancellationFlag
 from crawler.utils import normalize_url
 
 logger = get_logger(__name__)
+
+
+def _safe_convert_status(db_status: StatusEnum) -> JobStatusEnum:
+    """Convert database StatusEnum to API JobStatusEnum.
+
+    Args:
+        db_status: Database status enum
+
+    Returns:
+        API job status enum
+
+    Raises:
+        ValueError: If db_status cannot be mapped to a valid API JobStatusEnum.
+            This indicates a schema mismatch between the database and API that
+            must be resolved before the system can operate correctly.
+    """
+    try:
+        return JobStatusEnum(db_status.value)
+    except ValueError as e:
+        logger.error(
+            "unmapped_job_status",
+            db_status=db_status,
+            db_status_value=db_status.value,
+        )
+        raise ValueError(
+            f"Cannot map database status '{db_status.value}' to API JobStatusEnum. "
+            f"This indicates a schema mismatch that must be resolved."
+        ) from e
+
+
+def _safe_convert_job_type(db_job_type: JobTypeEnum) -> JobType:
+    """Convert database JobTypeEnum to API JobType.
+
+    Args:
+        db_job_type: Database job type enum
+
+    Returns:
+        API job type enum
+
+    Raises:
+        ValueError: If db_job_type cannot be mapped to a valid API JobType.
+            This indicates a schema mismatch between the database and API that
+            must be resolved before the system can operate correctly.
+    """
+    try:
+        return JobType(db_job_type.value)
+    except ValueError as e:
+        logger.error(
+            "unmapped_job_type",
+            db_job_type=db_job_type,
+            db_job_type_value=db_job_type.value,
+        )
+        raise ValueError(
+            f"Cannot map database job type '{db_job_type.value}' to API JobType. "
+            f"This indicates a schema mismatch that must be resolved."
+        ) from e
 
 
 class JobService:
@@ -166,9 +221,9 @@ class JobService:
             # Note: Job is still created in DB even if queue publish fails
             # Worker can still pick it up via database polling as fallback
 
-        # Build response - convert database enum to API enum
-        api_status = ApiStatusEnum(job.status.value)
-        job_type = JobType(job.job_type.value)
+        # Build response - convert database enum to API enum (with safe fallbacks)
+        api_status = _safe_convert_status(job.status)
+        job_type = _safe_convert_job_type(job.job_type)
 
         # Ensure website_id is not None (it shouldn't be for template-based jobs)
         assert job.website_id is not None, "website_id should not be None for template-based jobs"
@@ -177,7 +232,7 @@ class JobService:
             id=job.id,
             website_id=job.website_id,
             seed_url=AnyUrl(job.seed_url),
-            status=api_status,
+            status=CrawlJobStatus(job_id=job.id, status=api_status),
             job_type=job_type,
             priority=job.priority,
             scheduled_at=job.scheduled_at,
@@ -295,15 +350,15 @@ class JobService:
             # Note: Job is still created in DB even if queue publish fails
             # Worker can still pick it up via database polling as fallback
 
-        # Build response - convert database enum to API enum
-        api_status = ApiStatusEnum(job.status.value)
-        job_type = JobType(job.job_type.value)
+        # Build response - convert database enum to API enum (with safe fallbacks)
+        api_status = _safe_convert_status(job.status)
+        job_type = _safe_convert_job_type(job.job_type)
 
         return SeedJobResponse(
             id=job.id,
             website_id=None,  # Inline config jobs don't have website_id
             seed_url=AnyUrl(job.seed_url),
-            status=api_status,
+            status=CrawlJobStatus(job_id=job.id, status=api_status),
             job_type=job_type,
             priority=job.priority,
             scheduled_at=job.scheduled_at,
@@ -411,7 +466,9 @@ class JobService:
 
                 return CancelJobResponse(
                     id=current_job.id,
-                    status=ApiStatusEnum.cancelled,
+                    status=CrawlJobStatus(
+                        job_id=current_job.id, status=_safe_convert_status(current_job.status)
+                    ),
                     message="Job is already cancelled",
                     cancelled_at=current_job.cancelled_at,
                 )
@@ -454,7 +511,9 @@ class JobService:
 
         return CancelJobResponse(
             id=cancelled_job.id,
-            status=ApiStatusEnum.cancelled,
+            status=CrawlJobStatus(
+                job_id=cancelled_job.id, status=_safe_convert_status(cancelled_job.status)
+            ),
             message="Job cancellation initiated",
             cancelled_at=cancelled_job.cancelled_at,
         )

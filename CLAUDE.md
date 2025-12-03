@@ -94,6 +94,7 @@ make lint               # Lint check
 make lint-fix           # Lint with auto-fix
 make type-check         # Run mypy type checking
 make check              # All checks (format + lint + type-check)
+make pre-commit         # Run all pre-commit hooks on all files
 ```
 
 ### Services
@@ -489,7 +490,7 @@ The project uses **Alembic** for database migrations. All schema changes must go
    def upgrade() -> None:
        op.execute("""
        CREATE TABLE user_auth (
-           id UUID PRIMARY KEY DEFAULT uuidv7(),
+           id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
            username VARCHAR(255) NOT NULL UNIQUE,
            ...
        );

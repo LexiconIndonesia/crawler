@@ -161,9 +161,8 @@ class ScrapeStepOutput(BaseModel):
             raise ValueError("Extracted data must be a dictionary")
 
         # For multi-URL scrapes, expect 'items' key with list
-        if "items" in v:
-            if not isinstance(v["items"], list):
-                raise ValueError("'items' field must be a list")
+        if "items" in v and not isinstance(v["items"], list):
+            raise ValueError("'items' field must be a list")
             # Can be empty list if all URLs failed
         # For single URL, just check it's a dict (can be empty if extraction failed)
 
@@ -248,10 +247,7 @@ class StepValidator:
 
         try:
             # Validate input based on step type
-            if step_type == "crawl":
-                validated = schema(url=input_data)
-            else:  # scrape
-                validated = schema(urls=input_data)
+            validated = schema(url=input_data) if step_type == "crawl" else schema(urls=input_data)
 
             logger.debug(
                 "input_validation_success",

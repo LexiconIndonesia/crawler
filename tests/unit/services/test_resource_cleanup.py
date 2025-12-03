@@ -1,6 +1,7 @@
 """Unit tests for resource cleanup service."""
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -99,10 +100,8 @@ class TestHTTPResourceManager:
 
         # Clean up
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     async def test_force_close(self) -> None:
         """Test force close immediately closes client."""

@@ -48,7 +48,7 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
             croniter(cron_expression)
             return True, None
         except (ValueError, KeyError) as e:
-            return False, f"Invalid cron expression: {str(e)}"
+            return False, f"Invalid cron expression: {e!s}"
 
     # Basic format check: 5 or 6 fields separated by spaces
     # Pattern supports: *, numbers, ranges (1-5), lists (1,3,5), steps (*/5, 1-10/2)
@@ -70,7 +70,7 @@ def validate_cron_expression(cron_expression: str) -> tuple[bool, str | None]:
         croniter(cron_expression)
         return True, None
     except (ValueError, KeyError) as e:
-        return False, f"Invalid cron expression: {str(e)}"
+        return False, f"Invalid cron expression: {e!s}"
 
 
 def calculate_next_run_time(

@@ -12,6 +12,7 @@ This module provides a background service that:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -738,10 +739,8 @@ async def stop_scheduled_job_processor() -> None:
         return
 
     _processor_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await _processor_task
-    except asyncio.CancelledError:
-        pass
 
     _processor_task = None
     logger.info("scheduled_job_processor_stopped")

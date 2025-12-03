@@ -8,6 +8,8 @@ browser contexts, etc.) when a crawl job is cancelled. It implements:
 - Job status updates with cancellation metadata
 """
 
+from __future__ import annotations
+
 import asyncio
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
@@ -299,7 +301,7 @@ class CleanupCoordinator:
         results = await asyncio.gather(*graceful_tasks, return_exceptions=True)
 
         # Phase 2: Handle results and force close failures
-        for resource, result in zip(self.resources, results):
+        for resource, result in zip(self.resources, results, strict=False):
             resource_type = type(resource).__name__
 
             if isinstance(result, Exception):
@@ -365,7 +367,7 @@ class CleanupCoordinator:
     async def cleanup_and_update_job(
         self,
         job_id: str,
-        job_repo: "CrawlJobRepository",
+        job_repo: CrawlJobRepository,
         cancelled_by: str | None = None,
         reason: str | None = None,
     ) -> dict[str, Any]:

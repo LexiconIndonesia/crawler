@@ -34,9 +34,7 @@ class LogPublisher:
     - Reconnection support via Redis buffer
     """
 
-    def __init__(
-        self, nats_client: NATSClient | None = None, log_buffer: "LogBuffer | None" = None
-    ):
+    def __init__(self, nats_client: NATSClient | None = None, log_buffer: LogBuffer | None = None):
         """Initialize log publisher.
 
         Args:

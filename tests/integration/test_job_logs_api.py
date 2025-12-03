@@ -16,7 +16,7 @@ from crawler.db.repositories import CrawlJobRepository, CrawlLogRepository, Webs
 @pytest.fixture
 async def test_job(
     db_connection: AsyncConnection,
-) -> AsyncGenerator[tuple[models.CrawlJob, models.Website], None]:
+) -> AsyncGenerator[tuple[models.CrawlJob, models.Website]]:
     """Create a test website and crawl job for log tests.
 
     Returns:

@@ -10,6 +10,8 @@ from typing import Any
 import httpx
 
 from crawler.core.logging import get_logger
+from crawler.services.executor_retry import execute_with_retry
+from crawler.services.local_rate_limiter import LocalRateLimiter
 from crawler.services.selector_processor import SelectorProcessor
 from crawler.services.step_executors.base import BaseStepExecutor, ExecutionResult
 
@@ -23,16 +25,19 @@ class APIExecutor(BaseStepExecutor):
         self,
         selector_processor: SelectorProcessor | None = None,
         client: httpx.AsyncClient | None = None,
+        rate_limiter: LocalRateLimiter | None = None,
     ):
         """Initialize API executor.
 
         Args:
             selector_processor: Selector processor for JSON path extraction
             client: httpx AsyncClient instance (creates new one if None)
+            rate_limiter: Rate limiter for request throttling (optional)
         """
         self.selector_processor = selector_processor or SelectorProcessor()
         self._client = client
         self._owns_client = client is None
+        self.rate_limiter = rate_limiter
 
     async def execute(
         self,
@@ -40,7 +45,33 @@ class APIExecutor(BaseStepExecutor):
         step_config: dict[str, Any],
         selectors: dict[str, Any] | None = None,
     ) -> ExecutionResult:
-        """Execute API request and extract data from JSON response.
+        """Execute API request and extract data from JSON response with retry logic.
+
+        Args:
+            url: Target API URL
+            step_config: Configuration (timeout, headers, http_method, retry, etc.)
+            selectors: JSON path selectors for data extraction
+
+        Returns:
+            ExecutionResult with JSON response and extracted data
+        """
+        # Extract retry config and wrap execution with retry logic
+        retry_config = step_config.get("retry", {})
+
+        return await execute_with_retry(
+            func=lambda: self._execute_once(url, step_config, selectors),
+            retry_config=retry_config,
+            operation_name="api_request",
+            url=url,
+        )
+
+    async def _execute_once(
+        self,
+        url: str,
+        step_config: dict[str, Any],
+        selectors: dict[str, Any] | None = None,
+    ) -> ExecutionResult:
+        """Execute API request once (no retry logic - called by execute_with_retry).
 
         Args:
             url: Target API URL
@@ -50,25 +81,35 @@ class APIExecutor(BaseStepExecutor):
         Returns:
             ExecutionResult with JSON response and extracted data
         """
+        # Extract timeout from merged config (handles GlobalConfig.timeout.http_request)
+        # Initialize before try block to avoid UnboundLocalError in exception handlers
+        timeout_config = step_config.get("timeout", {})
+        if isinstance(timeout_config, dict):
+            # GlobalConfig structure: {"http_request": 30, "page_load": 30, "selector_wait": 10}
+            timeout = timeout_config.get("http_request", 30)
+        else:
+            # Legacy: timeout as integer
+            timeout = timeout_config if isinstance(timeout_config, (int, float)) else 30
+
         try:
             # Get or create client
             client = await self._get_client()
 
-            # Extract config
-            timeout = step_config.get("timeout", 30)
-            headers = step_config.get("headers", {})
+            # Copy headers to avoid mutating step_config
+            headers = dict(step_config.get("headers", {}))
             method = step_config.get("http_method", "GET").upper()
 
             # Default to JSON content type
             if "Accept" not in headers and "accept" not in headers:
                 headers["Accept"] = "application/json"
 
-            # Make API request
+            # Make API request (with rate limiting if configured)
             logger.info(
                 "api_request_starting",
                 url=url,
                 method=method,
                 timeout=timeout,
+                rate_limited=self.rate_limiter is not None,
             )
 
             # Extract additional request kwargs from step_config
@@ -87,14 +128,26 @@ class APIExecutor(BaseStepExecutor):
                 if key in step_config
             }
 
-            response = await client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                timeout=timeout,
-                follow_redirects=True,
-                **extra_kwargs,
-            )
+            # Apply rate limiting if configured
+            if self.rate_limiter:
+                async with self.rate_limiter.acquire():
+                    response = await client.request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        timeout=timeout,
+                        follow_redirects=True,
+                        **extra_kwargs,
+                    )
+            else:
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    timeout=timeout,
+                    follow_redirects=True,
+                    **extra_kwargs,
+                )
 
             # Check status
             if not 200 <= response.status_code < 300:
@@ -155,13 +208,16 @@ class APIExecutor(BaseStepExecutor):
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create httpx client.
 
+        Note: Timeout is passed per-request to allow GlobalConfig.timeout.http_request
+        to be applied dynamically. No default timeout is set on the client.
+
         Returns:
             httpx.AsyncClient instance
         """
         if self._client is None:
             self._client = httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=30.0,
+                timeout=None,  # Timeout passed per-request for flexibility
             )
         return self._client
 

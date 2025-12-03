@@ -38,6 +38,11 @@ RETURNING id, name, base_url, config, status, created_at, updated_at, created_by
 """
 
 
+DELETE_CRAWLED_PAGES_BY_WEBSITE = """-- name: delete_crawled_pages_by_website \\:exec
+DELETE FROM crawled_page WHERE website_id = :p1
+"""
+
+
 DELETE_WEBSITE = """-- name: delete_website \\:exec
 DELETE FROM website
 WHERE id = :p1
@@ -183,6 +188,9 @@ class AsyncQuerier:
             cron_schedule=row[8],
             deleted_at=row[9],
         )
+
+    async def delete_crawled_pages_by_website(self, *, website_id: uuid.UUID) -> None:
+        await self._conn.execute(sqlalchemy.text(DELETE_CRAWLED_PAGES_BY_WEBSITE), {"p1": website_id})
 
     async def delete_website(self, *, id: uuid.UUID) -> None:
         await self._conn.execute(sqlalchemy.text(DELETE_WEBSITE), {"p1": id})

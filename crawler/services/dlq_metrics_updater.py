@@ -1,6 +1,7 @@
 """Background task to update DLQ gauge metrics periodically."""
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 
 from crawler.core import metrics
@@ -120,10 +121,8 @@ async def stop_dlq_metrics_updater() -> None:
         return
 
     _metrics_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await _metrics_task
-    except asyncio.CancelledError:
-        pass
 
     _metrics_task = None
     logger.info("dlq_metrics_updater_stopped")

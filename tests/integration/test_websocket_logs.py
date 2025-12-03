@@ -18,7 +18,7 @@ from main import create_app
 @pytest.fixture
 async def test_ws_job(
     db_connection: AsyncConnection,
-) -> AsyncGenerator[tuple[models.CrawlJob, models.Website], None]:
+) -> AsyncGenerator[tuple[models.CrawlJob, models.Website]]:
     """Create a test website and crawl job for WebSocket tests.
 
     Returns:

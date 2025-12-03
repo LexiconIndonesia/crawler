@@ -105,3 +105,6 @@ FROM website w
 LEFT JOIN job_stats js ON w.id = js.website_id
 LEFT JOIN page_stats ps ON w.id = ps.website_id
 WHERE w.id = sqlc.arg(website_id);
+
+-- name: DeleteCrawledPagesByWebsite :exec
+DELETE FROM crawled_page WHERE website_id = sqlc.arg(website_id);

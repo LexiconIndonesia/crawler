@@ -105,7 +105,7 @@ class URLExtractorService:
         )
 
         # Parse selector configuration
-        url_selector_str, url_attribute, result_type, selector_type = self._parse_selector_config(
+        url_selector_str, url_attribute, _result_type, selector_type = self._parse_selector_config(
             url_selector
         )
 
@@ -250,7 +250,7 @@ class URLExtractorService:
             )
 
         # Process URLs that are not duplicates
-        for raw_url, absolute_url, normalized, url_hash, metadata in url_info_list:
+        for _, absolute_url, normalized, url_hash, metadata in url_info_list:
             # Skip if found in cache
             if url_hash in cached_duplicates:
                 logger.debug("url_duplicate_in_cache", url=normalized)
@@ -319,10 +319,7 @@ class URLExtractorService:
             selector = selector_config.selector
             attribute = selector_config.attribute or "href"
             # Convert enum to string value
-            if selector_config.type:
-                result_type = selector_config.type.value
-            else:
-                result_type = "array"
+            result_type = selector_config.type.value if selector_config.type else "array"
 
             # Detect XPath if selector starts with // or /
             if selector.startswith(("//", "/")):

@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from crawler.core.logging import get_logger
 
@@ -97,7 +97,7 @@ class VariableContext:
     max_recursion_depth: int = 10
     allow_env_fallback: bool = True  # Allow fallback to os.environ
 
-    def merge(self, other: "VariableContext") -> "VariableContext":
+    def merge(self, other: VariableContext) -> VariableContext:
         """Merge with another context, other takes precedence."""
         return VariableContext(
             job_variables={**self.job_variables, **other.job_variables},
@@ -284,7 +284,7 @@ class PaginationProvider(VariableProvider):
     """Provider for pagination variables (${pagination.*})."""
 
     # Built-in pagination variables
-    BUILTIN_VARS = {
+    BUILTIN_VARS: ClassVar[dict[str, int]] = {
         "current_page": 1,
         "page_size": 10,
         "total_pages": 0,
@@ -429,7 +429,7 @@ class VariableResolver:
 
             except KeyError as e:
                 if context.strict_mode:
-                    raise VariableNotFoundError(full_var, source, str(e))
+                    raise VariableNotFoundError(full_var, source, str(e)) from e
                 logger.warning(
                     "Variable not found", source=source, path=path, error=str(e), variable=full_var
                 )
@@ -446,7 +446,7 @@ class VariableResolver:
                     variable=full_var,
                 )
                 if context.strict_mode:
-                    raise VariableError(f"Error resolving variable: {e}", full_var, source)
+                    raise VariableError(f"Error resolving variable: {e}", full_var, source) from e
                 return str(full_var)
 
         # Perform substitution
@@ -459,7 +459,7 @@ class VariableResolver:
         return result
 
     @contextmanager
-    def _track_recursion(self, visited: set[str], variable: str) -> Generator[None, None, None]:
+    def _track_recursion(self, visited: set[str], variable: str) -> Generator[None]:
         """Context manager for tracking variable recursion."""
         visited.add(variable)
         try:
@@ -502,10 +502,7 @@ class VariableResolver:
                 substituted = self.substitute(value, context, convert_types=convert_types)
 
                 # Attempt type conversion
-                if convert_types:
-                    value = self._convert_type(substituted)
-                else:
-                    value = substituted
+                value = self._convert_type(substituted) if convert_types else substituted
 
             elif isinstance(value, dict) and recurse:
                 # Recursively process nested dictionaries
@@ -552,10 +549,7 @@ class VariableResolver:
         for item in data:
             if isinstance(item, str):
                 substituted = self.substitute(item, context, convert_types=convert_types)
-                if convert_types:
-                    item = self._convert_type(substituted)
-                else:
-                    item = substituted
+                item = self._convert_type(substituted) if convert_types else substituted
 
             elif isinstance(item, dict) and recurse:
                 item = self.substitute_in_dict(item, context, convert_types=convert_types)
@@ -623,7 +617,7 @@ class VariableResolver:
         except KeyError:
             if default is not None:
                 return default
-            raise VariableNotFoundError(variable_path, source, path)
+            raise VariableNotFoundError(variable_path, source, path) from KeyError(path)
 
     def list_available_variables(self, context: VariableContext) -> dict[str, list[str]]:
         """List all available variables by source."""
@@ -693,7 +687,7 @@ class VariableResolver:
                 )
 
         except (ValueError, json.JSONDecodeError) as e:
-            raise TypeConversionError("unknown", value, target_type, str(e))
+            raise TypeConversionError("unknown", value, target_type, str(e)) from e
 
     def _convert_type(self, value: str) -> Any:
         """Attempt to automatically convert string to appropriate type."""

@@ -318,7 +318,7 @@ class JobRetryHandler:
                     await self.job_repo.update_status(
                         job_id=str(job_id),
                         status=StatusEnum.FAILED,
-                        error_message=f"Failed to requeue: {str(e)}",
+                        error_message=f"Failed to requeue: {e!s}",
                     )
                     return False
 

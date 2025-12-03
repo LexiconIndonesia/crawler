@@ -248,7 +248,7 @@ class DependencyValidator:
                 if dependent in rec_stack:
                     # Found cycle - return path from dependent to current
                     cycle_start = rec_stack.index(dependent)
-                    return rec_stack[cycle_start:] + [dependent]
+                    return [*rec_stack[cycle_start:], dependent]
 
                 if dependent not in visited:
                     cycle = dfs(dependent)

@@ -46,7 +46,7 @@ services:
 
   # PostgreSQL Database
   postgres:
-    image: postgres:18-alpine
+    image: ghcr.io/lexiconindonesia/lexicon-postgresql-server:latest
     container_name: lexicon-postgres
     environment:
       - POSTGRES_USER=crawler

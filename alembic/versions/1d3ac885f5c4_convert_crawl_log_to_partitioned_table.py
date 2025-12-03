@@ -56,15 +56,8 @@ def upgrade() -> None:
         "'Stores detailed crawl execution logs (partitioned by month)'"
     )
 
-    op.execute("""
-        ALTER TABLE crawl_log ADD CONSTRAINT fk_crawl_log_job
-        FOREIGN KEY (job_id) REFERENCES crawl_job(id) ON DELETE CASCADE NOT VALID
-    """)
-
-    op.execute("""
-        ALTER TABLE crawl_log ADD CONSTRAINT fk_crawl_log_website
-        FOREIGN KEY (website_id) REFERENCES website(id) ON DELETE CASCADE NOT VALID
-    """)
+    # NOTE: Foreign keys cannot be added to partitioned tables in PostgreSQL.
+    # They are added to each partition in create_crawl_log_partition function.
 
     # STEP 2: Create partition management functions
     op.execute("""
@@ -105,6 +98,16 @@ def upgrade() -> None:
                 partition_name || '_trace_id_idx', partition_name);
             EXECUTE format('CREATE INDEX %I ON %I(job_id, created_at)',
                 partition_name || '_job_created_idx', partition_name);
+
+            -- Add foreign key constraints to the partition
+            EXECUTE format(
+                'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (job_id) REFERENCES crawl_job(id) ON DELETE CASCADE',
+                partition_name, partition_name || '_job_id_fkey'
+            );
+            EXECUTE format(
+                'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (website_id) REFERENCES website(id) ON DELETE CASCADE',
+                partition_name, partition_name || '_website_id_fkey'
+            );
 
             RETURN 'Created partition ' || partition_name || ' for range [' ||
                    start_date || ', ' || end_date || ')';
@@ -232,14 +235,10 @@ def upgrade() -> None:
 
     op.execute("SELECT setval('crawl_log_id_seq', (SELECT MAX(id) FROM crawl_log))")
 
-    # STEP 5: Validate foreign keys
-    op.execute("ALTER TABLE crawl_log VALIDATE CONSTRAINT fk_crawl_log_job")
-    op.execute("ALTER TABLE crawl_log VALIDATE CONSTRAINT fk_crawl_log_website")
-
-    # STEP 6: Drop old table
+    # STEP 5: Drop old table
     op.execute("DROP TABLE crawl_log_old CASCADE")
 
-    # STEP 7: Create maintenance view
+    # STEP 6: Create maintenance view
     op.execute("""
         CREATE OR REPLACE VIEW crawl_log_partitions AS
         SELECT

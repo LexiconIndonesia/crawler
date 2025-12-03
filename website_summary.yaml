@@ -1,0 +1,42 @@
+
+    WebsiteSummary:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Website ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Website name
+          example: "Example News Site"
+        base_url:
+          type: string
+          format: uri
+          description: Base URL
+          example: "https://example.com"
+        status:
+          $ref: '#/components/schemas/WebsiteStatus'
+        cron_schedule:
+          type: string
+          description: Cron schedule expression
+          nullable: true
+          example: "0 0 1,15 * *"
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2025-10-27T10:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2025-10-27T10:00:00Z"

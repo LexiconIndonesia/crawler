@@ -20,6 +20,7 @@ from nats.js.api import (
     RetentionPolicy,
     StreamConfig,
 )
+from nats.js.errors import NotFoundError
 
 from config import Settings
 from crawler.core.logging import get_logger
@@ -244,14 +245,23 @@ class NATSQueueService:
             finally:
                 # Clean up temporary subscription
                 await psub.unsubscribe()
-                # Delete the temporary consumer
+                # Delete the temporary consumer (may already be gone if unsubscribe cleaned it up)
                 try:
                     await self.js.delete_consumer(
                         self.stream_name,
                         f"temp-cancel-{job_id[:8]}",
                     )
-                except Exception:
-                    pass  # Consumer might already be deleted
+                except NotFoundError:
+                    # Consumer already deleted or never existed - this is expected
+                    pass
+                except Exception as e:
+                    # Log unexpected errors but don't fail the cancellation operation
+                    logger.warning(
+                        "failed_to_delete_temp_consumer",
+                        consumer=f"temp-cancel-{job_id[:8]}",
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
 
             if removed:
                 logger.info("job_cancelled_from_queue", job_id=job_id)
@@ -280,7 +290,7 @@ class NATSQueueService:
 
         try:
             stream_info = await self.js.stream_info(self.stream_name)
-            return stream_info.state.messages
+            return int(stream_info.state.messages)
         except Exception as e:
             logger.error("failed_to_get_pending_count", error=str(e))
             return 0

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from crawler.core.logging import get_logger
 from crawler.services.condition_evaluator import ConditionEvaluator
 from crawler.services.dependency_validator import DependencyValidator
+from crawler.services.local_rate_limiter import LocalRateLimiter
 from crawler.services.selector_processor import SelectorProcessor
 from crawler.services.step_execution_context import StepExecutionContext, StepResult
 from crawler.services.step_executors import (
@@ -84,10 +85,24 @@ class StepOrchestrator:
         self.condition_evaluator = ConditionEvaluator(self.context)
         self.step_validator = StepValidator()
 
+        # Initialize rate limiter from global config
+        # Note: If rate_limit is absent, uses conservative defaults
+        # (2 req/s, 5 concurrent, burst 10). To disable rate limiting,
+        # set explicit high values in rate_limit config
+        rate_limit_config = self.global_config.get("rate_limit", {})
+        self.rate_limiter = LocalRateLimiter.from_config(rate_limit_config)
+
         # Initialize executors (reuse clients for efficiency)
-        self.http_executor = HTTPExecutor(selector_processor=self.selector_processor)
-        self.api_executor = APIExecutor(selector_processor=self.selector_processor)
-        self.browser_executor = BrowserExecutor(selector_processor=self.selector_processor)
+        # Pass rate_limiter to control request rates
+        self.http_executor = HTTPExecutor(
+            selector_processor=self.selector_processor, rate_limiter=self.rate_limiter
+        )
+        self.api_executor = APIExecutor(
+            selector_processor=self.selector_processor, rate_limiter=self.rate_limiter
+        )
+        self.browser_executor = BrowserExecutor(
+            selector_processor=self.selector_processor, rate_limiter=self.rate_limiter
+        )
         self.crawl_executor = CrawlExecutor(
             http_executor=self.http_executor,
             api_executor=self.api_executor,
@@ -228,10 +243,10 @@ class StepOrchestrator:
             merged_config = self.variable_resolver.resolve_dict(self._merge_config(step_config))
             selectors = step_config.get("selectors", {})
 
-            # Step 5: Get timeout from config (default: 30 seconds)
-            timeout_seconds = merged_config.get("timeout", 30)
+            # Step 5: Get timeout from config based on executor type
+            timeout_seconds = self._get_timeout_for_executor(executor, merged_config)
 
-            # Step 5: Execute step with timeout enforcement and timing
+            # Step 6: Execute step with timeout enforcement and timing
             start_time = time.time()
             try:
                 # Wrap execution with asyncio.wait_for for timeout enforcement
@@ -526,6 +541,45 @@ class StepOrchestrator:
 
         return current
 
+    def _get_timeout_for_executor(
+        self,
+        executor: HTTPExecutor | BrowserExecutor | APIExecutor | CrawlExecutor | ScrapeExecutor,
+        merged_config: dict[str, Any],
+    ) -> int:
+        """Get appropriate timeout value based on executor type.
+
+        Args:
+            executor: Executor instance
+            merged_config: Merged configuration with nested timeout config
+
+        Returns:
+            Timeout in seconds (defaults: 30 for HTTP/API, 30 for page_load, 10 for selector_wait)
+
+        Note:
+            This helper centralizes timeout selection logic. Individual executors may have
+            their own per-request timeout extraction - keeping these in sync is important.
+        """
+        timeout_config = merged_config.get("timeout", {})
+
+        # If timeout is a simple number (legacy format), use it directly
+        # Supports both int and float values
+        if isinstance(timeout_config, (int, float)):
+            return int(timeout_config)
+
+        # BrowserExecutor uses page_load timeout
+        if isinstance(executor, BrowserExecutor):
+            return timeout_config.get("page_load", 30) if isinstance(timeout_config, dict) else 30
+
+        # HTTP/API executors use http_request timeout
+        if isinstance(executor, (HTTPExecutor, APIExecutor)):
+            return (
+                timeout_config.get("http_request", 30) if isinstance(timeout_config, dict) else 30
+            )
+
+        # Crawl/Scrape executors delegate to underlying executors
+        # Use http_request as default (they use HTTP/Browser internally)
+        return timeout_config.get("http_request", 30) if isinstance(timeout_config, dict) else 30
+
     def _get_executor(
         self, step_config: dict[str, Any]
     ) -> HTTPExecutor | BrowserExecutor | APIExecutor | CrawlExecutor | ScrapeExecutor:
@@ -572,15 +626,44 @@ class StepOrchestrator:
     def _merge_config(self, step_config: dict[str, Any]) -> dict[str, Any]:
         """Merge step config with global config.
 
+        Properly handles nested GlobalConfig objects (rate_limit, timeout, retry)
+        by deep merging them instead of overwriting.
+
         Args:
             step_config: Step-specific configuration
 
         Returns:
             Merged configuration (step config takes precedence)
+
+        Note:
+            While rate_limit is deep-merged here, the LocalRateLimiter instance
+            is created once in __init__ from global_config only. Step-specific
+            rate_limit overrides are currently NOT applied to the limiter.
+            If per-step rate limits are needed, the limiter would need to be
+            reconfigured or created per-step.
         """
+        # Start with global config
         merged = self.global_config.copy()
         step_specific = step_config.get("config", {})
-        merged.update(step_specific)
+
+        # Deep merge nested configs (rate_limit, timeout, retry)
+        for nested_key in ["rate_limit", "timeout", "retry"]:
+            global_nested = merged.get(nested_key, {})
+            step_nested = step_specific.get(nested_key, {})
+
+            # If both exist, merge them (step takes precedence)
+            if isinstance(global_nested, dict) and isinstance(step_nested, dict):
+                merged[nested_key] = {**global_nested, **step_nested}
+            elif step_nested:
+                # Step config overrides completely
+                merged[nested_key] = step_nested
+            # Else: keep global_nested (already in merged)
+
+        # Merge other top-level keys (headers, cookies, etc.)
+        # Skip nested keys we already handled
+        for key, value in step_specific.items():
+            if key not in ["rate_limit", "timeout", "retry"]:
+                merged[key] = value
 
         # Add method from step config
         if "method" in step_config:

@@ -520,7 +520,7 @@ class TestMemoryPressureHandler:
     ) -> None:
         """Test that action history is limited to 100 entries."""
         # Add more than 100 actions by cycling between critical and danger states
-        for i in range(40):
+        for _i in range(40):
             # Critical state: 2 actions (pause_jobs, close_idle_contexts)
             await pressure_handler.handle_memory_status(memory_status_critical)
             pressure_handler._current_state = PressureState.NORMAL  # Reset state
