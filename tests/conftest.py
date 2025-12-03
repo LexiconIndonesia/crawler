@@ -1,7 +1,10 @@
 """Pytest configuration and fixtures."""
 
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
@@ -13,6 +16,9 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 from config import Settings, get_settings
 from crawler.db.repositories import (
@@ -27,7 +33,6 @@ from crawler.db.repositories import (
     WebsiteConfigHistoryRepository,
     WebsiteRepository,
 )
-from main import create_app
 
 # Module-level settings for test setup (reads from .env files)
 _test_settings = get_settings()
@@ -269,20 +274,23 @@ async def redis_client() -> AsyncGenerator[redis.Redis]:
     This fixture provides a Redis client without reusing the global pool
     to avoid event loop issues in tests. Flushes test keys after each test.
     """
+    import asyncio
+
     client = redis.from_url(
         str(_test_settings.redis_url),
         encoding="utf-8",
         decode_responses=True,
+        socket_timeout=5.0,  # Socket read/write timeout
+        socket_connect_timeout=5.0,  # Connection timeout
     )
     try:
-        # Verify connection
-        await client.ping()
+        # Verify connection with timeout
+        await asyncio.wait_for(client.ping(), timeout=10.0)
+        # Clean up before test to ensure clean state
+        await client.flushdb()
         yield client
-        # Clean up test keys after each test
-        # Only flush if this looks like a test Redis instance
-        redis_url = str(_test_settings.redis_url)
-        if "test" in redis_url.lower() or redis_url.endswith("/15"):
-            await client.flushdb()
+        # Clean up after test as well
+        await client.flushdb()
     finally:
         # Clean up connection
         await client.aclose()  # type: ignore[attr-defined]
@@ -351,6 +359,46 @@ async def test_db_schema() -> AsyncGenerator[None]:
     await engine.dispose()
 
 
+def create_test_app() -> FastAPI:
+    """Create a lightweight FastAPI app for testing.
+
+    Unlike the production create_app(), this version skips the heavy lifespan
+    initialization (browser pools, NATS, memory monitors) which are not needed
+    for API integration tests and would add ~2+ minutes to test setup.
+    """
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from config import get_settings
+    from crawler.api.routes import router as base_router
+    from crawler.api.v1.router import router as api_v1_router
+    from crawler.api.websocket import router as websocket_router
+
+    settings = get_settings()
+
+    # Create app WITHOUT lifespan - tests don't need browser pool, NATS, etc.
+    app = FastAPI(
+        title=settings.app_name,
+        description="Lexicon Crawler API (Test)",
+        version=settings.app_version,
+        # No lifespan - skip heavy initialization
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(base_router)
+    app.include_router(api_v1_router)
+    app.include_router(websocket_router)
+
+    return app
+
+
 @pytest_asyncio.fixture
 async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
     """Create FastAPI test client for integration tests.
@@ -359,11 +407,15 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
     The database schema is set up once per test session.
     Each test gets fresh state by truncating all tables after completion.
 
+    Uses a lightweight app without heavy lifespan initialization (browser pools,
+    NATS, memory monitors) for fast test execution.
+
     Args:
         test_db_schema: Session-scoped fixture that ensures schema exists
     """
+    import asyncio
+
     import crawler.db.session as db_module
-    from crawler.db import get_db
 
     # Create test engine with minimal pooling to avoid connection leaks
     engine = create_async_engine(
@@ -391,15 +443,40 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
     # Explicit transaction management to ensure rollback
     async with async_session() as session:
         transaction = await session.begin()
+
+        # Create test Redis client inside the session context
+        # This ensures the connection is fresh when tests run
+        test_redis = redis.from_url(
+            str(_test_settings.redis_url),
+            encoding="utf-8",
+            decode_responses=True,
+            socket_timeout=5.0,  # Socket read/write timeout
+            socket_connect_timeout=5.0,  # Connection timeout
+        )
+        # Verify Redis connection works before proceeding (with timeout)
+        await asyncio.wait_for(test_redis.ping(), timeout=10.0)
+
         try:
 
             async def get_test_db() -> AsyncGenerator[AsyncSession]:
                 """Return the shared test session."""
                 yield session
 
-            # Create app and override dependency
-            app = create_app()
-            app.dependency_overrides[get_db] = get_test_db
+            async def get_test_redis() -> AsyncGenerator[redis.Redis]:
+                """Return the test Redis client."""
+                yield test_redis
+
+            # Create lightweight test app first - this resolves circular imports
+            # by loading all route modules before we import dependencies
+            app = create_test_app()
+
+            # NOW import dependency functions (after routes are loaded)
+            # This avoids the circular import: dependencies → services → api → routes → dependencies
+            from crawler.core.dependencies import get_database, get_redis_client
+
+            # Override get_database and get_redis_client (used by DBSessionDep/RedisDep)
+            app.dependency_overrides[get_database] = get_test_db
+            app.dependency_overrides[get_redis_client] = get_test_redis
 
             # Create client
             transport = ASGITransport(app=app)
@@ -410,6 +487,8 @@ async def test_client(test_db_schema: None) -> AsyncGenerator[AsyncClient]:
             await transaction.rollback()
             # Clean up overrides
             app.dependency_overrides.clear()
+            # Close Redis client
+            await test_redis.aclose()  # type: ignore[attr-defined]
 
     # Restore original module-level engine first (before disposal)
     # This ensures module state is consistent even if disposal fails
